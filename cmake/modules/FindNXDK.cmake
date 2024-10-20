@@ -62,6 +62,13 @@ if(NOT TARGET NXDK::NXDK)
             IMPORTED_LOCATION "${NXDK_DIR}/lib/winmm.lib"
     )
 
+    add_library(ws2_32 STATIC IMPORTED)
+    set_target_properties(
+            ws2_32
+            PROPERTIES
+            IMPORTED_LOCATION "${NXDK_DIR}/lib/ws2_32.lib"
+    )
+
     add_library(xboxrt STATIC IMPORTED)
     set_target_properties(
             xboxrt
@@ -89,6 +96,7 @@ if(NOT TARGET NXDK::NXDK)
             pdclib
             winapi
             winmm
+            ws2_32
             xboxrt
             zlib
     )
@@ -106,3 +114,34 @@ if(NOT TARGET NXDK::NXDK_CXX)
     add_library(NXDK::NXDK_CXX INTERFACE IMPORTED)
     target_link_libraries(NXDK::NXDK_CXX INTERFACE nxdk_cxx)
 endif()
+
+if (NOT TARGET NXDK::Net)
+    add_library(NXDK::Net INTERFACE IMPORTED)
+    target_link_libraries(
+            NXDK::Net
+            INTERFACE
+            nxdk_net
+    )
+    target_include_directories(
+            NXDK::Net
+            SYSTEM INTERFACE
+            "${NXDK_DIR}/lib/net/lwip/src/include"
+            "${NXDK_DIR}/lib/net/nforceif/include"
+            "${NXDK_DIR}/lib/net/nvnetdrv"
+            "${NXDK_DIR}/lib/net/pktdrv"
+    )
+endif ()
+
+if (NOT TARGET NXDK::ws2_32)
+    add_library(NXDK::ws2_32 INTERFACE IMPORTED)
+    target_link_libraries(
+            NXDK::ws2_32
+            INTERFACE
+            ws2_32
+    )
+    target_include_directories(
+            NXDK::ws2_32
+            SYSTEM INTERFACE
+            "${NXDK_DIR}/lib/winapi/ws2_32"
+    )
+endif ()
