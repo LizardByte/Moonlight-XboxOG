@@ -8,5 +8,5 @@
 	branch = master
 [submodule "third-party/nxdk"]
 	path = third-party/nxdk
-	url = https://github.com/XboxDev/nxdk.git
+	url = https://github.com/ReenigneArcher/nxdk.git
 	branch = master

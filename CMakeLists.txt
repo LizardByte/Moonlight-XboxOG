@@ -48,6 +48,15 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
+# submodules
+# moonlight common library
+# find_package(OpenSSL REQUIRED)
+include(GetOpenSSL REQUIRED)
+set(ENET_NO_INSTALL ON CACHE BOOL "Don't install any libraries built for enet")
+add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
+#target_include_directories(moonlight-common-c PUBLIC "/mingw32/include")
+target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+
 set(MOONLIGHT_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
 )
@@ -77,6 +86,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE "")
+add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 #
 # tests

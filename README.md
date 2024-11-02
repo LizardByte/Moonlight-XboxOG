@@ -67,8 +67,8 @@ This script takes care of everything, except installing the prerequisites.
       - [ ] Get tests to properly compile
       - [ ] Enable codecov
    - [x] Enable sonarcloud
-   - [ ] Build moonlight-common-c
-      - [ ] Build custom enet, depends on https://github.com/XboxDev/nxdk/pull/680 or https://github.com/thrimbor/nxdk/tree/winsock/lib/winapi (seems unlikely nxdk will ever be ready for this, could definitely use some help with this)
+   - [x] Build moonlight-common-c
+      - [x] Build custom enet
 - Menus / Screens
    - [x] Loading/splash screen
       - [x] Initial loading screen, see https://github.com/XboxDev/nxdk/blob/master/samples/sdl_image/main.c
