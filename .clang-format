@@ -16,7 +16,7 @@ AllowAllParametersOfDeclarationOnNextLine: false
 AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: None
+AllowShortFunctionsOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: None
 AllowShortLoopsOnASingleLine: true
@@ -81,6 +81,7 @@ PenaltyBreakComment: 1
 PenaltyBreakString: 1
 PenaltyBreakFirstLessLess: 0
 PenaltyExcessCharacter: 1000000
+PenaltyReturnTypeOnItsOwnLine: 100000000
 PointerAlignment: Right
 ReferenceAlignment: Pointer
 ReflowComments: true
