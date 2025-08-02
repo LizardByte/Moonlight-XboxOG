@@ -4,10 +4,11 @@
 set -e
 
 # Set the NXDK_DIR environment variable
-export NXDK_DIR="$(pwd)/third-party/nxdk"
+NXDK_DIR="$(pwd)/third-party/nxdk"
+export NXDK_DIR
 
 # Activate the nxdk environment
-eval "$(${NXDK_DIR}/bin/activate -s)"
+eval "$("${NXDK_DIR}/bin/activate" -s)"
 
 # Navigate to the nxdk directory
 cd "${NXDK_DIR}"
