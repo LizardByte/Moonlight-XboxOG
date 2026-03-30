@@ -13,9 +13,15 @@ Nothing works, except the splash screen.
 
 ## Build
 
-### Pre Build
+### Pre-Build
 
-1. Install nxdk prerequisites. Then run the following from mingw64 or bash shell:
+1. Clone the repository with submodules, or update them after cloning.
+
+   ```bash
+   git submodule update --init --recursive
+   ```
+
+2. Install nxdk prerequisites. Then run the following from mingw64 or bash shell:
 
 ```bash
 export NXDK_DIR="$(pwd)/third-party/nxdk"
@@ -51,6 +57,24 @@ This script takes care of everything, except installing the prerequisites.
 
 ```bash
 ./build.sh
+```
+
+The default build directory is `build`. You can override it or force a clean build:
+
+```bash
+./build.sh --build-dir cmake-build-nxdk-release
+./build.sh --clean
+./build.sh build clean
+```
+
+To launch the same build from shells outside MSYS2 on Windows, use one of these wrappers:
+
+```bat
+build-mingw64.bat
+```
+
+```bash
+./build-mingw64.sh
 ```
 
 ## Todo:
