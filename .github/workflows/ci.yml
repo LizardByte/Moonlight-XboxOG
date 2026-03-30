@@ -1,16 +1,9 @@
 ---
 name: CI
-permissions:
-  contents: read
+permissions: {}
 
 on:
   pull_request:
-    branches:
-      - master
-    types:
-      - opened
-      - synchronize
-      - reopened
   push:
     branches:
       - master
@@ -34,17 +27,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Setup Release
         id: setup_release
-        uses: LizardByte/actions/actions/release_setup@v2025.814.40518
+        uses: LizardByte/actions/actions/release_setup@0affa4f7bcb27562658960eee840eff8ff844578  # v2026.328.161128
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: Build (${{ matrix.os }})
     needs: setup_release
+    permissions:
+      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,7 +56,7 @@ jobs:
         shell: ${{ matrix.shell }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: recursive
 
@@ -94,7 +89,7 @@ jobs:
 
       - name: Setup Dependencies Windows
         if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
+        uses: msys2/setup-msys2@cafece8e6baf9247cf9b1bf95097b0b983cc558d  # v2.31.0
         with:
           msystem: MINGW64
           update: true
@@ -111,9 +106,9 @@ jobs:
 
       - name: Setup python
         id: setup-python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Python Path
         id: python-path
@@ -131,19 +126,8 @@ jobs:
 
       - name: Build
         run: |
-          export NXDK_DIR="$(pwd)/third-party/nxdk"
-          eval "$(${NXDK_DIR}/bin/activate -s)"
-          cd "${NXDK_DIR}"
-          make NXDK_ONLY=y
-          make tools
-
-          cd "${GITHUB_WORKSPACE}"
-          mkdir -p build
-
-          # the main target needs to be cross compiled
-          echo "--- Building ALL ---"
-          cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="${NXDK_DIR}/share/toolchain-nxdk.cmake"
-          cmake --build build
+          chmod +x build.sh
+          ./build.sh
 
           # TODO: Tests are not building properly...
           # the tests target should not be cross compiled, so we can run it on the runner
@@ -164,14 +148,14 @@ jobs:
           mv ./Moonlight.iso ./artifacts
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
         with:
           name: moonlight-${{ runner.os }}
           path: artifacts/
 
       - name: Run tests
         id: test
-        if: false
+        if: false && always()
         working-directory: build/tests
         run: ./test_moonlight --gtest_color=yes --gtest_output=xml:test_results.xml
 
@@ -198,45 +182,47 @@ jobs:
           steps.test_report.outcome == 'success'
         run: cat build/coverage.xml
 
-      - name: Upload test results to Codecov
+      - name: Upload coverage
         # any except canceled or skipped
         if: >-
           always() &&
           (steps.test.outcome == 'success' || steps.test.outcome == 'failure') &&
           startsWith(github.repository, 'LizardByte/')
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: ./build/coverage.xml
+          flags: ${{ runner.os }}
+          report_type: coverage
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+
+      - name: Upload test results
+        # any except canceled or skipped
+        if: >-
+          always() &&
+          (steps.test.outcome == 'success' || steps.test.outcome == 'failure') &&
+          startsWith(github.repository, 'LizardByte/')
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2  # v6.0.0
         with:
           disable_search: true
           fail_ci_if_error: true
           files: ./build/tests/test_results.xml
           flags: ${{ runner.os }}
           handle_no_reports_found: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-          verbose: true
-
-      # todo: upload coverage in separate job similar to LizardByte/libdisplaydevice
-      - name: Upload coverage
-        # any except canceled or skipped
-        if: >-
-          always() &&
-          steps.test_report.outcome == 'success' &&
-          startsWith(github.repository, 'LizardByte/')
-        uses: codecov/codecov-action@v5
-        with:
-          disable_search: true
-          fail_ci_if_error: true
-          files: ./build/coverage.xml
-          flags: ${{ runner.os }}
+          report_type: test_results
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
 
       - name: Create/Update GitHub Release
         # only publish release on ubuntu-latest, is there any difference between the different builds?
         if: needs.setup_release.outputs.publish_release == 'true' && matrix.os == 'ubuntu-latest'
-        uses: LizardByte/actions/actions/release_create@v2025.814.40518
+        uses: LizardByte/actions/actions/release_create@0affa4f7bcb27562658960eee840eff8ff844578  # v2026.328.161128
         with:
           allowUpdates: false
           body: ${{ needs.setup_release.outputs.release_body }}
+          draft: true
           generateReleaseNotes: ${{ needs.setup_release.outputs.release_generate_release_notes }}
           name: ${{ needs.setup_release.outputs.release_tag }}
           prerelease: true
