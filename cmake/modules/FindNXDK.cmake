@@ -96,7 +96,6 @@ if(NOT TARGET NXDK::NXDK)
             pdclib
             winapi
             winmm
-            ws2_32
             xboxrt
             zlib
     )
@@ -125,10 +124,10 @@ if (NOT TARGET NXDK::Net)
     target_include_directories(
             NXDK::Net
             SYSTEM INTERFACE
+            "${NXDK_DIR}/lib"
             "${NXDK_DIR}/lib/net/lwip/src/include"
             "${NXDK_DIR}/lib/net/nforceif/include"
             "${NXDK_DIR}/lib/net/nvnetdrv"
-            "${NXDK_DIR}/lib/net/pktdrv"
     )
 endif ()
 

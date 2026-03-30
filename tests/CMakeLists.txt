@@ -14,6 +14,7 @@ include_directories(SYSTEM
         "${NXDK_DIR}/lib/pdclib/include"
         "${NXDK_DIR}/lib/pdclib/platform/xbox/include"
         "${NXDK_DIR}/lib/winapi"
+        "${NXDK_DIR}/lib/winapi/ws2_32"
         "${NXDK_DIR}/lib/xboxrt/vcruntime"
 )
 
@@ -61,7 +62,8 @@ set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
 target_link_libraries(${PROJECT_NAME}
         ${MOONLIGHT_EXTERNAL_LIBRARIES}
         gtest
-        gtest_main)  # if we use this we don't need our own main function
+        gtest_main  # if we use this we don't need our own main function
+)
 target_compile_definitions(${PROJECT_NAME} PUBLIC ${MOONLIGHT_DEFINITIONS} ${TEST_DEFINITIONS})
 target_compile_options(${PROJECT_NAME} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:${MOONLIGHT_COMPILE_OPTIONS}>)
 target_link_options(${PROJECT_NAME} PRIVATE)

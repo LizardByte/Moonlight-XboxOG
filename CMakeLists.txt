@@ -76,7 +76,13 @@ include(GetOpenSSL REQUIRED)
 set(ENET_NO_INSTALL ON CACHE BOOL "Don't install any libraries built for enet")
 set(BUILD_SHARED_LIBS OFF)
 add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
-target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net)
+if(TARGET moonlight-common-c AND TARGET openssl_external)
+    add_dependencies(moonlight-common-c openssl_external)
+endif()
+target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+if(TARGET moonlight-common-c)
+    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
+endif()
 
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}

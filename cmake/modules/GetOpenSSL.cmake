@@ -1,34 +1,120 @@
 include_guard(GLOBAL)
 
-set(OPENSSL_VERSION 3.3.2)
-set(OPENSSL_URL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VERSION}/openssl-${OPENSSL_VERSION}.tar.gz")  # cmake-lint: disable=C0301
+include(ExternalProject)
 
-find_package(OpenSSL ${OPENSSL_VERSION})
-if(NOT OpenSSL_FOUND OR NOT TARGET OpenSSL::Crypto)
-    message(STATUS
-            "OpenSSL v${OPENSSL_VERSION} package not found in the system or incomplete. Falling back to FetchContent.")
-    include(FetchContent)
+set(OPENSSL_VERSION 3.2.2)
+set(OPENSSL_SOURCE_DIR "${CMAKE_SOURCE_DIR}/third-party/openssl")
+set(OPENSSL_BUILD_ROOT "${CMAKE_BINARY_DIR}/third-party/openssl")
+set(OPENSSL_BUILD_DIR "${OPENSSL_BUILD_ROOT}/build")
+set(OPENSSL_INSTALL_DIR "${OPENSSL_BUILD_ROOT}/install")
 
-    # Avoid warning about DOWNLOAD_EXTRACT_TIMESTAMP in CMake 3.24:
-    if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
-        cmake_policy(SET CMP0135 NEW)
-    endif()
+file(MAKE_DIRECTORY "${OPENSSL_BUILD_DIR}")
+file(MAKE_DIRECTORY "${OPENSSL_INSTALL_DIR}/include")
+file(MAKE_DIRECTORY "${OPENSSL_INSTALL_DIR}/lib")
 
-    FetchContent_Declare(
-            OpenSSL
-            URL ${OPENSSL_URL}
-            SYSTEM
-            OVERRIDE_FIND_PACKAGE
-    )
-
-    FetchContent_MakeAvailable(openssl)
-
-    set(OpenSSL_FOUND TRUE)  # cmake-lint: disable=C0103
-    set(OPENSSL_INCLUDE_DIR ${OpenSSL_SOURCE_DIR}/include)
-    set(OPENSSL_CRYPTO_LIBRARY ${OpenSSL_BINARY_DIR}/lib/libcrypto.a)
-    set(OPENSSL_SSL_LIBRARY ${OpenSSL_BINARY_DIR}/lib/libssl.a)
-    set(OPENSSL_LIBRARIES OpenSSL::Crypto OpenSSL::SSL)
+if(NOT EXISTS "${OPENSSL_SOURCE_DIR}/Configure")
+    message(FATAL_ERROR
+            "OpenSSL submodule not found at ${OPENSSL_SOURCE_DIR}. Run: git submodule update --init --recursive")
 endif()
 
-message(STATUS "OpenSSL include dirs: ${OPENSSL_INCLUDE_DIR}")
-message(STATUS "OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+find_program(PERL_EXECUTABLE perl REQUIRED)
+find_program(OPENSSL_MAKE_EXECUTABLE NAMES make REQUIRED)
+
+set(OPENSSL_CPPFLAGS_LIST
+        -UWIN32
+        -U_WIN32
+        -DNO_SYSLOG
+        -DOPENSSL_NO_SYSLOG
+        -D_exit=_Exit
+        "-I${NXDK_DIR}/lib"
+        "-I${NXDK_DIR}/lib/xboxrt/libc_extensions"
+        "-I${NXDK_DIR}/lib/pdclib/include"
+        "-I${NXDK_DIR}/lib/pdclib/platform/xbox/include"
+        "-I${NXDK_DIR}/lib/winapi"
+        "-I${NXDK_DIR}/lib/xboxrt/vcruntime"
+        "-I${NXDK_DIR}/lib/net/lwip/src/include"
+        "-I${NXDK_DIR}/lib/net/nforceif/include"
+)
+list(JOIN OPENSSL_CPPFLAGS_LIST " " OPENSSL_CPPFLAGS)
+
+set(OPENSSL_ENV
+        ${CMAKE_COMMAND} -E env
+        "NXDK_DIR=${NXDK_DIR}"
+        "CC=${NXDK_DIR}/bin/nxdk-cc"
+        "CXX=${NXDK_DIR}/bin/nxdk-cxx"
+        "AR=llvm-ar"
+        "RANLIB=llvm-ranlib"
+        "CPPFLAGS=${OPENSSL_CPPFLAGS}")
+
+ExternalProject_Add(openssl_external
+        SOURCE_DIR "${OPENSSL_SOURCE_DIR}"
+        BINARY_DIR "${OPENSSL_BUILD_DIR}"
+        CONFIGURE_COMMAND
+            ${OPENSSL_ENV}
+            "${PERL_EXECUTABLE}" "${OPENSSL_SOURCE_DIR}/Configure"
+            linux-x86
+            no-shared
+            no-tests
+            no-asm
+            no-apps
+            no-comp
+            no-sock
+            no-dgram
+            no-posix-io
+            no-threads
+            no-afalgeng
+            no-capieng
+            no-ui-console
+            no-http
+            no-ocsp
+            no-srp
+            no-pic
+            no-async
+            no-dso
+            --with-rand-seed=none
+            "--prefix=${OPENSSL_INSTALL_DIR}"
+            "--openssldir=${OPENSSL_INSTALL_DIR}/ssl"
+        BUILD_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE}
+        INSTALL_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE} install_sw
+        BUILD_BYPRODUCTS
+            "${OPENSSL_INSTALL_DIR}/lib/libcrypto.a"
+            "${OPENSSL_INSTALL_DIR}/lib/libssl.a"
+        LOG_CONFIGURE ON
+        LOG_BUILD ON
+        LOG_INSTALL ON
+        LOG_MERGED_STDOUTERR ON
+        LOG_OUTPUT_ON_FAILURE ON
+        DOWNLOAD_COMMAND ""
+        UPDATE_COMMAND ""
+        PATCH_COMMAND ""
+)
+
+set(OpenSSL_FOUND TRUE)  # cmake-lint: disable=C0103
+set(OPENSSL_INCLUDE_DIR "${OPENSSL_INSTALL_DIR}/include")
+set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_INSTALL_DIR}/lib/libcrypto.a")
+set(OPENSSL_SSL_LIBRARY "${OPENSSL_INSTALL_DIR}/lib/libssl.a")
+set(OPENSSL_LIBRARIES OpenSSL::Crypto OpenSSL::SSL)
+
+if(NOT TARGET OpenSSL::Crypto)
+    add_library(OpenSSL::Crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::Crypto PROPERTIES
+            IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
+    add_dependencies(OpenSSL::Crypto openssl_external)
+endif()
+
+if(NOT TARGET OpenSSL::SSL)
+    add_library(OpenSSL::SSL STATIC IMPORTED GLOBAL)
+    set_target_properties(OpenSSL::SSL PROPERTIES
+            IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
+    target_link_libraries(OpenSSL::SSL INTERFACE OpenSSL::Crypto)
+    add_dependencies(OpenSSL::SSL openssl_external)
+endif()
+
+message(STATUS "OpenSSL source dir: ${OPENSSL_SOURCE_DIR}")
+message(STATUS "OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
