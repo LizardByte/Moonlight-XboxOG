@@ -3,7 +3,9 @@
 
 // standard includes
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <string>
 
 // nxdk includes
@@ -25,14 +27,14 @@ namespace {
   constexpr float SPLASH_LOGO_MAX_HEIGHT_RATIO = 0.32f;
   constexpr float SPLASH_ASPECT_RATIO_EPSILON = 0.05f;
 
-  void printSDLErrorAndReboot() {
+  [[noreturn]] void printSDLErrorAndReboot() {
     debugPrint("SDL_Error: %s\n", SDL_GetError());
     debugPrint("Rebooting in 5 seconds.\n");
     Sleep(5000);
     XReboot();
   }
 
-  void printIMGErrorAndReboot() {
+  [[noreturn]] void printIMGErrorAndReboot() {
     debugPrint("SDL_Image Error: %s\n", IMG_GetError());
     debugPrint("Rebooting in 5 seconds.\n");
     Sleep(5000);
@@ -89,15 +91,17 @@ namespace {
 
   Uint32 readSurfacePixel(const SDL_Surface *surface, int x, int y) {
     const Uint8 *row = static_cast<const Uint8 *>(surface->pixels) + (y * surface->pitch);
-    return *(reinterpret_cast<const Uint32 *>(row) + x);
+    Uint32 pixel;
+    std::memcpy(&pixel, row + x * static_cast<int>(sizeof(Uint32)), sizeof(Uint32));
+    return pixel;
   }
 
   void writeSurfacePixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
     Uint8 *row = static_cast<Uint8 *>(surface->pixels) + (y * surface->pitch);
-    *(reinterpret_cast<Uint32 *>(row) + x) = pixel;
+    std::memcpy(row + x * static_cast<int>(sizeof(Uint32)), &pixel, sizeof(Uint32));
   }
 
-  Uint32 sampleBilinearPixel(const SDL_Surface *sourceSurface, float sourceX, float sourceY, SDL_PixelFormat *targetFormat) {
+  Uint32 sampleBilinearPixel(const SDL_Surface *sourceSurface, float sourceX, float sourceY, const SDL_PixelFormat *targetFormat) {
     const int x0 = std::clamp(static_cast<int>(std::floor(sourceX)), 0, sourceSurface->w - 1);
     const int y0 = std::clamp(static_cast<int>(std::floor(sourceY)), 0, sourceSurface->h - 1);
     const int x1 = std::min(x0 + 1, sourceSurface->w - 1);
@@ -213,19 +217,17 @@ namespace {
   }
 
   SDL_Surface *loadSplashLogoSurface() {
-    const char *assetNames[] = {
+    const std::array<const char *, 2> assetNames = {
       "moonlight-logo.svg",
       "moonlight-logo.ppm",
     };
 
     for (const char *assetName : assetNames) {
       const std::string assetPath = buildAssetPath(assetName);
-      SDL_Surface *loadedSurface = IMG_Load(assetPath.c_str());
-      if (loadedSurface != nullptr) {
+      if (SDL_Surface *loadedSurface = IMG_Load(assetPath.c_str()); loadedSurface != nullptr) {
         debugPrint("Loaded splash asset: %s\n", assetPath.c_str());
         debugPrint("Loaded splash asset format: %s\n", SDL_GetPixelFormatName(loadedSurface->format->format));
-        SDL_Surface *normalizedSurface = normalizeSplashLogoSurface(loadedSurface);
-        if (normalizedSurface != nullptr) {
+        if (SDL_Surface *normalizedSurface = normalizeSplashLogoSurface(loadedSurface); normalizedSurface != nullptr) {
           return normalizedSurface;
         }
 
@@ -304,12 +306,8 @@ namespace splash {
 
     while (!done) {
       while (SDL_PollEvent(&event)) {
-        switch (event.type) {
-          case SDL_QUIT:
-            done = 1;
-            break;
-          default:
-            break;
+        if (event.type == SDL_QUIT) {
+          done = 1;
         }
       }
 
