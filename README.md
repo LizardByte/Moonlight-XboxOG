@@ -77,15 +77,40 @@ build-mingw64.bat
 ./build-mingw64.sh
 ```
 
+### CLion on Windows
+
+The repository now includes CLion-friendly nxdk wrapper scripts in `cmake/` plus shared run configurations in `.run/`.
+
+1. Open the project in CLion and let it import the `nxdk` preset from `CMakePresets.json`.
+2. If CLion cached an older failed configure, reload the CMake project or remove `cmake-build-nxdk-release/CMakeCache.txt` once.
+3. Use the normal build button with the `nxdk` profile selected.
+4. Build `Moonlight.iso` first, then use the shared `Run Moonlight ISO in xemu` run configuration to launch it in xemu.
+
+For the first xemu launch, you can either run the shared `Setup portable xemu` configuration or run the Windows wrapper manually:
+
+```bat
+scripts\setup-xemu.cmd
+```
+
+The shared CLion run configurations now call `scripts\setup-xemu.cmd` and `scripts\run-xemu.cmd` directly through `C:\Windows\System32\cmd.exe`. Those wrappers start MSYS2 with the expected `mingw64` environment and then launch the corresponding `.sh` scripts.
+
+The setup script downloads xemu and the emulator support files into `.local/xemu`, then refreshes launcher manifests used by `scripts/run-xemu.sh`.
+
+If you only want the emulator without the ROM/HDD support bundle, run:
+
+```bat
+scripts\setup-xemu.cmd --skip-support-files
+```
+
 ## Todo:
 
 - Build
    - [x] Build in GitHub CI
    - [x] Build with CMake instead of Make, see https://github.com/Ryzee119/Xenium-Tools/blob/master/CMakeLists.txt and https://github.com/abaire/nxdk_pgraph_tests/blob/4b7934e6d612a6d17f9ec229a2d72601a5caefc4/CMakeLists.txt
-   - [ ] Get build environment working with CLion directly instead of using external terminal
+   - [x] Get build environment working with CLion directly instead of using external terminal
       - [ ] debugger, see https://github.com/abaire/xbdm_gdb_bridge
-   - [ ] Add a run config for CLion, see https://github.com/Subtixx/XSampleProject
-   - [ ] Automatically run built xiso in Xemu
+   - [x] Add a run config for CLion, see https://github.com/Subtixx/XSampleProject
+   - [x] Automatically run built xiso in Xemu
    - [x] Add unit testing framework
       - [x] Separate main build and unit test builds, due to cross compiling, see https://stackoverflow.com/a/64335131/11214013
       - [ ] Get tests to properly compile
