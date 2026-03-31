@@ -8,6 +8,7 @@ Usage: setup-xemu.sh [--force] [--skip-support-files]
 
 Downloads a portable xemu build into .local/xemu and refreshes launcher manifests.
 EOF
+    return 0
 }
 
 is_windows() {
@@ -18,11 +19,15 @@ is_windows() {
 }
 
 to_native_path() {
+    local path="$1"
+
     if is_windows; then
-        cygpath -w "$1"
+        cygpath -w "$path"
     else
-        printf '%s\n' "$1"
+        printf '%s\n' "$path"
     fi
+
+    return 0
 }
 
 download_file() {
@@ -68,6 +73,8 @@ latest_xemu_tag() {
         'https://api.github.com/repos/xemu-project/xemu/releases/latest' |
         sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
         head -n 1
+
+    return 0
 }
 
 select_xemu_asset() {
@@ -127,9 +134,10 @@ detect_platform() {
 find_first_file() {
     local root="$1"
     shift
+    local patterns=("$@")
     local pattern
 
-    for pattern in "$@"; do
+    for pattern in "${patterns[@]}"; do
         while IFS= read -r match; do
             printf '%s\n' "$match"
             return 0
@@ -142,23 +150,31 @@ find_first_file() {
 write_shell_manifest() {
     local manifest_path="$1"
     shift
+    local manifest_entries=("$@")
+
     : > "$manifest_path"
     printf '#!/usr/bin/env bash\n' >> "$manifest_path"
-    while [[ $# -gt 1 ]]; do
-        printf 'export %s=%q\n' "$1" "$2" >> "$manifest_path"
-        shift 2
+    while [[ ${#manifest_entries[@]} -gt 1 ]]; do
+        printf 'export %s=%q\n' "${manifest_entries[0]}" "${manifest_entries[1]}" >> "$manifest_path"
+        manifest_entries=("${manifest_entries[@]:2}")
     done
+
+    return 0
 }
 
 write_cmd_manifest() {
     local manifest_path="$1"
     shift
+    local manifest_entries=("$@")
+
     : > "$manifest_path"
     printf '@echo off\n' >> "$manifest_path"
-    while [[ $# -gt 1 ]]; do
-        printf 'set "%s=%s"\n' "$1" "$2" >> "$manifest_path"
-        shift 2
+    while [[ ${#manifest_entries[@]} -gt 1 ]]; do
+        printf 'set "%s=%s"\n' "${manifest_entries[0]}" "${manifest_entries[1]}" >> "$manifest_path"
+        manifest_entries=("${manifest_entries[@]:2}")
     done
+
+    return 0
 }
 
 force_download=0

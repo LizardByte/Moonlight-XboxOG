@@ -6,6 +6,7 @@ usage() {
     cat <<'EOF'
 Usage: run-xemu.sh [--check] [--iso path]
 EOF
+    return 0
 }
 
 is_windows() {
@@ -16,11 +17,15 @@ is_windows() {
 }
 
 to_native_path() {
+    local path="$1"
+
     if is_windows; then
-        cygpath -w "$1"
+        cygpath -w "$path"
     else
-        printf '%s\n' "$1"
+        printf '%s\n' "$path"
     fi
+
+    return 0
 }
 
 escape_toml_string() {
@@ -28,6 +33,7 @@ escape_toml_string() {
     value="${value//\\/\\\\}"
     value="${value//\"/\\\"}"
     printf '%s' "$value"
+    return 0
 }
 
 write_xemu_config() {
@@ -51,6 +57,8 @@ write_xemu_config() {
         printf 'eeprom_path = "%s"\n' "$(escape_toml_string "$eeprom_path")"
         printf 'hdd_path = "%s"\n' "$(escape_toml_string "$hdd_path")"
     } > "$config_path"
+
+    return 0
 }
 
 require_file() {
