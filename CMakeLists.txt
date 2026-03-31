@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.18)
 # much of this file is borrowed from https://github.com/Ryzee119/Xenium-Tools/blob/master/CMakeLists.txt
 # and https://github.com/abaire/nxdk_pgraph_tests/blob/main/CMakeLists.txt
 
+# Allow third-party subdirectories that use cmake_minimum_required < 3.5 (removed in CMake 4.x)
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
+
 project(Moonlight C CXX)
 
 #
@@ -66,6 +69,21 @@ set(MOONLIGHT_DEFINITIONS "-DXBOX -DNXDK")
 add_compile_options(${MOONLIGHT_COMPILE_OPTIONS})
 add_definitions(${MOONLIGHT_DEFINITIONS})
 
+# submodules
+# moonlight common library
+# find_package(OpenSSL REQUIRED)
+include(GetOpenSSL REQUIRED)
+set(ENET_NO_INSTALL ON CACHE BOOL "Don't install any libraries built for enet")
+set(BUILD_SHARED_LIBS OFF)
+add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
+if(TARGET moonlight-common-c AND TARGET openssl_external)
+    add_dependencies(moonlight-common-c openssl_external)
+endif()
+target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+if(TARGET moonlight-common-c)
+    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
+endif()
+
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}
 )
@@ -77,6 +95,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
 )
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE "")
+add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 #
 # tests

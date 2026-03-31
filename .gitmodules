@@ -10,3 +10,7 @@
 	path = third-party/nxdk
 	url = https://github.com/XboxDev/nxdk.git
 	branch = master
+[submodule "third-party/openssl"]
+	path = third-party/openssl
+	url = https://github.com/openssl/openssl.git
+	branch = master
