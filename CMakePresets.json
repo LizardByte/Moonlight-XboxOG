@@ -1,0 +1,54 @@
+{
+  "version": 7,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 18,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "nxdk-release (mingw64)",
+      "displayName": "nxdk Release (mingw64)",
+      "description": "Build for Original Xbox using the nxdk toolchain",
+      "generator": "MSYS Makefiles",
+      "cmakeExecutable": "C:/msys64/usr/bin/cmake",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-nxdk-clion.cmake",
+      "binaryDir": "${sourceDir}/cmake-build-nxdk-release",
+      "environment": {
+        "CHERE_INVOKING": "1",
+        "MSYSTEM": "MINGW64",
+        "NXDK_DIR": "${sourceDir}/third-party/nxdk",
+        "PATH": "${sourceDir}/cmake;${sourceDir}/third-party/nxdk/bin;C:/msys64/mingw64/bin;C:/msys64/usr/bin;$penv{PATH}"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "${sourceDir}/cmake/nxdk-cxx.bat",
+        "CMAKE_C_COMPILER": "${sourceDir}/cmake/nxdk-cc.bat",
+        "CMAKE_DEPENDS_USE_COMPILER": "FALSE",
+        "CMAKE_MAKE_PROGRAM": "${sourceDir}/cmake/make.bat",
+        "CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
+        "PKG_CONFIG_EXECUTABLE": "${sourceDir}/cmake/nxdk-pkg-config.bat"
+      }
+    },
+    {
+      "name": "nxdk-debug (mingw64)",
+      "displayName": "nxdk Debug (mingw64)",
+      "description": "Debug build for Original Xbox using the nxdk toolchain",
+      "inherits": "nxdk",
+      "binaryDir": "${sourceDir}/cmake-build-nxdk-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "nxdk",
+      "configurePreset": "nxdk"
+    },
+    {
+      "name": "nxdk-debug",
+      "configurePreset": "nxdk-debug"
+    }
+  ]
+}
