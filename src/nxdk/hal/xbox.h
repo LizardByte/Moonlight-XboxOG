@@ -1,3 +1,4 @@
+#pragma once
 #if defined(NXDK)
   #include <hal/xbox.h>
 #else

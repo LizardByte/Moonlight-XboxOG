@@ -40,8 +40,12 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -include:_automount_d_driv
 # create the xbe directory if it doesn't exist
 file(MAKE_DIRECTORY ${XBOX_XBE_DIR})
 
-# copy assets directory to xbe directory
-file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/xbe/" DESTINATION "${XBOX_XBE_DIR}")
+add_custom_target(sync_xbe_assets ALL
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
+            "${XBOX_XBE_DIR}"
+        COMMENT "Sync XBE assets"
+)
 
 include(FindPkgConfig)
 
@@ -51,8 +55,8 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
-set(MOONLIGHT_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+file(GLOB_RECURSE MOONLIGHT_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
 )
 set(MOONLIGHT_EXTERNAL_LIBRARIES
         NXDK::NXDK
@@ -115,6 +119,7 @@ add_custom_target(cxbe_convert ALL
         COMMENT "CXBE Conversion: [EXE -> XBE]"
 )
 add_dependencies(cxbe_convert ${CMAKE_PROJECT_NAME})
+add_dependencies(cxbe_convert sync_xbe_assets)
 
 # Post-build xbe to xiso conversion
 add_custom_target(xbe_iso ALL
