@@ -1,6 +1,8 @@
+# standard imports
 from math import cos, pi, sin, sqrt
 from pathlib import Path
 
+# variables
 SIZE = 512
 BACKGROUND = (0x2A, 0x2D, 0x30)
 LOGO_GRAY = (0x56, 0x5C, 0x64)
@@ -61,6 +63,7 @@ def main() -> None:
     with output_path.open("wb") as output_file:
         output_file.write(f"P6\n{SIZE} {SIZE}\n255\n".encode("ascii"))
         output_file.write(render_logo())
+        output_file.write(b"\n")
 
 
 if __name__ == "__main__":
