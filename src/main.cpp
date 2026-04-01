@@ -1,5 +1,7 @@
+// nxdk includes
+#include <windows.h>
+
 // local includes
-#include "src/nxdk/windows.h"
 #include "src/splash/splash_screen.h"
 #include "src/startup/memory_stats.h"
 #include "src/startup/video_mode.h"
@@ -13,7 +15,7 @@ int main() {
   startup::log_video_modes(videoModeSelection);
   startup::log_memory_statistics();
 
-  Sleep(10000);
+  Sleep(4000);
 
   XVideoSetMode(bestVideoMode.width, bestVideoMode.height, bestVideoMode.bpp, bestVideoMode.refresh);
 

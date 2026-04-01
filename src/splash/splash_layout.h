@@ -1,6 +1,7 @@
 #pragma once
 
-#include "src/nxdk/hal/video.h"
+// nxdk includes
+#include <hal/video.h>
 
 namespace splash {
 
@@ -8,9 +9,13 @@ namespace splash {
    * @brief Rectangle used for splash image placement.
    */
   struct SplashLayout {
+    /** @brief Horizontal offset from the left edge of the destination surface. */
     int x;
+    /** @brief Vertical offset from the top edge of the destination surface. */
     int y;
+    /** @brief Width of the scaled splash logo in destination pixels. */
     int width;
+    /** @brief Height of the scaled splash logo in destination pixels. */
     int height;
   };
 

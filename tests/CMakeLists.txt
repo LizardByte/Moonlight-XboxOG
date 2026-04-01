@@ -23,9 +23,13 @@ file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_SOURCE_DIR}/tests/*.h
         ${CMAKE_SOURCE_DIR}/tests/*.cpp)
 
-set(MOONLIGHT_TESTABLE_SOURCES
-        ${CMAKE_SOURCE_DIR}/src/splash/splash_layout.cpp
-        ${CMAKE_SOURCE_DIR}/src/startup/video_mode.cpp)
+set(MOONLIGHT_TEST_EXCLUDED_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/main.cpp
+        ${CMAKE_SOURCE_DIR}/src/splash/splash_screen.cpp
+        ${CMAKE_SOURCE_DIR}/src/startup/memory_stats.cpp)
+
+set(MOONLIGHT_TESTABLE_SOURCES ${MOONLIGHT_SOURCES})
+list(REMOVE_ITEM MOONLIGHT_TESTABLE_SOURCES ${MOONLIGHT_TEST_EXCLUDED_SOURCES})
 
 add_executable(${PROJECT_NAME}
         ${TEST_SOURCES}
@@ -34,6 +38,7 @@ add_executable(${PROJECT_NAME}
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
 target_include_directories(${PROJECT_NAME}
         PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/support
         ${CMAKE_SOURCE_DIR}
         ${GTEST_SOURCE_DIR}/googletest/include
         ${GTEST_SOURCE_DIR}/googlemock/include)

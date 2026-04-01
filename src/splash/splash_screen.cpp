@@ -9,13 +9,13 @@
 #include <string>
 
 // nxdk includes
+#include <hal/debug.h>
+#include <hal/xbox.h>
 #include <SDL.h>
 #include <SDL_image.h>
+#include <windows.h>
 
 // local includes
-#include "src/nxdk/hal/debug.h"
-#include "src/nxdk/hal/xbox.h"
-#include "src/nxdk/windows.h"
 #include "src/os.h"
 #include "src/splash/splash_layout.h"
 
@@ -45,6 +45,10 @@ namespace {
 
   SDL_Rect createCenteredRect(const SDL_Surface *screenSurface, int width, int height) {
     SDL_Rect destination {};
+    if (screenSurface == nullptr) {
+      return destination;
+    }
+
     destination.w = width;
     destination.h = height;
     destination.x = (screenSurface->w - destination.w) / 2;
@@ -53,6 +57,10 @@ namespace {
   }
 
   SDL_Rect calculateLogoDestination(const SDL_Surface *screenSurface, int logoWidth, int logoHeight, const VIDEO_MODE &videoMode) {
+    if (screenSurface == nullptr) {
+      return {};
+    }
+
     const splash::SplashLayout layout = splash::calculate_logo_destination(
       screenSurface->w,
       screenSurface->h,
@@ -206,8 +214,6 @@ namespace {
     for (const char *assetName : assetNames) {
       const std::string assetPath = buildAssetPath(assetName);
       if (SDL_Surface *loadedSurface = IMG_Load(assetPath.c_str()); loadedSurface != nullptr) {
-        debugPrint("Loaded splash asset: %s\n", assetPath.c_str());
-        debugPrint("Loaded splash asset format: %s\n", SDL_GetPixelFormatName(loadedSurface->format->format));
         if (SDL_Surface *normalizedSurface = normalizeSplashLogoSurface(loadedSurface); normalizedSurface != nullptr) {
           return normalizedSurface;
         }
@@ -252,6 +258,7 @@ namespace splash {
     if (SDL_VideoInit(nullptr) < 0) {
       SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't initialize SDL video.\n");
       printSDLErrorAndReboot();
+      return;
     }
 
     window = SDL_CreateWindow("splash", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, videoMode.width, videoMode.height, SDL_WINDOW_SHOWN);
@@ -259,6 +266,7 @@ namespace splash {
       debugPrint("Window could not be created!\n");
       SDL_VideoQuit();
       printSDLErrorAndReboot();
+      return;
     }
 
     if ((initializedImageFlags & imageInitFlags) != imageInitFlags) {
@@ -269,18 +277,21 @@ namespace splash {
     if (!screenSurface) {
       cleanupSplashScreen(window, nullptr);
       printSDLErrorAndReboot();
+      return;
     }
 
     imageSurface = loadSplashLogoSurface();
     if (!imageSurface) {
       cleanupSplashScreen(window, nullptr);
       printIMGErrorAndReboot();
+      return;
     }
 
     imageSurface = createScaledSplashLogoSurface(screenSurface, imageSurface, videoMode);
     if (!imageSurface) {
       cleanupSplashScreen(window, nullptr);
       printSDLErrorAndReboot();
+      return;
     }
 
     SDL_Rect logoDestination = createCenteredRect(screenSurface, imageSurface->w, imageSurface->h);
@@ -295,16 +306,19 @@ namespace splash {
       if (const Uint32 backgroundColor = SDL_MapRGB(screenSurface->format, SPLASH_BACKGROUND_RED, SPLASH_BACKGROUND_GREEN, SPLASH_BACKGROUND_BLUE); SDL_FillRect(screenSurface, nullptr, backgroundColor) < 0) {
         cleanupSplashScreen(window, imageSurface);
         printSDLErrorAndReboot();
+        return;
       }
 
       if (SDL_BlitSurface(imageSurface, nullptr, screenSurface, &logoDestination) < 0) {
         cleanupSplashScreen(window, imageSurface);
         printSDLErrorAndReboot();
+        return;
       }
 
       if (SDL_UpdateWindowSurface(window) < 0) {
         cleanupSplashScreen(window, imageSurface);
         printSDLErrorAndReboot();
+        return;
       }
 
       Sleep(1000);

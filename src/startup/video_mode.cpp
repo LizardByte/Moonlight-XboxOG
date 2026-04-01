@@ -1,8 +1,8 @@
 // class header include
 #include "src/startup/video_mode.h"
 
-// local includes
-#include "src/nxdk/hal/debug.h"
+// nxdk includes
+#include <hal/debug.h>
 
 namespace startup {
 
