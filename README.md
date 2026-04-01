@@ -13,7 +13,7 @@ Nothing works, except the splash screen.
 
 ## Build
 
-### Pre-Build
+### Prerequisites
 
 1. Clone the repository with submodules, or update them after cloning.
 
@@ -21,7 +21,78 @@ Nothing works, except the splash screen.
    git submodule update --init --recursive
    ```
 
-2. Install nxdk prerequisites. Then run the following from mingw64 or bash shell:
+2. Install nxdk prerequisites.
+
+#### Windows
+
+> [!NOTE]
+> You must use the mingw64 shell on Windows.
+
+```bash
+pacman -Syu
+nxdk_dependencies=(
+  "bison"
+  "cmake"
+  "flex"
+  "git"
+  "make"
+  "mingw-w64-x86_64-clang"
+  "mingw-w64-x86_64-gcc"
+  "mingw-w64-x86_64-lld"
+  "mingw-w64-x86_64-llvm"
+)
+moonlight_dependencies=(
+  "mingw-w64-x86_64-doxygen"
+  "mingw-w64-x86_64-graphviz"
+  "mingw-w64-ucrt-x86_64-nodejs"
+)
+dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
+pacman -S "${dependencies[@]}"
+```
+
+#### Debian/Ubuntu Linux
+
+```bash
+nxdk_dependencies=(
+  "bison"
+  "build-essential"
+  "clang"
+  "cmake"
+  "flex"
+  "git"
+  "lld"
+  "llvm"
+)
+moonlight_dependencies=(
+  "doxygen"
+  "graphviz"
+  "nodejs"
+)
+dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
+apt install "${dependencies[@]}"
+```
+
+#### macOS
+
+```bash
+nxdk_dependencies=(
+  "cmake"
+  "coreutils"
+  "lld"
+  "llvm"
+)
+moonlight_dependencies=(
+  "doxygen"
+  "graphviz"
+  "node"
+)
+dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
+brew install "${dependencies[@]}"
+```
+
+### Pre-Build
+
+1. Run the following from mingw64 or bash shell:
 
 ```bash
 export NXDK_DIR="$(pwd)/third-party/nxdk"
@@ -102,7 +173,7 @@ If you only want the emulator without the ROM/HDD support bundle, run:
 scripts\setup-xemu.cmd --skip-support-files
 ```
 
-## Todo:
+## Todo
 
 - Build
    - [x] Build in GitHub CI
@@ -147,4 +218,9 @@ scripts\setup-xemu.cmd --skip-support-files
   - [ ] Save config and pairing states, probably use nlohmann/json
   - [ ] Host pairing
   - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
-  - [ ] Docs via doxygen
+  - [x] Docs via doxygen
+
+<details style="display: none;">
+  <summary></summary>
+  [TOC]
+</details>

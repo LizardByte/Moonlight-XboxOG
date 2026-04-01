@@ -1,7 +1,10 @@
+[submodule "third-party/doxyconfig"]
+	path = third-party/doxyconfig
+	url = https://github.com/LizardByte/doxyconfig.git
+	branch = master
 [submodule "third-party/googletest"]
 	path = third-party/googletest
 	url = https://github.com/google/googletest.git
-	branch = main
 [submodule "third-party/moonlight-common-c"]
 	path = third-party/moonlight-common-c
 	url = https://github.com/moonlight-stream/moonlight-common-c.git
