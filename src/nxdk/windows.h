@@ -2,5 +2,10 @@
 #if defined(NXDK)
   #include <windows.h>
 #else
-  #define Sleep(x) SDL_Delay(x)
+  #include <chrono>
+  #include <thread>
+
+inline void Sleep(unsigned long milliseconds) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+}
 #endif

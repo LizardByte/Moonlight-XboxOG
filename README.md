@@ -3,6 +3,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/lizardbyte/moonlight-xboxog.svg?logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG)
 [![GitHub Releases](https://img.shields.io/github/downloads/lizardbyte/moonlight-xboxog/total.svg?style=for-the-badge&logo=github)](https://github.com/LizardByte/Moonlight-XboxOG/releases/latest)
 [![GitHub Workflow Status (CI)](https://img.shields.io/github/actions/workflow/status/lizardbyte/moonlight-xboxog/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/CI.yml?query=branch%3Amaster)
+[![Codecov](https://img.shields.io/codecov/c/gh/LizardByte/Moonlight-XboxOG?token=DoIh5pkEzA&style=for-the-badge&logo=codecov&label=codecov)](https://codecov.io/gh/LizardByte/Moonlight-XboxOG)
 
 Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT use!
 
@@ -148,6 +149,36 @@ build-mingw64.bat
 ./build-mingw64.sh
 ```
 
+### Host-native unit tests
+
+The Xbox executable cannot run directly on Windows, macOS, or Linux, so unit tests are built as a separate host-native target. Keep Xbox runtime code thin and move logic you want to test into platform-neutral sources that can be linked into `test_moonlight`.
+
+#### Windows via MSYS2/mingw64
+
+From `cmd.exe`, configure, build, and run the host tests with:
+
+```bat
+C:\msys64\msys2_shell.cmd -defterm -here -no-start -mingw64 -c "cd /c/Users/%USERNAME%/Dev/git/Moonlight-XboxOG && cmake --preset \"host-tests (mingw64)\" && cmake --build --preset \"host-tests (mingw64)\" && ctest --preset \"host-tests (mingw64)\""
+```
+
+If you are already inside a `mingw64` shell, the equivalent commands are:
+
+```bash
+cmake --preset "host-tests (mingw64)"
+cmake --build --preset "host-tests (mingw64)"
+ctest --preset "host-tests (mingw64)"
+```
+
+#### Linux or macOS
+
+```bash
+cmake -S . -B cmake-build-host-tests -DBUILD_TESTS=ON -DBUILD_DOCS=OFF
+cmake --build cmake-build-host-tests --target test_moonlight
+ctest --test-dir cmake-build-host-tests --output-on-failure
+```
+
+Coverage should come from this host-native test build instead of the cross-compiled Xbox build.
+
 ### CLion on Windows
 
 The repository now includes CLion-friendly nxdk wrapper scripts in `cmake/` plus shared run configurations in `.run/`.
@@ -184,8 +215,8 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] Automatically run built xiso in Xemu
    - [x] Add unit testing framework
       - [x] Separate main build and unit test builds, due to cross compiling, see https://stackoverflow.com/a/64335131/11214013
-      - [ ] Get tests to properly compile
-      - [ ] Enable codecov
+      - [x] Get tests to properly compile
+      - [x] Enable codecov
    - [x] Enable sonarcloud
    - [x] Build moonlight-common-c
       - [x] Build custom enet

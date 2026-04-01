@@ -2,5 +2,7 @@
 #if defined(NXDK)
   #include <hal/debug.h>
 #else
-  #define debugPrint(...) printf(__VA_ARGS__)
+  #include <cstdio>
+
+  #define debugPrint(...) std::printf(__VA_ARGS__)
 #endif

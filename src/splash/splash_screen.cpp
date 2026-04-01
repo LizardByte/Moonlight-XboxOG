@@ -17,24 +17,22 @@
 #include "src/nxdk/hal/xbox.h"
 #include "src/nxdk/windows.h"
 #include "src/os.h"
+#include "src/splash/splash_layout.h"
 
 namespace {
 
   constexpr Uint8 SPLASH_BACKGROUND_RED = 0x2A;
   constexpr Uint8 SPLASH_BACKGROUND_GREEN = 0x2D;
   constexpr Uint8 SPLASH_BACKGROUND_BLUE = 0x30;
-  constexpr float SPLASH_LOGO_MAX_WIDTH_RATIO = 0.72f;
-  constexpr float SPLASH_LOGO_MAX_HEIGHT_RATIO = 0.32f;
-  constexpr float SPLASH_ASPECT_RATIO_EPSILON = 0.05f;
 
-  [[noreturn]] void printSDLErrorAndReboot() {
+  void printSDLErrorAndReboot() {
     debugPrint("SDL_Error: %s\n", SDL_GetError());
     debugPrint("Rebooting in 5 seconds.\n");
     Sleep(5000);
     XReboot();
   }
 
-  [[noreturn]] void printIMGErrorAndReboot() {
+  void printIMGErrorAndReboot() {
     debugPrint("SDL_Image Error: %s\n", IMG_GetError());
     debugPrint("Rebooting in 5 seconds.\n");
     Sleep(5000);
@@ -43,28 +41,6 @@ namespace {
 
   std::string buildAssetPath(const char *assetName) {
     return std::string(DATA_PATH) + "assets" + PATH_SEP + assetName;
-  }
-
-  float getFramebufferAspectRatio(const VIDEO_MODE &videoMode) {
-    return static_cast<float>(videoMode.width) / static_cast<float>(videoMode.height);
-  }
-
-  float getDisplayAspectRatio(const VIDEO_MODE &videoMode) {
-    const float framebufferAspectRatio = getFramebufferAspectRatio(videoMode);
-    const DWORD encoderSettings = XVideoGetEncoderSettings();
-    const float preferredDisplayAspectRatio = ((encoderSettings & VIDEO_WIDESCREEN) != 0) ? (16.0f / 9.0f) : (4.0f / 3.0f);
-    const bool isStandardDefinitionRaster = videoMode.height <= 576;
-    const bool needsAspectCorrection = isStandardDefinitionRaster && std::fabs(framebufferAspectRatio - preferredDisplayAspectRatio) > SPLASH_ASPECT_RATIO_EPSILON;
-
-    if (needsAspectCorrection) {
-      return preferredDisplayAspectRatio;
-    }
-
-    return framebufferAspectRatio;
-  }
-
-  float getLogoWidthAspectCorrection(const VIDEO_MODE &videoMode) {
-    return getFramebufferAspectRatio(videoMode) / getDisplayAspectRatio(videoMode);
   }
 
   SDL_Rect createCenteredRect(const SDL_Surface *screenSurface, int width, int height) {
@@ -77,16 +53,21 @@ namespace {
   }
 
   SDL_Rect calculateLogoDestination(const SDL_Surface *screenSurface, int logoWidth, int logoHeight, const VIDEO_MODE &videoMode) {
-    const float correctedLogoWidth = static_cast<float>(logoWidth) * getLogoWidthAspectCorrection(videoMode);
-    const float maxLogoWidth = static_cast<float>(screenSurface->w) * SPLASH_LOGO_MAX_WIDTH_RATIO;
-    const float maxLogoHeight = static_cast<float>(screenSurface->h) * SPLASH_LOGO_MAX_HEIGHT_RATIO;
-    const float widthScale = maxLogoWidth / correctedLogoWidth;
-    const float heightScale = maxLogoHeight / static_cast<float>(logoHeight);
-    const float scale = std::min(widthScale, heightScale);
-    const int scaledLogoWidth = static_cast<int>(correctedLogoWidth * scale) > 0 ? static_cast<int>(correctedLogoWidth * scale) : 1;
-    const float scaledLogoHeightFloat = static_cast<float>(logoHeight) * scale;
-    const int scaledLogoHeight = static_cast<int>(scaledLogoHeightFloat) > 0 ? static_cast<int>(scaledLogoHeightFloat) : 1;
-    return createCenteredRect(screenSurface, scaledLogoWidth, scaledLogoHeight);
+    const splash::SplashLayout layout = splash::calculate_logo_destination(
+      screenSurface->w,
+      screenSurface->h,
+      logoWidth,
+      logoHeight,
+      videoMode,
+      XVideoGetEncoderSettings()
+    );
+
+    SDL_Rect destination {};
+    destination.x = layout.x;
+    destination.y = layout.y;
+    destination.w = layout.width;
+    destination.h = layout.height;
+    return destination;
   }
 
   Uint32 readSurfacePixel(const SDL_Surface *surface, int x, int y) {
@@ -311,8 +292,7 @@ namespace splash {
         }
       }
 
-      const Uint32 backgroundColor = SDL_MapRGB(screenSurface->format, SPLASH_BACKGROUND_RED, SPLASH_BACKGROUND_GREEN, SPLASH_BACKGROUND_BLUE);
-      if (SDL_FillRect(screenSurface, nullptr, backgroundColor) < 0) {
+      if (const Uint32 backgroundColor = SDL_MapRGB(screenSurface->format, SPLASH_BACKGROUND_RED, SPLASH_BACKGROUND_GREEN, SPLASH_BACKGROUND_BLUE); SDL_FillRect(screenSurface, nullptr, backgroundColor) < 0) {
         cleanupSplashScreen(window, imageSurface);
         printSDLErrorAndReboot();
       }
