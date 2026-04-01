@@ -63,7 +63,7 @@ jobs:
       - name: Setup Dependencies Linux
         if: runner.os == 'Linux'
         run: |
-          dependencies=(
+          nxdk_dependencies=(
             "bison"
             "build-essential"
             "clang"
@@ -73,18 +73,24 @@ jobs:
             "lld"
             "llvm"
           )
+          moonlight_dependencies=(
+          )
+          dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y "${dependencies[@]}"
 
       - name: Setup Dependencies macOS
         if: runner.os == 'macOS'
         run: |
-          dependencies=(
+          nxdk_dependencies=(
             "cmake"
             "coreutils"
             "lld"
             "llvm"
           )
+          moonlight_dependencies=(
+          )
+          dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
           brew install "${dependencies[@]}"
 
       - name: Setup Dependencies Windows
@@ -94,15 +100,15 @@ jobs:
           msystem: MINGW64
           update: true
           install: >-
-            make
-            cmake
-            git
             bison
+            cmake
             flex
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-llvm
+            git
+            make
             mingw-w64-x86_64-clang
+            mingw-w64-x86_64-gcc
             mingw-w64-x86_64-lld
+            mingw-w64-x86_64-llvm
 
       - name: Setup python
         id: setup-python

@@ -18,6 +18,7 @@ set(XBOX_ISO "${CMAKE_PROJECT_NAME}.iso")
 #
 # Options
 #
+option(BUILD_DOCS "Build documentation" ON)
 option(BUILD_TESTS "Build tests" OFF)
 
 # add custom modules
@@ -100,6 +101,13 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
 
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE "")
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
+
+#
+# documentation
+#
+if(BUILD_DOCS)
+    add_subdirectory(third-party/doxyconfig docs)
+endif()
 
 #
 # tests
