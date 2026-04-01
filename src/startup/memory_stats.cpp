@@ -2,10 +2,8 @@
 #include "src/startup/memory_stats.h"
 
 // nxdk includes
+#include <hal/debug.h>
 #include <xboxkrnl/xboxkrnl.h>
-
-// local includes
-#include "src/nxdk/hal/debug.h"
 
 namespace startup {
   namespace {
@@ -18,8 +16,7 @@ namespace startup {
     MM_STATISTICS memoryStatistics {};
     memoryStatistics.Length = sizeof(memoryStatistics);
 
-    const NTSTATUS status = MmQueryStatistics(&memoryStatistics);
-    if (!NT_SUCCESS(status)) {
+    if (const NTSTATUS status = MmQueryStatistics(&memoryStatistics); !NT_SUCCESS(status)) {
       debugPrint("Failed to query memory statistics. NTSTATUS: 0x%08lx\n", static_cast<unsigned long>(status));
       return;
     }

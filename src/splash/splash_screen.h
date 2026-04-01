@@ -1,7 +1,7 @@
 #pragma once
 
-// local includes
-#include "src/nxdk/hal/video.h"
+// nxdk includes
+#include <hal/video.h>
 
 namespace splash {
 

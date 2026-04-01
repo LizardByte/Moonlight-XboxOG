@@ -68,11 +68,6 @@ set(MOONLIGHT_EXTERNAL_LIBRARIES
 set(MOONLIGHT_INCLUDE_DIRS
 )
 set(MOONLIGHT_COMPILE_OPTIONS "-Wno-builtin-macro-redefined")
-set(MOONLIGHT_DEFINITIONS "-DXBOX -DNXDK")
-
-# Stop lots of warning spam
-add_compile_options(${MOONLIGHT_COMPILE_OPTIONS})
-add_definitions(${MOONLIGHT_DEFINITIONS})
 
 # submodules
 # moonlight common library
@@ -98,8 +93,8 @@ include_directories(SYSTEM
 target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
         ${MOONLIGHT_EXTERNAL_LIBRARIES}
 )
-
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE "")
+target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE ${MOONLIGHT_COMPILE_OPTIONS})
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE XBOX NXDK)
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 #
@@ -113,6 +108,7 @@ endif()
 # tests
 #
 if(BUILD_TESTS)
+    enable_testing()
     add_subdirectory(tests EXCLUDE_FROM_ALL)
 endif()
 

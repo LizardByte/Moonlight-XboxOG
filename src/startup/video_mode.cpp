@@ -1,38 +1,53 @@
 // class header include
 #include "src/startup/video_mode.h"
 
-// local includes
-#include "src/nxdk/hal/debug.h"
+// nxdk includes
+#include <hal/debug.h>
 
 namespace startup {
 
+  bool is_preferred_video_mode(const VIDEO_MODE &candidateVideoMode, const VIDEO_MODE &currentBestVideoMode) {
+    if (candidateVideoMode.height < currentBestVideoMode.height) {
+      return false;
+    }
+
+    if (candidateVideoMode.width < currentBestVideoMode.width) {
+      return false;
+    }
+
+    if (candidateVideoMode.bpp < currentBestVideoMode.bpp) {
+      return false;
+    }
+
+    if (candidateVideoMode.refresh < currentBestVideoMode.refresh) {
+      return false;
+    }
+
+    return true;
+  }
+
+  VIDEO_MODE choose_best_video_mode(const std::vector<VIDEO_MODE> &availableVideoModes) {
+    VIDEO_MODE bestVideoMode {0, 0, 0, 0};
+
+    for (const VIDEO_MODE &videoMode : availableVideoModes) {
+      if (is_preferred_video_mode(videoMode, bestVideoMode)) {
+        bestVideoMode = videoMode;
+      }
+    }
+
+    return bestVideoMode;
+  }
+
   VideoModeSelection select_best_video_mode(int bpp, int refresh) {
     VideoModeSelection selection {};
-    selection.bestVideoMode = {0, 0, 0, 0};
 
     VIDEO_MODE videoMode;
     void *position = nullptr;
     while (XVideoListModes(&videoMode, bpp, refresh, &position)) {
       selection.availableVideoModes.push_back(videoMode);
-
-      if (videoMode.height < selection.bestVideoMode.height) {
-        continue;
-      }
-
-      if (videoMode.width < selection.bestVideoMode.width) {
-        continue;
-      }
-
-      if (videoMode.bpp < selection.bestVideoMode.bpp) {
-        continue;
-      }
-
-      if (videoMode.refresh < selection.bestVideoMode.refresh) {
-        continue;
-      }
-
-      selection.bestVideoMode = videoMode;
     }
+
+    selection.bestVideoMode = choose_best_video_mode(selection.availableVideoModes);
 
     return selection;
   }
