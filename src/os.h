@@ -1,3 +1,4 @@
+#pragma once
 #if defined(NXDK)
   #define PATH_SEP "\\"
   #define DATA_PATH "D:" PATH_SEP

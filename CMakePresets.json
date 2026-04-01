@@ -34,7 +34,7 @@
       "name": "nxdk-debug (mingw64)",
       "displayName": "nxdk Debug (mingw64)",
       "description": "Debug build for Original Xbox using the nxdk toolchain",
-      "inherits": "nxdk",
+      "inherits": "nxdk-release (mingw64)",
       "binaryDir": "${sourceDir}/cmake-build-nxdk-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
@@ -43,12 +43,12 @@
   ],
   "buildPresets": [
     {
-      "name": "nxdk",
-      "configurePreset": "nxdk"
+      "name": "nxdk-release (mingw64)",
+      "configurePreset": "nxdk-release (mingw64)"
     },
     {
-      "name": "nxdk-debug",
-      "configurePreset": "nxdk-debug"
+      "name": "nxdk-debug (mingw64)",
+      "configurePreset": "nxdk-debug (mingw64)"
     }
   ]
 }

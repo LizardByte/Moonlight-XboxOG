@@ -121,9 +121,9 @@ scripts\setup-xemu.cmd --skip-support-files
 - Menus / Screens
    - [x] Loading/splash screen
       - [x] Initial loading screen, see https://github.com/XboxDev/nxdk/blob/master/samples/sdl_image/main.c
-      - [x] Set video mode based on best available mode
+      - [x] Set video mode based on the best available mode
       - [x] dynamic splash screen (size based on current resolution)
-      - [ ] two images (background color, and logo) to reduce total size... stretch background color image... or don't even use an image for the background
+      - [x] simplify (draw background color and overlay logo) to reduce total size
    - [ ] Main/Home
    - [ ] Settings
    - [ ] Add Host
