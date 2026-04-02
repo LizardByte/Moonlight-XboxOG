@@ -19,7 +19,9 @@ find_program(_clang_executable NAMES clang.exe HINTS "${_msys2_mingw_bin}" NO_DE
 find_program(_clangxx_executable NAMES clang++.exe HINTS "${_msys2_mingw_bin}" NO_DEFAULT_PATH REQUIRED)
 find_program(_mingw_make_executable NAMES mingw32-make.exe HINTS "${_msys2_mingw_bin}" NO_DEFAULT_PATH REQUIRED)
 
-set(MOONLIGHT_HOST_TOOL_DIR "${_msys2_mingw_bin}" CACHE PATH "Path to the detected host-native mingw64 tool directory" FORCE)
+set(MOONLIGHT_HOST_TOOL_DIR "${_msys2_mingw_bin}"
+        CACHE PATH "Path to the detected host-native mingw64 tool directory" FORCE
+)
 set(MOONLIGHT_MSYS2_ROOT "${_msys2_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
 set(CMAKE_C_COMPILER "${_clang_executable}" CACHE FILEPATH "Host C compiler for the Windows CLion build" FORCE)
 set(CMAKE_CXX_COMPILER "${_clangxx_executable}" CACHE FILEPATH "Host C++ compiler for the Windows CLion build" FORCE)

@@ -54,10 +54,8 @@ for candidate_root in /c/msys64 /c/tools/msys64; do
 done
 
 for tool_name in msys2_shell.cmd bash.exe mingw32-make.exe clang++.exe clang.exe; do
-    if tool_path="$(command -v "$tool_name" 2>/dev/null)"; then
-        if try_from_tool "$tool_path"; then
-            exit 0
-        fi
+    if tool_path="$(command -v "$tool_name" 2>/dev/null)" && try_from_tool "$tool_path"; then
+        exit 0
     fi
 done
 

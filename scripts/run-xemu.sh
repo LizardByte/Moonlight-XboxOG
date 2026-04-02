@@ -27,7 +27,11 @@ is_windows() {
 is_unresolved_ide_macro() {
     local value="$1"
 
-    [[ "$value" =~ ^\$[A-Za-z_][A-Za-z0-9_]*\$$ ]]
+    if [[ "$value" =~ ^\$[A-Za-z_][A-Za-z0-9_]*\$$ ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 to_native_path() {
@@ -170,7 +174,10 @@ resolve_build_dir() {
 }
 
 resolve_input_path() {
-    resolve_build_dir "$1"
+    local input_path="$1"
+
+    resolve_build_dir "$input_path"
+    return 0
 }
 
 apply_target_path() {
