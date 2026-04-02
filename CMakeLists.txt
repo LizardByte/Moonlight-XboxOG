@@ -12,6 +12,7 @@ set_property(CACHE MOONLIGHT_BUILD_KIND PROPERTY STRINGS HOST XBOX)
 if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")
     project(Moonlight C CXX)
 
+    # add custom modules
     set(CMAKE_MODULE_PATH
             ${CMAKE_MODULE_PATH}
             "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/"
@@ -41,6 +42,9 @@ if(CMAKE_HOST_WIN32 AND CMAKE_GENERATOR MATCHES "Makefiles")
     set(CMAKE_DEPENDS_USE_COMPILER FALSE CACHE BOOL "Use CMake depfile scanning with Windows makefile generators" FORCE)
 endif()
 
+#
+# Options
+#
 option(BUILD_DOCS "Build documentation" ON)
 option(BUILD_TESTS "Build host-native unit tests" ON)
 option(BUILD_XBOX "Build the Xbox target through an internal child configure" ON)

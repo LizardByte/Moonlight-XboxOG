@@ -4,6 +4,9 @@
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
 
+#
+# metadata
+#
 set(XBE_TITLE ${CMAKE_PROJECT_NAME})
 set(XBOX_XBE_DIR "${CMAKE_CURRENT_BINARY_DIR}/xbe")
 set(XBOX_ISO_NAME "${CMAKE_PROJECT_NAME}.iso")
@@ -20,10 +23,14 @@ find_package(NXDK REQUIRED)
 find_package(NXDK_SDL2 REQUIRED)
 find_package(NXDK_SDL2_Image REQUIRED)
 
+# add the automount_d_drive symbol to the linker flags, this is automatic with nxdk when using the Makefile option
+# if this is not used, we must add some code to the main function to automount the D drive
+# e.g. https://github.com/abaire/nxdk_pgraph_tests/blob/4b7934e6d612a6d17f9ec229a2d72601a5caefc4/src/main.cpp#L118-L122
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -include:_automount_d_drive")
 
 file(MAKE_DIRECTORY "${XBOX_XBE_DIR}")
 
+# ensure assets are copied to the build directory for packaging into ISO
 add_custom_target(sync_xbe_assets ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
@@ -37,6 +44,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
+# moonlight-common-c submodule
 include(GetOpenSSL REQUIRED)
 set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
 set(BUILD_SHARED_LIBS OFF)
@@ -77,6 +85,7 @@ if(BUILD_DOCS)
     add_subdirectory(third-party/doxyconfig docs)
 endif()
 
+# convert the built EXE into the XBE format
 add_custom_target(cxbe_convert ALL
         COMMAND "${NXDK_DIR}/tools/cxbe/cxbe"
             -OUT:${XBOX_XBE_DIR}/default.xbe
@@ -88,6 +97,7 @@ add_custom_target(cxbe_convert ALL
 add_dependencies(cxbe_convert ${CMAKE_PROJECT_NAME})
 add_dependencies(cxbe_convert sync_xbe_assets)
 
+# convert the XBE into an ISO
 add_custom_target(xbe_iso ALL
         COMMAND "${NXDK_DIR}/tools/extract-xiso/build/extract-xiso"
             -c "${XBOX_XBE_DIR}" "${XBOX_ISO_NAME}"
