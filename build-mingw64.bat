@@ -2,15 +2,13 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "MSYS2_SHELL=C:\msys64\msys2_shell.cmd"
-
-if not exist "%MSYS2_SHELL%" (
-    echo MSYS2 shell not found at %MSYS2_SHELL%
+call "%SCRIPT_DIR%scripts\find-msys2.cmd"
+if errorlevel 1 (
     exit /b 1
 )
 
 pushd "%SCRIPT_DIR%" >nul
-call "%MSYS2_SHELL%" -defterm -here -no-start -mingw64 -c "./build.sh %*"
+call "%MOONLIGHT_MSYS2_SHELL%" -defterm -here -no-start -mingw64 -c "./build.sh %*"
 set "EXIT_CODE=%ERRORLEVEL%"
 popd >nul
 

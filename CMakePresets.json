@@ -8,48 +8,30 @@
   "configurePresets": [
     {
       "name": "nxdk-release (mingw64)",
-      "displayName": "nxdk Release (mingw64)",
-      "description": "Build for Original Xbox using the nxdk toolchain",
-      "generator": "MSYS Makefiles",
-      "cmakeExecutable": "C:/msys64/usr/bin/cmake",
-      "toolchainFile": "${sourceDir}/cmake/toolchain-nxdk-clion.cmake",
-      "binaryDir": "${sourceDir}/cmake-build-nxdk-release",
+      "displayName": "Release (mingw64)",
+      "description": "Build host tests natively with MinGW Makefiles and drive the Xbox target through an internal nxdk child configure",
+      "generator": "MinGW Makefiles",
+      "toolchainFile": "${sourceDir}/cmake/host-mingw64-clang.cmake",
+      "binaryDir": "${sourceDir}/cmake-build-release",
       "environment": {
         "CHERE_INVOKING": "1",
-        "MSYSTEM": "MINGW64",
-        "NXDK_DIR": "${sourceDir}/third-party/nxdk",
-        "PATH": "${sourceDir}/cmake;${sourceDir}/third-party/nxdk/bin;C:/msys64/mingw64/bin;C:/msys64/usr/bin;$penv{PATH}"
+        "MSYSTEM": "MINGW64"
       },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_CXX_COMPILER": "${sourceDir}/cmake/nxdk-cxx.bat",
-        "CMAKE_C_COMPILER": "${sourceDir}/cmake/nxdk-cc.bat",
+        "BUILD_DOCS": "ON",
+        "BUILD_TESTS": "ON",
+        "BUILD_XBOX": "ON",
         "CMAKE_DEPENDS_USE_COMPILER": "FALSE",
-        "CMAKE_MAKE_PROGRAM": "${sourceDir}/cmake/make.bat",
-        "CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
-        "PKG_CONFIG_EXECUTABLE": "${sourceDir}/cmake/nxdk-pkg-config.bat"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
       "name": "nxdk-debug (mingw64)",
-      "displayName": "nxdk Debug (mingw64)",
-      "description": "Debug build for Original Xbox using the nxdk toolchain",
+      "displayName": "Debug (mingw64)",
+      "description": "Debug host build with the internal nxdk Xbox child configure enabled",
       "inherits": "nxdk-release (mingw64)",
       "binaryDir": "${sourceDir}/cmake-build-nxdk-debug",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "host-tests (mingw64)",
-      "displayName": "Host Tests (mingw64)",
-      "description": "Build host-native googletest targets under MSYS2/mingw64",
-      "generator": "Unix Makefiles",
-      "cmakeExecutable": "C:/msys64/usr/bin/cmake",
-      "binaryDir": "${sourceDir}/cmake-build-host-tests",
-      "cacheVariables": {
-        "BUILD_DOCS": "OFF",
-        "BUILD_TESTS": "ON",
         "CMAKE_BUILD_TYPE": "Debug"
       }
     }
@@ -62,22 +44,6 @@
     {
       "name": "nxdk-debug (mingw64)",
       "configurePreset": "nxdk-debug (mingw64)"
-    },
-    {
-      "name": "host-tests (mingw64)",
-      "configurePreset": "host-tests (mingw64)",
-      "targets": [
-        "test_moonlight"
-      ]
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "host-tests (mingw64)",
-      "configurePreset": "host-tests (mingw64)",
-      "output": {
-        "outputOnFailure": true
-      }
     }
   ]
 }

@@ -1,0 +1,98 @@
+# Build the Xbox child project with the stock nxdk toolchain, then package the
+# resulting executable into the XBE and ISO artifacts consumed by xemu and CI.
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
+
+set(XBE_TITLE ${CMAKE_PROJECT_NAME})
+set(XBOX_XBE_DIR "${CMAKE_CURRENT_BINARY_DIR}/xbe")
+set(XBOX_ISO_NAME "${CMAKE_PROJECT_NAME}.iso")
+set(XBOX_ISO "${CMAKE_CURRENT_BINARY_DIR}/${XBOX_ISO_NAME}")
+
+moonlight_resolve_nxdk_dir(NXDK_DIR)
+set(ENV{NXDK_DIR} "${NXDK_DIR}")
+
+if(NOT MOONLIGHT_SKIP_NXDK_PREP)
+    moonlight_prepare_nxdk("${NXDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/nxdk-bootstrap")
+endif()
+
+find_package(NXDK REQUIRED)
+find_package(NXDK_SDL2 REQUIRED)
+find_package(NXDK_SDL2_Image REQUIRED)
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -include:_automount_d_drive")
+
+file(MAKE_DIRECTORY "${XBOX_XBE_DIR}")
+
+add_custom_target(sync_xbe_assets ALL
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
+            "${XBOX_XBE_DIR}"
+        COMMENT "Sync XBE assets"
+)
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
+set(CMAKE_C_FLAGS_RELEASE "-O2")
+
+include(GetOpenSSL REQUIRED)
+set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
+set(BUILD_SHARED_LIBS OFF)
+add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
+if(TARGET moonlight-common-c AND TARGET openssl_external)
+    add_dependencies(moonlight-common-c openssl_external)
+endif()
+target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+target_compile_options(enet PRIVATE -Wno-unused-function -Wno-error=unused-function)
+if(TARGET moonlight-common-c)
+    target_compile_options(moonlight-common-c PRIVATE -Wno-unused-function -Wno-error=unused-function)
+    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
+endif()
+
+add_executable(${CMAKE_PROJECT_NAME}
+        ${MOONLIGHT_SOURCES}
+)
+target_include_directories(${CMAKE_PROJECT_NAME}
+        SYSTEM PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(${CMAKE_PROJECT_NAME}
+        PUBLIC
+        NXDK::NXDK
+        NXDK::NXDK_CXX
+        NXDK::SDL2
+        NXDK::SDL2_Image
+)
+target_compile_options(${CMAKE_PROJECT_NAME}
+        PRIVATE
+        ${MOONLIGHT_COMPILE_OPTIONS}
+        $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>
+)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE XBOX NXDK)
+add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
+
+if(BUILD_DOCS)
+    add_subdirectory(third-party/doxyconfig docs)
+endif()
+
+add_custom_target(cxbe_convert ALL
+        COMMAND "${NXDK_DIR}/tools/cxbe/cxbe"
+            -OUT:${XBOX_XBE_DIR}/default.xbe
+            -TITLE:${XBE_TITLE}
+            "${CMAKE_CURRENT_BINARY_DIR}/${XBE_TITLE}.exe"
+        COMMENT "CXBE conversion: EXE -> XBE"
+        VERBATIM
+)
+add_dependencies(cxbe_convert ${CMAKE_PROJECT_NAME})
+add_dependencies(cxbe_convert sync_xbe_assets)
+
+add_custom_target(xbe_iso ALL
+        COMMAND "${NXDK_DIR}/tools/extract-xiso/build/extract-xiso"
+            -c "${XBOX_XBE_DIR}" "${XBOX_ISO_NAME}"
+        COMMENT "CXBE conversion: XBE -> XISO"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        VERBATIM
+)
+add_dependencies(xbe_iso cxbe_convert)
