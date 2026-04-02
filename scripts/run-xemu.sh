@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
+# Launch xemu against an explicit ISO path or a CMake build directory that
+# contains the generated Xbox ISO.
+
 set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: run-xemu.sh [--check] [--iso path]
+Usage: run-xemu.sh [--check] [--build-dir dir] [--iso path] [path]
+
+Environment overrides:
+  MOONLIGHT_XEMU_BUILD_DIR
+  MOONLIGHT_XEMU_ISO_PATH
+  MOONLIGHT_XEMU_TARGET_PATH
 EOF
     return 0
 }
@@ -14,6 +22,16 @@ is_windows() {
         MINGW*|MSYS*|CYGWIN*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+is_unresolved_ide_macro() {
+    local value="$1"
+
+    if [[ "$value" =~ ^\$[A-Za-z_][A-Za-z0-9_]*\$$ ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 to_native_path() {
@@ -71,16 +89,151 @@ require_file() {
     fi
 }
 
+normalize_cli_path() {
+    local path="$1"
+
+    if [[ -z "$path" ]]; then
+        printf '\n'
+        return 0
+    fi
+
+    if is_unresolved_ide_macro "$path"; then
+        printf '\n'
+        return 0
+    fi
+
+    if is_windows && [[ "$path" =~ ^[A-Za-z]:\\ ]]; then
+        cygpath -u "$path"
+        return 0
+    fi
+
+    printf '%s\n' "${path//\\//}"
+    return 0
+}
+
+default_iso_path() {
+    local project_root="$1"
+    local build_dir="${2:-}"
+
+    if [[ -n "$build_dir" ]]; then
+        local build_dir_iso="$build_dir/xbox/Moonlight.iso"
+        if [[ -f "$build_dir/Moonlight.iso" ]]; then
+            printf '%s\n' "$build_dir/Moonlight.iso"
+        else
+            printf '%s\n' "$build_dir_iso"
+        fi
+        return 0
+    fi
+
+    local preferred_path="$project_root/cmake-build-release/xbox/Moonlight.iso"
+    local candidate
+    local newest_candidate=""
+
+    shopt -s nullglob
+    for candidate in \
+        "$project_root"/cmake-build-*/xbox/Moonlight.iso \
+        "$project_root"/cmake-build-*/Moonlight.iso; do
+        if [[ -z "$newest_candidate" || "$candidate" -nt "$newest_candidate" ]]; then
+            newest_candidate="$candidate"
+        fi
+    done
+    shopt -u nullglob
+
+    if [[ -n "$newest_candidate" ]]; then
+        printf '%s\n' "$newest_candidate"
+        return 0
+    fi
+
+    printf '%s\n' "$preferred_path"
+    return 0
+}
+
+resolve_build_dir() {
+    local path="$1"
+
+    path="$(normalize_cli_path "$path")"
+
+    if [[ -z "$path" ]]; then
+        printf '\n'
+        return 0
+    fi
+
+    case "$path" in
+        /*)
+            printf '%s\n' "$path"
+            ;;
+        [A-Za-z]:/*)
+            printf '%s\n' "$path"
+            ;;
+        *)
+            printf '%s\n' "$project_root/$path"
+            ;;
+    esac
+
+    return 0
+}
+
+resolve_input_path() {
+    local input_path="$1"
+
+    resolve_build_dir "$input_path"
+    return 0
+}
+
+apply_target_path() {
+    local target_path="$1"
+    local resolved_path
+
+    resolved_path="$(resolve_input_path "$target_path")"
+
+    if [[ -z "$resolved_path" ]]; then
+        return 0
+    fi
+
+    if [[ -d "$resolved_path" ]]; then
+        build_dir="$resolved_path"
+        iso_path="$(default_iso_path "$project_root" "$build_dir")"
+    else
+        iso_path="$resolved_path"
+    fi
+
+    return 0
+}
+
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 setup_script="$project_root/scripts/setup-xemu.sh"
 manifest_sh="$project_root/.local/xemu/paths.sh"
-iso_path="$project_root/Moonlight.iso"
+build_dir=""
+iso_path="$(default_iso_path "$project_root")"
 check_only=0
+target_path=""
+
+if [[ -n "${MOONLIGHT_XEMU_BUILD_DIR:-}" ]]; then
+    build_dir="$(resolve_build_dir "$MOONLIGHT_XEMU_BUILD_DIR")"
+    iso_path="$(default_iso_path "$project_root" "$build_dir")"
+fi
+
+if [[ -n "${MOONLIGHT_XEMU_ISO_PATH:-}" ]]; then
+    iso_path="$(resolve_input_path "$MOONLIGHT_XEMU_ISO_PATH")"
+fi
+
+if [[ -n "${MOONLIGHT_XEMU_TARGET_PATH:-}" ]]; then
+    target_path="$MOONLIGHT_XEMU_TARGET_PATH"
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check)
             check_only=1
+            ;;
+        --build-dir)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo 'Missing value for --build-dir' >&2
+                exit 2
+            fi
+            build_dir="$(resolve_build_dir "$1")"
+            iso_path="$(default_iso_path "$project_root" "$build_dir")"
             ;;
         --iso)
             shift
@@ -88,20 +241,39 @@ while [[ $# -gt 0 ]]; do
                 echo 'Missing value for --iso' >&2
                 exit 2
             fi
-            iso_path="$1"
+            iso_path="$(resolve_input_path "$1")"
+            ;;
+        --)
+            shift
+            if [[ $# -gt 0 ]]; then
+                target_path="$1"
+                shift
+            fi
+            if [[ $# -gt 0 ]]; then
+                echo 'Only one positional path is supported' >&2
+                exit 2
+            fi
+            break
             ;;
         -h|--help)
             usage
             exit 0
             ;;
         *)
-            echo "Unknown argument: $1" >&2
-            usage >&2
-            exit 2
+            if [[ -z "$target_path" ]]; then
+                target_path="$1"
+            else
+                echo 'Only one positional path is supported' >&2
+                exit 2
+            fi
             ;;
     esac
     shift
 done
+
+if [[ -n "$target_path" ]]; then
+    apply_target_path "$target_path"
+fi
 
 if [[ ! -f "$manifest_sh" ]]; then
     "$setup_script"
@@ -152,6 +324,9 @@ require_file 'xemu hard disk image' "$hdd_path"
 write_xemu_config "$xemu_config_path" "$games_dir" "$bootrom_path" "$flashrom_path" "$eeprom_path" "$hdd_path"
 
 if [[ "$check_only" -eq 1 ]]; then
+    if [[ -n "$build_dir" ]]; then
+        printf 'BUILD_DIR=%s\n' "$build_dir"
+    fi
     printf 'XEMU_EXE=%s\n' "$xemu_exe"
     printf 'XEMU_CONFIG_PATH=%s\n' "$xemu_config_path"
     printf 'ISO_PATH=%s\n' "$iso_path"

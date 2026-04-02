@@ -1,0 +1,7 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="moonlight_xbox" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$CMakeCurrentBuildDir$/xbox" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Moonlight" TARGET_NAME="moonlight_xbox" CONFIG_NAME="nxdk-release (mingw64)" RUN_PATH="$PROJECT_DIR$/scripts/run-xemu.cmd">
+    <method v="2">
+      <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+    </method>
+  </configuration>
+</component>

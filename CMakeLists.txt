@@ -1,139 +1,73 @@
+# Configure the host-native top-level build, bootstrap vendored nxdk prerequisites,
+# and delegate the Xbox target to an internal child configure that uses the stock nxdk toolchain.
+
 cmake_minimum_required(VERSION 3.18)
-# much of this file is borrowed from https://github.com/Ryzee119/Xenium-Tools/blob/master/CMakeLists.txt
-# and https://github.com/abaire/nxdk_pgraph_tests/blob/main/CMakeLists.txt
 
 # Allow third-party subdirectories that use cmake_minimum_required < 3.5 (removed in CMake 4.x)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
 
+set(MOONLIGHT_BUILD_KIND "HOST" CACHE STRING "Internal Moonlight build mode")
+set_property(CACHE MOONLIGHT_BUILD_KIND PROPERTY STRINGS HOST XBOX)
+
+if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")
+    project(Moonlight C CXX)
+
+    # add custom modules
+    set(CMAKE_MODULE_PATH
+            ${CMAKE_MODULE_PATH}
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/"
+    )
+
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+    option(BUILD_DOCS "Build documentation" OFF)
+    option(MOONLIGHT_SKIP_NXDK_PREP "Skip nxdk bootstrap during the internal Xbox child configure" OFF)
+
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/xbox-build.cmake")
+    return()
+endif()
+
 project(Moonlight C CXX)
 
-#
-# metadata
-#
-set(XBE_TITLE ${CMAKE_PROJECT_NAME})
-set(NXDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/nxdk")
-set(XBOX_XBE_DIR "${CMAKE_CURRENT_BINARY_DIR}/xbe")
-set(XBOX_ISO "${CMAKE_PROJECT_NAME}.iso")
-
-#
-# Options
-#
-option(BUILD_DOCS "Build documentation" ON)
-option(BUILD_TESTS "Build tests" OFF)
-
-# add custom modules
 set(CMAKE_MODULE_PATH
         ${CMAKE_MODULE_PATH}
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/"
 )
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(NXDK REQUIRED)
-find_package(NXDK_SDL2 REQUIRED)
-find_package(NXDK_SDL2_Image REQUIRED)
-
-# add the automount_d_drive symbol to the linker flags, this is automatic with nxdk when using the Makefile option
-# if this is not used, we must add some code to the main function to automount the D drive
-# e.g. https://github.com/abaire/nxdk_pgraph_tests/blob/4b7934e6d612a6d17f9ec229a2d72601a5caefc4/src/main.cpp#L118-L122
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -include:_automount_d_drive")
-
-# create the xbe directory if it doesn't exist
-file(MAKE_DIRECTORY ${XBOX_XBE_DIR})
-
-add_custom_target(sync_xbe_assets ALL
-        COMMAND "${CMAKE_COMMAND}" -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
-            "${XBOX_XBE_DIR}"
-        COMMENT "Sync XBE assets"
-)
-
-include(FindPkgConfig)
-
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+if(CMAKE_HOST_WIN32 AND CMAKE_GENERATOR MATCHES "Makefiles")
+    set(CMAKE_DEPENDS_USE_COMPILER FALSE CACHE BOOL "Use CMake depfile scanning with Windows makefile generators" FORCE)
 endif()
-set(CMAKE_CXX_FLAGS_RELEASE "-O2")
-set(CMAKE_C_FLAGS_RELEASE "-O2")
-
-file(GLOB_RECURSE MOONLIGHT_SOURCES
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-)
-set(MOONLIGHT_EXTERNAL_LIBRARIES
-        NXDK::NXDK
-        NXDK::NXDK_CXX
-        NXDK::SDL2
-        NXDK::SDL2_Image
-)
-set(MOONLIGHT_INCLUDE_DIRS
-)
-set(MOONLIGHT_COMPILE_OPTIONS "-Wno-builtin-macro-redefined")
-
-# submodules
-# moonlight common library
-# find_package(OpenSSL REQUIRED)
-include(GetOpenSSL REQUIRED)
-set(ENET_NO_INSTALL ON CACHE BOOL "Don't install any libraries built for enet")
-set(BUILD_SHARED_LIBS OFF)
-add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
-if(TARGET moonlight-common-c AND TARGET openssl_external)
-    add_dependencies(moonlight-common-c openssl_external)
-endif()
-target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
-if(TARGET moonlight-common-c)
-    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
-endif()
-
-add_executable(${CMAKE_PROJECT_NAME}
-        ${MOONLIGHT_SOURCES}
-)
-include_directories(SYSTEM
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${MOONLIGHT_INCLUDE_DIRS})
-target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
-        ${MOONLIGHT_EXTERNAL_LIBRARIES}
-)
-target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE ${MOONLIGHT_COMPILE_OPTIONS})
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE XBOX NXDK)
-add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 #
-# documentation
+# Options
 #
+option(BUILD_DOCS "Build documentation" ON)
+option(BUILD_TESTS "Build host-native unit tests" ON)
+option(BUILD_XBOX "Build the Xbox target through an internal child configure" ON)
+option(MOONLIGHT_FORCE_NXDK_DISTCLEAN "Force a fresh nxdk distclean during configure" OFF)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
+
 if(BUILD_DOCS)
     add_subdirectory(third-party/doxyconfig docs)
 endif()
 
-#
-# tests
-#
 if(BUILD_TESTS)
     enable_testing()
-    add_subdirectory(tests EXCLUDE_FROM_ALL)
+    add_subdirectory(tests)
 endif()
 
-# Post-build exe to xbe conversion
-add_custom_target(cxbe_convert ALL
-        VERBATIM COMMAND "${CMAKE_COMMAND}" -E env
-            ./tools/cxbe/cxbe
-            -OUT:${XBOX_XBE_DIR}/default.xbe
-            -TITLE:${XBE_TITLE}
-            ${CMAKE_CURRENT_BINARY_DIR}/${XBE_TITLE}.exe
-        WORKING_DIRECTORY ${NXDK_DIR}
-        COMMENT "CXBE Conversion: [EXE -> XBE]"
-)
-add_dependencies(cxbe_convert ${CMAKE_PROJECT_NAME})
-add_dependencies(cxbe_convert sync_xbe_assets)
+if(BUILD_XBOX)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
 
-# Post-build xbe to xiso conversion
-add_custom_target(xbe_iso ALL
-        VERBATIM COMMAND "${CMAKE_COMMAND}" -E env
-            ${NXDK_DIR}/tools/extract-xiso/build/extract-xiso
-            -c ${XBOX_XBE_DIR} ${XBOX_ISO}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        COMMENT "CXBE Conversion: [XBE -> XISO]"
-)
-add_dependencies(xbe_iso cxbe_convert)
-
-set_target_properties(cxbe_convert PROPERTIES OUTPUT_QUIET ON)
-set_target_properties(xbe_iso PROPERTIES OUTPUT_QUIET ON)
+    moonlight_resolve_nxdk_dir(MOONLIGHT_NXDK_DIR)
+    moonlight_prepare_nxdk("${MOONLIGHT_NXDK_DIR}" "${CMAKE_BINARY_DIR}/nxdk-bootstrap")
+    moonlight_add_xbox_build(
+            NXDK_DIR "${MOONLIGHT_NXDK_DIR}"
+            BINARY_DIR "${CMAKE_BINARY_DIR}/xbox"
+    )
+endif()

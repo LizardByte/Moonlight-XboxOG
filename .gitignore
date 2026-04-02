@@ -43,5 +43,5 @@ cmake-*/
 .local/
 docs/doxyconfig*
 
-# iso file is created in project root
-*.iso
+# Temporary files
+*.cmd~

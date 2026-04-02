@@ -55,7 +55,7 @@ jobs:
       run:
         shell: ${{ matrix.shell }}
     env:
-      CMAKE_TEST: cmake-build-host-tests
+      CMAKE_BUILD: build
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -135,15 +135,15 @@ jobs:
       - name: Build
         run: |
           chmod +x build.sh
-          ./build.sh
+          ./build.sh --build-dir ${CMAKE_BUILD}
 
           # recursively list all files in build directory
-          ls -R build
+          ls -R ${CMAKE_BUILD}
 
           # move artifacts
           mkdir -p artifacts
-          tar -czf ./artifacts/Moonlight.tar.gz ./build/xbe
-          mv ./Moonlight.iso ./artifacts
+          tar -czf ./artifacts/Moonlight.tar.gz ./${CMAKE_BUILD}/xbox/xbe
+          cp ./${CMAKE_BUILD}/xbox/Moonlight.iso ./artifacts
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
@@ -151,16 +151,10 @@ jobs:
           name: moonlight-${{ runner.os }}
           path: artifacts/
 
-      - name: Configure host tests
-        run: cmake -S . -B ${CMAKE_TEST} -DBUILD_TESTS=ON -DBUILD_DOCS=OFF
-
-      - name: Build host tests
-        run: cmake --build ${CMAKE_TEST} --target test_moonlight
-
       - name: Run tests
         id: test
-        working-directory: ${{ env.CMAKE_TEST }}
-        run: ./tests/test_moonlight --gtest_color=yes --gtest_output=xml:tests/test_results.xml
+        working-directory: ${{ env.CMAKE_BUILD }}/tests
+        run: ./test_moonlight --gtest_color=yes --gtest_output=xml:test_results.xml
 
       - name: Generate gcov report
         id: test_report
@@ -170,20 +164,20 @@ jobs:
           (steps.test.outcome == 'success' || steps.test.outcome == 'failure')
         run: |
           ${{ steps.python-path.outputs.python-path }} -m pip install ".[test]"
-          ${{ steps.python-path.outputs.python-path }} -m gcovr ${CMAKE_TEST} -r . \
+          ${{ steps.python-path.outputs.python-path }} -m gcovr ${CMAKE_BUILD} -r . \
             --filter src \
             --exclude-noncode-lines \
             --exclude-throw-branches \
             --exclude-unreachable-branches \
             --verbose \
             --xml-pretty \
-            -o "${CMAKE_TEST}/coverage.xml"
+            -o "${CMAKE_BUILD}/coverage.xml"
 
       - name: Debug coverage file
         if: >-
           always() &&
           steps.test_report.outcome == 'success'
-        run: cat "${CMAKE_TEST}/coverage.xml"
+        run: cat "${CMAKE_BUILD}/coverage.xml"
 
       - name: Upload coverage
         # any except canceled or skipped
@@ -195,7 +189,7 @@ jobs:
         with:
           disable_search: true
           fail_ci_if_error: true
-          files: ./${{ env.CMAKE_TEST }}/coverage.xml
+          files: ./${{ env.CMAKE_BUILD }}/coverage.xml
           flags: ${{ runner.os }}
           report_type: coverage
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -211,7 +205,7 @@ jobs:
         with:
           disable_search: true
           fail_ci_if_error: true
-          files: ./${{ env.CMAKE_TEST }}/tests/test_results.xml
+          files: ./${{ env.CMAKE_BUILD }}/tests/test_results.xml
           flags: ${{ runner.os }}
           handle_no_reports_found: true
           report_type: test_results

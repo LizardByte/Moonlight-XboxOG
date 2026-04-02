@@ -3,7 +3,8 @@
 set -eu
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
-MSYS2_SHELL="/c/msys64/msys2_shell.cmd"
+MSYS2_ROOT="$(sh "${SCRIPT_DIR}/scripts/find-msys2.sh")"
+MSYS2_SHELL="${MSYS2_ROOT}/msys2_shell.cmd"
 
 if [ ! -f "${MSYS2_SHELL}" ]; then
 	echo "MSYS2 shell not found at ${MSYS2_SHELL}"

@@ -91,36 +91,18 @@ dependencies=("${nxdk_dependencies[@]}" "${moonlight_dependencies[@]}")
 brew install "${dependencies[@]}"
 ```
 
-### Pre-Build
-
-1. Run the following from mingw64 or bash shell:
-
-```bash
-export NXDK_DIR="$(pwd)/third-party/nxdk"
-eval "$(${NXDK_DIR}/bin/activate -s)"
-cd "${NXDK_DIR}"
-make NXDK_ONLY=y
-make tools
-```
-
 ### Configure
 
-1. Create build directory
+Configure the top-level project with the normal host toolchain. CMake uses the vendored `third-party/nxdk` checkout, bootstraps the required `nxdk` outputs, builds the host-native tests with the standard compiler/linker, and drives the Xbox build through an internal child configure that reuses the stock `nxdk` toolchain.
 
-   ```bash
-   mkdir -p build
-   ```
-
-2. Configure the project
-
-   ```bash
-   cmake -B build -S . -DCMAKE_TOOLCHAIN_FILE="${NXDK_DIR}/share/toolchain-nxdk.cmake"
-   ```
+```bash
+cmake -S . -B cmake-build-release -DBUILD_DOCS=OFF -DCMAKE_BUILD_TYPE=Release
+```
 
 ### Build
 
 ```bash
-cmake --build build
+cmake --build cmake-build-release
 ```
 
 ### Combined script
@@ -131,12 +113,12 @@ This script takes care of everything, except installing the prerequisites.
 ./build.sh
 ```
 
-The default build directory is `build`. You can override it or force a clean build:
+The default build directory is `cmake-build-release`. You can override it or force a clean build:
 
 ```bash
-./build.sh --build-dir cmake-build-nxdk-release
+./build.sh --build-dir cmake-build-debug
 ./build.sh --clean
-./build.sh build clean
+./build.sh cmake-build-custom clean
 ```
 
 To launch the same build from shells outside MSYS2 on Windows, use one of these wrappers:
@@ -151,28 +133,28 @@ build-mingw64.bat
 
 ### Host-native unit tests
 
-The Xbox executable cannot run directly on Windows, macOS, or Linux, so unit tests are built as a separate host-native target. Keep Xbox runtime code thin and move logic you want to test into platform-neutral sources that can be linked into `test_moonlight`.
+The Xbox executable cannot run directly on Windows, macOS, or Linux, so the top-level project builds `test_moonlight` natively while the Xbox binary is built by an internal child configure that uses the `nxdk` toolchain. Keep Xbox runtime code thin and move logic you want to test into platform-neutral sources that can be linked into `test_moonlight`.
 
 #### Windows via MSYS2/mingw64
 
-From `cmd.exe`, configure, build, and run the host tests with:
+From `cmd.exe`, configure, build, and run the host tests after the helper locates your local MSYS2 installation:
 
 ```bat
-C:\msys64\msys2_shell.cmd -defterm -here -no-start -mingw64 -c "cd /c/Users/%USERNAME%/Dev/git/Moonlight-XboxOG && cmake --preset \"host-tests (mingw64)\" && cmake --build --preset \"host-tests (mingw64)\" && ctest --preset \"host-tests (mingw64)\""
+call scripts\find-msys2.cmd && "%MOONLIGHT_MSYS2_SHELL%" -defterm -here -no-start -mingw64 -c "cd /c/Users/%USERNAME%/Dev/git/Moonlight-XboxOG && cmake -S . -B cmake-build-host-tests -DBUILD_DOCS=OFF -DBUILD_TESTS=ON -DBUILD_XBOX=OFF -DCMAKE_BUILD_TYPE=Debug && cmake --build cmake-build-host-tests --target test_moonlight && ctest --test-dir cmake-build-host-tests --output-on-failure"
 ```
 
 If you are already inside a `mingw64` shell, the equivalent commands are:
 
 ```bash
-cmake --preset "host-tests (mingw64)"
-cmake --build --preset "host-tests (mingw64)"
-ctest --preset "host-tests (mingw64)"
+cmake -S . -B cmake-build-host-tests -DBUILD_DOCS=OFF -DBUILD_TESTS=ON -DBUILD_XBOX=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake --build cmake-build-host-tests --target test_moonlight
+ctest --test-dir cmake-build-host-tests --output-on-failure
 ```
 
 #### Linux or macOS
 
 ```bash
-cmake -S . -B cmake-build-host-tests -DBUILD_TESTS=ON -DBUILD_DOCS=OFF
+cmake -S . -B cmake-build-host-tests -DBUILD_TESTS=ON -DBUILD_XBOX=OFF -DBUILD_DOCS=OFF
 cmake --build cmake-build-host-tests --target test_moonlight
 ctest --test-dir cmake-build-host-tests --output-on-failure
 ```
@@ -181,12 +163,12 @@ Coverage should come from this host-native test build instead of the cross-compi
 
 ### CLion on Windows
 
-The repository now includes CLion-friendly nxdk wrapper scripts in `cmake/` plus shared run configurations in `.run/`.
+The Windows preset in `CMakePresets.json` uses `MinGW Makefiles` for the host-native CLion build, auto-detects the local MSYS2 installation through `cmake/host-mingw64-clang.cmake`, and delegates the Xbox child build through a dedicated CMake driver that enters the vendored `nxdk` environment only for the child configure and build steps.
 
-1. Open the project in CLion and let it import the `nxdk` preset from `CMakePresets.json`.
-2. If CLion cached an older failed configure, reload the CMake project or remove `cmake-build-nxdk-release/CMakeCache.txt` once.
-3. Use the normal build button with the `nxdk` profile selected.
-4. Build `Moonlight.iso` first, then use the shared `Run Moonlight ISO in xemu` run configuration to launch it in xemu.
+1. Open the project in CLion and import the `nxdk-release (mingw64)` preset from `CMakePresets.json`.
+2. Use the normal build button with that profile selected. The top-level build will compile `test_moonlight` natively and configure the Xbox child build automatically.
+3. When you use CLion's **Reset Cache and Reload Project**, the next configure will clean the `nxdk` build outputs and rebuild the required `nxdk` libraries and tools.
+4. Build the `moonlight_xbox` target or the default `all` target. The generated ISO now lives at `cmake-build-release/xbox/Moonlight.iso`.
 
 For the first xemu launch, you can either run the shared `Setup portable xemu` configuration or run the Windows wrapper manually:
 
@@ -194,9 +176,11 @@ For the first xemu launch, you can either run the shared `Setup portable xemu` c
 scripts\setup-xemu.cmd
 ```
 
-The shared CLion run configurations now call `scripts\setup-xemu.cmd` and `scripts\run-xemu.cmd` directly through `C:\Windows\System32\cmd.exe`. Those wrappers start MSYS2 with the expected `mingw64` environment and then launch the corresponding `.sh` scripts.
+The repository now includes `.run/Run xemu.run.xml`, which launches `scripts\run-xemu.cmd` through `C:\Windows\System32\cmd.exe` without extra arguments and lets the launcher auto-discover a built Moonlight ISO.
 
-The setup script downloads xemu and the emulator support files into `.local/xemu`, then refreshes launcher manifests used by `scripts/run-xemu.sh`.
+If you create a local CLion run configuration that sets the working directory to a build output such as `$CMakeCurrentBuildDir$/xbox`, the Windows wrapper also treats that caller working directory as the xemu target path when no explicit launcher arguments or `MOONLIGHT_XEMU_*` overrides are provided.
+
+The setup script downloads xemu and the emulator support files into `.local/xemu`, then refreshes launcher manifests used by `scripts/run-xemu.sh`. The launcher accepts `MOONLIGHT_XEMU_BUILD_DIR`, `MOONLIGHT_XEMU_ISO_PATH`, `--build-dir <cmake-build-dir>`, `--iso <iso-path>`, or a single positional path that can point at either a build directory or an ISO file. If you do not pass a path, it falls back across available `cmake-build-*` outputs and prefers the newest built ISO.
 
 If you only want the emulator without the ROM/HDD support bundle, run:
 
