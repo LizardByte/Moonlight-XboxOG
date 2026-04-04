@@ -22,6 +22,7 @@ endif()
 find_package(NXDK REQUIRED)
 find_package(NXDK_SDL2 REQUIRED)
 find_package(NXDK_SDL2_Image REQUIRED)
+find_package(NXDK_SDL2_TTF REQUIRED)
 
 # add the automount_d_drive symbol to the linker flags, this is automatic with nxdk when using the Makefile option
 # if this is not used, we must add some code to the main function to automount the D drive
@@ -46,6 +47,8 @@ set(CMAKE_C_FLAGS_RELEASE "-O2")
 
 # moonlight-common-c submodule
 include(GetOpenSSL REQUIRED)
+set(MOONLIGHT_MOONLIGHT_COMMON_C_COMPAT_HEADER
+        "${CMAKE_SOURCE_DIR}/src/compat/moonlight-common-c/moonlight_common_c_compat.h")
 set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
@@ -55,7 +58,10 @@ endif()
 target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
 target_compile_options(enet PRIVATE -Wno-unused-function -Wno-error=unused-function)
 if(TARGET moonlight-common-c)
-    target_compile_options(moonlight-common-c PRIVATE -Wno-unused-function -Wno-error=unused-function)
+    target_compile_options(moonlight-common-c PRIVATE
+            -include "${MOONLIGHT_MOONLIGHT_COMMON_C_COMPAT_HEADER}"
+            -Wno-unused-function
+            -Wno-error=unused-function)
     target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
 endif()
 
@@ -70,8 +76,12 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         PUBLIC
         NXDK::NXDK
         NXDK::NXDK_CXX
+        NXDK::ws2_32
         NXDK::SDL2
         NXDK::SDL2_Image
+        NXDK::SDL2_TTF
+        OpenSSL::Crypto
+        OpenSSL::SSL
 )
 target_compile_options(${CMAKE_PROJECT_NAME}
         PRIVATE

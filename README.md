@@ -230,10 +230,10 @@ scripts\setup-xemu.cmd --skip-support-files
    - [ ] Mouse Input
    - [ ] Mouse Emulation via Gamepad
 - Misc.
-  - [ ] Save config and pairing states, probably use nlohmann/json
-  - [ ] Host pairing
-  - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
+  - [x] Save config and pairing states
+  - [x] Host pairing
   - [x] Docs via doxygen
+  - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
 
 <details style="display: none;">
   <summary></summary>

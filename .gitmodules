@@ -16,4 +16,4 @@
 [submodule "third-party/openssl"]
 	path = third-party/openssl
 	url = https://github.com/openssl/openssl.git
-	branch = master
+	branch = OpenSSL_1_1_1-stable

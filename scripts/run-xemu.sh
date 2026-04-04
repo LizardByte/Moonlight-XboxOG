@@ -7,12 +7,14 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: run-xemu.sh [--check] [--build-dir dir] [--iso path] [path]
+Usage: run-xemu.sh [--check] [--build-dir dir] [--iso path] [--network mode] [--tap-ifname name] [path]
 
 Environment overrides:
   MOONLIGHT_XEMU_BUILD_DIR
   MOONLIGHT_XEMU_ISO_PATH
   MOONLIGHT_XEMU_TARGET_PATH
+  MOONLIGHT_XEMU_NETWORK
+  MOONLIGHT_XEMU_TAP_IFNAME
 EOF
     return 0
 }
@@ -69,6 +71,8 @@ write_xemu_config() {
         printf 'show_welcome = false\n'
         printf 'games_dir = "%s"\n' "$(escape_toml_string "$games_dir")"
         printf 'skip_boot_anim = true\n'
+        printf '\n[net]\n'
+        printf 'enable = true\n'
         printf '\n[sys.files]\n'
         printf 'bootrom_path = "%s"\n' "$(escape_toml_string "$bootrom_path")"
         printf 'flashrom_path = "%s"\n' "$(escape_toml_string "$flashrom_path")"
@@ -77,6 +81,60 @@ write_xemu_config() {
     } > "$config_path"
 
     return 0
+}
+
+prepare_xemu_runtime_environment() {
+    if is_windows; then
+        if [[ -n "${XEMU_APPDATA:-}" ]]; then
+            export APPDATA="$(to_native_path "$XEMU_APPDATA")"
+        fi
+        if [[ -n "${XEMU_LOCALAPPDATA:-}" ]]; then
+            export LOCALAPPDATA="$(to_native_path "$XEMU_LOCALAPPDATA")"
+        fi
+        return 0
+    fi
+
+    if [[ -n "${XEMU_HOME:-}" ]]; then
+        export HOME="$XEMU_HOME"
+    fi
+    if [[ -n "${XEMU_CONFIG_HOME:-}" ]]; then
+        export XDG_CONFIG_HOME="$XEMU_CONFIG_HOME"
+    fi
+    if [[ -n "${XEMU_DATA_HOME:-}" ]]; then
+        export XDG_DATA_HOME="$XEMU_DATA_HOME"
+    fi
+    if [[ -n "${XEMU_CACHE_HOME:-}" ]]; then
+        export XDG_CACHE_HOME="$XEMU_CACHE_HOME"
+    fi
+    if [[ -n "${XEMU_STATE_HOME:-}" ]]; then
+        export XDG_STATE_HOME="$XEMU_STATE_HOME"
+    fi
+
+    return 0
+}
+
+build_network_args() {
+    case "$network_mode" in
+        user)
+            return 0
+            ;;
+        none)
+            xemu_network_args=(-nic none)
+            return 0
+            ;;
+        tap)
+            if [[ -z "$tap_ifname" ]]; then
+                echo 'The tap network mode requires --tap-ifname or MOONLIGHT_XEMU_TAP_IFNAME.' >&2
+                exit 2
+            fi
+            xemu_network_args=(-nic "tap,ifname=$tap_ifname")
+            return 0
+            ;;
+        *)
+            echo "Unsupported network mode: $network_mode" >&2
+            exit 2
+            ;;
+    esac
 }
 
 require_file() {
@@ -207,6 +265,9 @@ build_dir=""
 iso_path="$(default_iso_path "$project_root")"
 check_only=0
 target_path=""
+network_mode="${MOONLIGHT_XEMU_NETWORK:-user}"
+tap_ifname="${MOONLIGHT_XEMU_TAP_IFNAME:-}"
+xemu_network_args=()
 
 if [[ -n "${MOONLIGHT_XEMU_BUILD_DIR:-}" ]]; then
     build_dir="$(resolve_build_dir "$MOONLIGHT_XEMU_BUILD_DIR")"
@@ -242,6 +303,22 @@ while [[ $# -gt 0 ]]; do
                 exit 2
             fi
             iso_path="$(resolve_input_path "$1")"
+            ;;
+        --network)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo 'Missing value for --network' >&2
+                exit 2
+            fi
+            network_mode="$1"
+            ;;
+        --tap-ifname)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo 'Missing value for --tap-ifname' >&2
+                exit 2
+            fi
+            tap_ifname="$1"
             ;;
         --)
             shift
@@ -322,6 +399,8 @@ require_file 'xemu flash ROM' "$flashrom_path"
 require_file 'xemu hard disk image' "$hdd_path"
 
 write_xemu_config "$xemu_config_path" "$games_dir" "$bootrom_path" "$flashrom_path" "$eeprom_path" "$hdd_path"
+prepare_xemu_runtime_environment
+build_network_args
 
 if [[ "$check_only" -eq 1 ]]; then
     if [[ -n "$build_dir" ]]; then
@@ -334,7 +413,11 @@ if [[ "$check_only" -eq 1 ]]; then
     printf 'XEMU_FLASHROM_PATH=%s\n' "$flashrom_path"
     printf 'XEMU_EEPROM_PATH=%s\n' "$eeprom_path"
     printf 'XEMU_HDD_PATH=%s\n' "$hdd_path"
+    printf 'XEMU_NETWORK_MODE=%s\n' "$network_mode"
+    if [[ -n "$tap_ifname" ]]; then
+        printf 'XEMU_TAP_IFNAME=%s\n' "$tap_ifname"
+    fi
     exit 0
 fi
 
-exec "$xemu_exe" -config_path "$xemu_config_path" -dvd_path "$iso_path" -no-user-config
+exec "$xemu_exe" -config_path "$xemu_config_path" -dvd_path "$iso_path" -no-user-config "${xemu_network_args[@]}"

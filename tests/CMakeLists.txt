@@ -15,6 +15,8 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${GTEST_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
 
+include(GetOpenSSL REQUIRED)
+
 set(TEST_COVERAGE_COMPILE_OPTIONS)
 set(TEST_COVERAGE_LINK_OPTIONS)
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
@@ -23,9 +25,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     list(APPEND TEST_COVERAGE_LINK_OPTIONS -fprofile-arcs -ftest-coverage)
 endif()
 
-if (WIN32)
+if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)  # cmake-lint: disable=C0103
-endif ()
+endif()
 
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_SOURCE_DIR}/tests/*.h
@@ -36,6 +38,18 @@ add_executable(${PROJECT_NAME}
         ${MOONLIGHT_HOST_TESTABLE_SOURCES})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+set(MOONLIGHT_TEST_OPENSSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(MOONLIGHT_TEST_OPENSSL_LIBRARIES
+            -Wl,--start-group
+            -Wl,--whole-archive
+            OpenSSL::SSL
+            OpenSSL::Crypto
+            -Wl,--no-whole-archive
+            -Wl,--end-group)
+endif()
+
 target_include_directories(${PROJECT_NAME}
         PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/support
@@ -44,7 +58,13 @@ target_include_directories(${PROJECT_NAME}
         ${GTEST_SOURCE_DIR}/googlemock/include)
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        gtest_main)
+        gtest_main
+        ${MOONLIGHT_TEST_OPENSSL_LIBRARIES}
+        ws2_32
+        crypt32
+        gdi32
+        advapi32
+        user32)
 target_compile_options(${PROJECT_NAME}
         PRIVATE
         ${TEST_COVERAGE_COMPILE_OPTIONS})
@@ -56,7 +76,7 @@ add_dependencies(${PROJECT_NAME} gtest gtest_main gmock gmock_main)
 
 include(GoogleTest)
 set(TEST_RUNTIME_PROPERTIES)
-if(WIN32)
+if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
     set(_test_runtime_path "${MOONLIGHT_HOST_TOOL_DIR}")
     if(_test_runtime_path STREQUAL "")
         get_filename_component(_test_runtime_path "${CMAKE_CXX_COMPILER}" DIRECTORY)

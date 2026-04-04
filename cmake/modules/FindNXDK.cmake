@@ -136,6 +136,7 @@ if (NOT TARGET NXDK::ws2_32)
     target_link_libraries(
             NXDK::ws2_32
             INTERFACE
+            NXDK::Net
             ws2_32
     )
     target_include_directories(

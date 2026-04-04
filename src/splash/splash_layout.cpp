@@ -1,5 +1,7 @@
+// class header include
 #include "src/splash/splash_layout.h"
 
+// standard includes
 #include <algorithm>
 #include <cmath>
 

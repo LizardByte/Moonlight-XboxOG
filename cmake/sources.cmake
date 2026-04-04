@@ -13,6 +13,7 @@ set(MOONLIGHT_TEST_EXCLUDED_SOURCES
         "${MOONLIGHT_SOURCE_ROOT}/src/main.cpp"
         "${MOONLIGHT_SOURCE_ROOT}/src/splash/splash_screen.cpp"
         "${MOONLIGHT_SOURCE_ROOT}/src/startup/memory_stats.cpp"
+        "${MOONLIGHT_SOURCE_ROOT}/src/ui/shell_screen.cpp"
 )
 
 set(MOONLIGHT_HOST_TESTABLE_SOURCES ${MOONLIGHT_SOURCES})
