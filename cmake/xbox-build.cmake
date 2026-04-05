@@ -47,8 +47,12 @@ set(CMAKE_C_FLAGS_RELEASE "-O2")
 
 # moonlight-common-c submodule
 include(GetOpenSSL REQUIRED)
-set(MOONLIGHT_MOONLIGHT_COMMON_C_COMPAT_HEADER
-        "${CMAKE_SOURCE_DIR}/src/compat/moonlight-common-c/moonlight_common_c_compat.h")
+set(MOONLIGHT_NXDK_NET_INCLUDE_DIR
+        "${NXDK_DIR}/lib/net")
+set(MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR
+        "${NXDK_DIR}/lib/xboxrt/libc_extensions")
+set(MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR
+        "${NXDK_DIR}/lib/net/lwip/src/include/compat/posix")
 set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
 set(BUILD_SHARED_LIBS OFF)
 add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
@@ -56,10 +60,17 @@ if(TARGET moonlight-common-c AND TARGET openssl_external)
     add_dependencies(moonlight-common-c openssl_external)
 endif()
 target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+target_include_directories(enet PRIVATE
+        "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
+        "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
+        "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}")
 target_compile_options(enet PRIVATE -Wno-unused-function -Wno-error=unused-function)
 if(TARGET moonlight-common-c)
+    target_include_directories(moonlight-common-c PRIVATE
+            "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
+            "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
+            "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}")
     target_compile_options(moonlight-common-c PRIVATE
-            -include "${MOONLIGHT_MOONLIGHT_COMMON_C_COMPAT_HEADER}"
             -Wno-unused-function
             -Wno-error=unused-function)
     target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
@@ -68,9 +79,15 @@ endif()
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}
 )
+target_sources(${CMAKE_PROJECT_NAME}
+        PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/stat_compat.cpp")
 target_include_directories(${CMAKE_PROJECT_NAME}
         SYSTEM PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
+        "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
+        "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}"
 )
 target_link_libraries(${CMAKE_PROJECT_NAME}
         PUBLIC

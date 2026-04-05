@@ -80,10 +80,7 @@ namespace {
 	  case app::ScreenId::home:
 		{
 		  std::vector<std::string> lines = {
-			"Controller-first Moonlight shell prototype.",
-			"Use Hosts to review saved PCs and future pairing work.",
-			"Use Add Host to create a manual host entry with keypad editing.",
-			"Use Settings for display, input, and logging options.",
+			"Hello, Moonlight!",
 			"Saved hosts available: " + std::to_string(state.hosts.size()),
 		  };
 
@@ -112,7 +109,7 @@ namespace {
 			  lines.push_back(std::string("Pairing: ") + (host->pairingState == app::PairingState::paired ? "Paired" : "Not paired yet"));
 											lines.emplace_back(host->pairingState == app::PairingState::paired
 				? "This host is already paired."
-						: "Select Pair Selected Host to start the Sunshine pairing handshake in the background.");
+						: "Select Pair Selected Host to start the pairing handshake in the background.");
 			}
 			else {
 			  lines.emplace_back("Select a saved host to inspect its address and pairing state.");
@@ -128,13 +125,10 @@ namespace {
 	  case app::ScreenId::add_host:
 		{
 		  std::vector<std::string> lines = {
-			"Manual host entry with a popup keypad.",
+			"Manual host entry.",
 			std::string("Current address: ") + app::current_add_host_address(state),
 			std::string("Current port: ") + std::to_string(app::current_add_host_port(state)),
 			std::string("Selected field: ") + active_add_host_field_label(state),
-			"Select Host Address or Port to open the keypad modal.",
-			"Use Clear Current Field to erase the selected field.",
-			"Test Connection checks reachability before you save the host.",
 		  };
 
 		  if (!state.addHostDraft.validationMessage.empty()) {
@@ -150,10 +144,9 @@ namespace {
 	  case app::ScreenId::pair_host:
 		{
 		  std::vector<std::string> lines = {
-			"Pairing now prepares the client identity and runs the network handshake in the background so the shell stays responsive.",
 			std::string("Target host: ") + state.pairingDraft.targetAddress,
 			std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort),
-			std::string("Last generated PIN: ") + app::current_pairing_pin(state),
+			std::string("PIN: ") + app::current_pairing_pin(state),
 			"Enter the PIN on the host if prompted and wait for the status below.",
 			"Cancel leaves this screen, but the active network request may need a few seconds to unwind.",
 		  };

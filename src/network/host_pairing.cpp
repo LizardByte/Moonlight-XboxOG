@@ -15,12 +15,28 @@
 #include <vector>
 
 // platform includes
+#ifdef NXDK
+#include <errno.h>
+#include <lwip/inet.h>
+#include <lwip/sockets.h>
+#else
 #include <winsock2.h>
 #include <windows.h>
+#endif
 
 // nxdk includes
 #ifdef NXDK
 #include <hal/debug.h>
+
+using SOCKET = int;
+
+#ifndef INVALID_SOCKET
+#define INVALID_SOCKET (-1)
+#endif
+
+#ifndef SOCKET_ERROR
+#define SOCKET_ERROR (-1)
+#endif
 #endif
 
 #define OPENSSL_SUPPRESS_DEPRECATED
@@ -73,18 +89,26 @@ namespace {
   constexpr int SOCKET_TIMEOUT_MILLISECONDS = 5000;
   constexpr uint16_t DEFAULT_SERVERINFO_HTTP_PORT = 47989;
   constexpr uint16_t FALLBACK_SERVERINFO_HTTP_PORT = 47984;
+  constexpr std::string_view DEFAULT_SERVERINFO_UNIQUE_ID = "0123456789ABCDEF";
+  constexpr std::string_view DEFAULT_SERVERINFO_UUID = "11111111-2222-3333-4444-555555555555";
 
   struct WsaGuard {
     WsaGuard()
       : initialized(false) {
+#ifdef NXDK
+      initialized = true;
+#else
       WSADATA wsaData {};
       initialized = WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
+#endif
     }
 
     ~WsaGuard() {
+#ifndef NXDK
       if (initialized) {
         WSACleanup();
       }
+#endif
     }
 
     bool initialized;
@@ -103,6 +127,61 @@ namespace {
 
     SOCKET handle;
   };
+
+  bool append_error(std::string *errorMessage, std::string message);
+
+  int last_socket_error() {
+#ifdef NXDK
+    return errno;
+#else
+    return WSAGetLastError();
+#endif
+  }
+
+  bool is_connect_in_progress_error(int errorCode) {
+#ifdef NXDK
+    return errorCode == EWOULDBLOCK || errorCode == EINPROGRESS || errorCode == EALREADY;
+#else
+    return errorCode == WSAEWOULDBLOCK || errorCode == WSAEINPROGRESS || errorCode == WSAEALREADY;
+#endif
+  }
+
+  bool is_timeout_error(int errorCode) {
+#ifdef NXDK
+    return errorCode == ETIMEDOUT;
+#else
+    return errorCode == WSAETIMEDOUT;
+#endif
+  }
+
+  bool set_socket_non_blocking(SOCKET socketHandle, bool enabled, std::string *errorMessage) {
+#ifdef NXDK
+    int nonBlockingMode = enabled ? 1 : 0;
+#else
+    u_long nonBlockingMode = enabled ? 1UL : 0UL;
+#endif
+
+    if (ioctlsocket(socketHandle, FIONBIO, &nonBlockingMode) != 0) {
+      return append_error(errorMessage, std::string("Failed to configure the host pairing socket mode (socket error ") + std::to_string(last_socket_error()) + ")");
+    }
+
+    return true;
+  }
+
+  void set_socket_timeouts(SOCKET socketHandle) {
+#ifdef NXDK
+    timeval timeout {
+      SOCKET_TIMEOUT_MILLISECONDS / 1000,
+      (SOCKET_TIMEOUT_MILLISECONDS % 1000) * 1000,
+    };
+    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
+    setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeout), sizeof(timeout));
+#else
+    const DWORD timeoutMilliseconds = SOCKET_TIMEOUT_MILLISECONDS;
+    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeoutMilliseconds), sizeof(timeoutMilliseconds));
+    setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeoutMilliseconds), sizeof(timeoutMilliseconds));
+#endif
+  }
 
   struct SslCtxDeleter {
     void operator()(SSL_CTX *context) const {
@@ -247,6 +326,11 @@ namespace {
     append_unique_port(&ports, DEFAULT_SERVERINFO_HTTP_PORT);
     append_unique_port(&ports, FALLBACK_SERVERINFO_HTTP_PORT);
     return ports;
+  }
+
+  std::string build_serverinfo_path(std::string_view uniqueId) {
+    const std::string_view resolvedUniqueId = uniqueId.empty() ? DEFAULT_SERVERINFO_UNIQUE_ID : uniqueId;
+    return "/serverinfo?uniqueid=" + std::string(resolvedUniqueId) + "&uuid=" + std::string(DEFAULT_SERVERINFO_UUID);
   }
 
   std::string_view trim_ascii_whitespace(std::string_view text) {
@@ -889,18 +973,17 @@ namespace {
     }
     trace_pairing_phase("IPv4 socket address ready");
 
-    u_long nonBlockingMode = 1;
     trace_pairing_phase("setting non-blocking connect mode");
-    if (ioctlsocket(socketGuard->handle, FIONBIO, &nonBlockingMode) != 0) {
-      return append_error(errorMessage, "Failed to configure the host pairing socket for a timed connect (Winsock error " + std::to_string(WSAGetLastError()) + ")");
+    if (!set_socket_non_blocking(socketGuard->handle, true, errorMessage)) {
+      return false;
     }
 
     trace_pairing_detail("connecting to " + address + ":" + std::to_string(port));
     const int connectResult = connect(socketGuard->handle, reinterpret_cast<const sockaddr *>(&socketAddress), sizeof(socketAddress));
     if (connectResult == SOCKET_ERROR) {
-      const int connectError = WSAGetLastError();
-      if (connectError != WSAEWOULDBLOCK && connectError != WSAEINPROGRESS && connectError != WSAEALREADY) {
-        return append_error(errorMessage, "Failed to connect to the host pairing endpoint at " + address + ":" + std::to_string(port) + " (Winsock error " + std::to_string(connectError) + ")");
+      const int connectError = last_socket_error();
+      if (!is_connect_in_progress_error(connectError)) {
+        return append_error(errorMessage, "Failed to connect to the host pairing endpoint at " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(connectError) + ")");
       }
 
       fd_set writeSet;
@@ -926,22 +1009,19 @@ namespace {
       int socketErrorLength = sizeof(socketError);
 #endif
       if (getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
-        return append_error(errorMessage, "Failed to query the host pairing socket status after connect (Winsock error " + std::to_string(WSAGetLastError()) + ")");
+        return append_error(errorMessage, "Failed to query the host pairing socket status after connect (socket error " + std::to_string(last_socket_error()) + ")");
       }
       if (socketError != 0) {
-        return append_error(errorMessage, "Host refused the pairing connection on " + address + ":" + std::to_string(port) + " (Winsock error " + std::to_string(socketError) + ")");
+        return append_error(errorMessage, "Host refused the pairing connection on " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(socketError) + ")");
       }
     }
 
-    nonBlockingMode = 0;
     trace_pairing_phase("restoring blocking mode after connect");
-    if (ioctlsocket(socketGuard->handle, FIONBIO, &nonBlockingMode) != 0) {
-      return append_error(errorMessage, "Failed to restore the host pairing socket to blocking mode after connect (Winsock error " + std::to_string(WSAGetLastError()) + ")");
+    if (!set_socket_non_blocking(socketGuard->handle, false, errorMessage)) {
+      return false;
     }
 
-    const DWORD timeoutMilliseconds = SOCKET_TIMEOUT_MILLISECONDS;
-    setsockopt(socketGuard->handle, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char *>(&timeoutMilliseconds), sizeof(timeoutMilliseconds));
-    setsockopt(socketGuard->handle, SOL_SOCKET, SO_SNDTIMEO, reinterpret_cast<const char *>(&timeoutMilliseconds), sizeof(timeoutMilliseconds));
+    set_socket_timeouts(socketGuard->handle);
     trace_pairing_phase("socket connected");
 
     return true;
@@ -958,10 +1038,10 @@ namespace {
         break;
       }
       if (bytesRead < 0) {
-        const int socketError = WSAGetLastError();
-        return append_error(errorMessage, socketError == WSAETIMEDOUT
+        const int socketError = last_socket_error();
+        return append_error(errorMessage, is_timeout_error(socketError)
           ? "Timed out while reading the host pairing response"
-          : "Failed while reading the host pairing response (Winsock error " + std::to_string(socketError) + ")");
+          : "Failed while reading the host pairing response (socket error " + std::to_string(socketError) + ")");
       }
       received.append(buffer, buffer + bytesRead);
 
@@ -999,7 +1079,7 @@ namespace {
         if (errorCode == SSL_ERROR_WANT_READ || errorCode == SSL_ERROR_WANT_WRITE) {
           continue;
         }
-        return append_openssl_error(errorMessage, errorCode == SSL_ERROR_SYSCALL && WSAGetLastError() == WSAETIMEDOUT
+        return append_openssl_error(errorMessage, errorCode == SSL_ERROR_SYSCALL && is_timeout_error(last_socket_error())
           ? "Timed out while reading the encrypted host pairing response"
           : "Failed while reading the encrypted host pairing response");
       }
@@ -1026,7 +1106,7 @@ namespace {
     while (sent < request.size()) {
       const int bytesSent = send(socketHandle, request.data() + sent, static_cast<int>(request.size() - sent), 0);
       if (bytesSent <= 0) {
-        return append_error(errorMessage, "Failed to send the host pairing request (Winsock error " + std::to_string(WSAGetLastError()) + ")");
+        return append_error(errorMessage, "Failed to send the host pairing request (socket error " + std::to_string(last_socket_error()) + ")");
       }
       sent += static_cast<std::size_t>(bytesSent);
     }
@@ -1076,13 +1156,20 @@ namespace {
     return true;
   }
 
-  bool query_server_info_internal(const std::string &address, uint16_t preferredHttpPort, HttpResponse *response, network::HostPairingServerInfo *serverInfo, std::string *errorMessage) {
+  bool query_server_info_internal(
+    const std::string &address,
+    uint16_t preferredHttpPort,
+    std::string_view uniqueId,
+    HttpResponse *response,
+    network::HostPairingServerInfo *serverInfo,
+    std::string *errorMessage
+  ) {
     if (address.empty()) {
       return append_error(errorMessage, "Pairing requires a valid host address");
     }
 
     const std::vector<uint16_t> candidatePorts = build_serverinfo_port_candidates(preferredHttpPort);
-    const std::string serverInfoPath = "/serverinfo?uniqueid=0123456789ABCDEF&uuid=11111111-2222-3333-4444-555555555555";
+    const std::string serverInfoPath = build_serverinfo_path(uniqueId);
     std::vector<std::string> attemptFailures;
 
     for (uint16_t candidatePort : candidatePorts) {
@@ -1134,10 +1221,10 @@ namespace {
     HttpResponse *response,
     std::string *errorMessage
   ) {
-    trace_pairing_phase("http_get: WSAStartup");
+    trace_pairing_phase("http_get: socket initialization");
     WsaGuard wsaGuard;
     if (!wsaGuard.initialized) {
-      return append_error(errorMessage, "Failed to initialize Winsock for host pairing");
+      return append_error(errorMessage, "Failed to initialize socket support for host pairing");
     }
 
     SocketGuard socketGuard;
@@ -1161,7 +1248,10 @@ namespace {
     }
     else {
       trace_pairing_phase("http_get: preparing TLS");
-      initialize_openssl();
+      if (!ensure_pairing_entropy(errorMessage)) {
+        return false;
+      }
+
       std::unique_ptr<SSL_CTX, SslCtxDeleter> context(SSL_CTX_new(TLS_client_method()));
       if (context == nullptr) {
         return append_openssl_error(errorMessage, "Failed to create the TLS context for host pairing");
@@ -1192,8 +1282,15 @@ namespace {
 #endif
       ERR_clear_error();
       trace_pairing_phase("http_get: SSL_connect");
-      if (SSL_connect(ssl.get()) != 1) {
-        return append_openssl_error(errorMessage, "Failed to establish the encrypted host pairing session");
+      const int connectResult = SSL_connect(ssl.get());
+      if (connectResult != 1) {
+        const int sslError = SSL_get_error(ssl.get(), connectResult);
+        std::string tlsError = "Failed to establish the encrypted host pairing session (SSL error " + std::to_string(sslError);
+        if (sslError == SSL_ERROR_SYSCALL) {
+          tlsError += ", socket error " + std::to_string(last_socket_error());
+        }
+        tlsError += ")";
+        return append_openssl_error(errorMessage, std::move(tlsError));
       }
       if (!verify_tls_peer_certificate(ssl.get(), expectedTlsCertificatePem, errorMessage)) {
         return false;
@@ -1401,7 +1498,7 @@ namespace network {
   }
 
   bool query_server_info(const std::string &address, uint16_t preferredHttpPort, HostPairingServerInfo *serverInfo, std::string *errorMessage) {
-    return query_server_info_internal(address, preferredHttpPort, nullptr, serverInfo, errorMessage);
+    return query_server_info_internal(address, preferredHttpPort, DEFAULT_SERVERINFO_UNIQUE_ID, nullptr, serverInfo, errorMessage);
   }
 
   HostPairingResult pair_host(const HostPairingRequest &request) {
@@ -1456,7 +1553,7 @@ namespace network {
 
     trace_pairing_phase("requesting /serverinfo");
     HostPairingServerInfo serverInfo {};
-    if (!query_server_info_internal(request.address, httpPort, &response, &serverInfo, &errorMessage)) {
+    if (!query_server_info_internal(request.address, httpPort, uniqueId, &response, &serverInfo, &errorMessage)) {
       return fail_with_phase("serverinfo", errorMessage);
     }
 

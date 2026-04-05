@@ -1,0 +1,43 @@
+#ifdef NXDK
+
+#include <cstring>
+
+#include <sys/stat.h>
+
+extern "C" {
+
+int stat(const char *path, struct stat *status)
+{
+  (void) path;
+
+  if (status != nullptr) {
+    std::memset(status, 0, sizeof(*status));
+  }
+
+  return -1;
+}
+
+int fstat(int fd, struct stat *status)
+{
+  (void) fd;
+
+  if (status != nullptr) {
+    std::memset(status, 0, sizeof(*status));
+  }
+
+  return 0;
+}
+
+int _stat(const char *path, struct stat *status)
+{
+  return stat(path, status);
+}
+
+int _fstat(int fd, struct stat *status)
+{
+  return fstat(fd, status);
+}
+
+}  // extern "C"
+
+#endif

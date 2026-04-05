@@ -61,15 +61,16 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             -D_fstat=fstat
             -D_exit=_Exit
             -include
-            "${CMAKE_SOURCE_DIR}/src/compat/openssl/openssl_apps_compat.h"
-            "-I${CMAKE_SOURCE_DIR}/src/compat/openssl"
+            "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/openssl_compat.h"
             "-I${NXDK_DIR}/lib"
+            "-I${NXDK_DIR}/lib/net"
             "-I${NXDK_DIR}/lib/xboxrt/libc_extensions"
             "-I${NXDK_DIR}/lib/pdclib/include"
             "-I${NXDK_DIR}/lib/pdclib/platform/xbox/include"
             "-I${NXDK_DIR}/lib/winapi"
             "-I${NXDK_DIR}/lib/xboxrt/vcruntime"
             "-I${NXDK_DIR}/lib/net/lwip/src/include"
+            "-I${NXDK_DIR}/lib/net/lwip/src/include/compat/posix"
             "-I${NXDK_DIR}/lib/net/nforceif/include"
     )
     list(JOIN OPENSSL_CPPFLAGS_LIST " " OPENSSL_CPPFLAGS)
@@ -81,6 +82,15 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             "AR=llvm-ar"
             "RANLIB=llvm-ranlib"
             "CPPFLAGS=${OPENSSL_CPPFLAGS}")
+
+    set(OPENSSL_BUILD_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE}
+            build_libs)
+    set(OPENSSL_INSTALL_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE}
+            install_dev)
 else()
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
         set(OPENSSL_CONFIGURE_TARGET mingw64)
@@ -96,6 +106,15 @@ else()
     list(APPEND OPENSSL_ENV
             "CC=${CMAKE_C_COMPILER}"
             "CXX=${CMAKE_CXX_COMPILER}")
+
+    set(OPENSSL_BUILD_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE}
+            build_libs)
+    set(OPENSSL_INSTALL_COMMAND
+            ${OPENSSL_ENV}
+            ${OPENSSL_MAKE_EXECUTABLE}
+            install_dev)
 
     if(DEFINED CMAKE_AR AND NOT CMAKE_AR STREQUAL "")
         list(APPEND OPENSSL_ENV "AR=${CMAKE_AR}")
@@ -116,11 +135,9 @@ ExternalProject_Add(openssl_external
             "--prefix=${OPENSSL_INSTALL_DIR}"
             "--openssldir=${OPENSSL_INSTALL_DIR}/ssl"
         BUILD_COMMAND
-            ${OPENSSL_ENV}
-            ${OPENSSL_MAKE_EXECUTABLE} build_libs
+            ${OPENSSL_BUILD_COMMAND}
         INSTALL_COMMAND
-            ${OPENSSL_ENV}
-            ${OPENSSL_MAKE_EXECUTABLE} install_dev
+            ${OPENSSL_INSTALL_COMMAND}
         BUILD_BYPRODUCTS
             "${OPENSSL_INSTALL_DIR}/lib/libcrypto.a"
             "${OPENSSL_INSTALL_DIR}/lib/libssl.a"

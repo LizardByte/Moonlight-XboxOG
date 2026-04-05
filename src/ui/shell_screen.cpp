@@ -12,7 +12,6 @@
 #include <SDL_image.h>
 #include <SDL_ttf.h>
 #include <hal/debug.h>
-#include <winsock2.h>
 #include <windows.h>
 
 // local includes
