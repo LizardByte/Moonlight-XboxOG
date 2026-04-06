@@ -59,12 +59,7 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
         gtest_main
-        ${MOONLIGHT_TEST_OPENSSL_LIBRARIES}
-        ws2_32
-        crypt32
-        gdi32
-        advapi32
-        user32)
+        ${MOONLIGHT_TEST_OPENSSL_LIBRARIES})
 target_compile_options(${PROJECT_NAME}
         PRIVATE
         ${TEST_COVERAGE_COMPILE_OPTIONS})

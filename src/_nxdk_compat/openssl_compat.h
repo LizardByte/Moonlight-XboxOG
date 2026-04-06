@@ -4,8 +4,11 @@
   #define __STDC_WANT_LIB_EXT1__ 1
 #endif
 
+#include <lwip/opt.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -15,6 +18,30 @@ extern "C" {
 
   ssize_t lwip_recv(int s, void *mem, size_t len, int flags);
   ssize_t lwip_send(int s, const void *dataptr, size_t size, int flags);
+  int lwip_select(int maxfdp1, struct fd_set *readset, struct fd_set *writeset, struct fd_set *exceptset, struct timeval *timeout);
+
+#ifndef LWIP_SOCKET_OFFSET
+  #define LWIP_SOCKET_OFFSET 0
+#endif
+
+#ifndef FD_SETSIZE
+  #define FD_SETSIZE MEMP_NUM_NETCONN
+#endif
+
+#ifndef FD_SET
+  typedef struct fd_set {
+    unsigned char fd_bits[(FD_SETSIZE + 7) / 8];
+  } fd_set;
+
+  #define FD_SET(n, p) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] = (unsigned char) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] | (1u << (((n) - LWIP_SOCKET_OFFSET) & 7))))
+  #define FD_CLR(n, p) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] = (unsigned char) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] & ~(1u << (((n) - LWIP_SOCKET_OFFSET) & 7))))
+  #define FD_ISSET(n, p) (((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] & (1u << (((n) - LWIP_SOCKET_OFFSET) & 7))) != 0)
+  #define FD_ZERO(p) memset((void *) (p), 0, sizeof(*(p)))
+#endif
+
+#ifndef select
+  #define select(maxfdp1, readset, writeset, exceptset, timeout) lwip_select(maxfdp1, readset, writeset, exceptset, timeout)
+#endif
 
 #ifndef F_OK
   #define F_OK 0

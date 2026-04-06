@@ -59,7 +59,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
 if(TARGET moonlight-common-c AND TARGET openssl_external)
     add_dependencies(moonlight-common-c openssl_external)
 endif()
-target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
+target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net)
 target_include_directories(enet PRIVATE
         "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
         "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
@@ -73,7 +73,6 @@ if(TARGET moonlight-common-c)
     target_compile_options(moonlight-common-c PRIVATE
             -Wno-unused-function
             -Wno-error=unused-function)
-    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
 endif()
 
 add_executable(${CMAKE_PROJECT_NAME}
@@ -93,7 +92,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         PUBLIC
         NXDK::NXDK
         NXDK::NXDK_CXX
-        NXDK::ws2_32
+        NXDK::Net
         NXDK::SDL2
         NXDK::SDL2_Image
         NXDK::SDL2_TTF

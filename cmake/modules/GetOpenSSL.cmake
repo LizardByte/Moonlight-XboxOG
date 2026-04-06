@@ -162,9 +162,6 @@ if(NOT TARGET OpenSSL::Crypto)
     set_target_properties(OpenSSL::Crypto PROPERTIES
             IMPORTED_LOCATION "${OPENSSL_CRYPTO_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
-    if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "HOST" AND (WIN32 OR MINGW OR CMAKE_HOST_WIN32))
-        target_link_libraries(OpenSSL::Crypto INTERFACE ws2_32 crypt32 gdi32 advapi32 user32)
-    endif()
     add_dependencies(OpenSSL::Crypto openssl_external)
 endif()
 
