@@ -1,14 +1,12 @@
 #ifdef NXDK
 
-#include <cerrno>
-#include <cstddef>
+  #include <cerrno>
+  #include <cstddef>
+  #include <poll.h>
+  #include <sys/socket.h>
+  #include <sys/time.h>
 
-#include <poll.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-
-extern "C" int poll(struct pollfd *fds, nfds_t nfds, int timeout)
-{
+extern "C" int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   if (fds == nullptr && nfds != 0) {
     errno = EINVAL;
     return -1;

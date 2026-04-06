@@ -1,6 +1,6 @@
 // nxdk includes
-#include <SDL.h>
 #include <hal/debug.h>
+#include <SDL.h>
 #include <windows.h>
 
 // standard includes
@@ -144,8 +144,7 @@ int main() {
     if (saveResult.success) {
       logger.log(logging::LogLevel::info, "hosts", "Saved host records before exit");
       clientState.hostsDirty = false;
-    }
-    else {
+    } else {
       logger.log(logging::LogLevel::error, "hosts", saveResult.errorMessage);
     }
   }

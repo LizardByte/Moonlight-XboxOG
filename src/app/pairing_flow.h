@@ -47,4 +47,3 @@ namespace app {
   bool is_valid_pairing_pin(const std::string &pin);
 
 }  // namespace app
-

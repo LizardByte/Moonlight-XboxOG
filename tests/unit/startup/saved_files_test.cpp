@@ -26,8 +26,8 @@ namespace {
     ASSERT_EQ(std::fclose(file), 0);
   }
 
-  class SavedFilesTest : public ::testing::Test {
-   protected:
+  class SavedFilesTest: public ::testing::Test {
+  protected:
     std::string testDirectory = "saved-files-test";
     std::string hostStoragePath = testDirectory + "\\moonlight-hosts.tsv";
     std::string logFilePath = testDirectory + "\\moonlight.log";
@@ -120,6 +120,3 @@ namespace {
   }
 
 }  // namespace
-
-
-

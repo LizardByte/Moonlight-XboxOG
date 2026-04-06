@@ -3,8 +3,8 @@
 
 // standard includes
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -257,6 +257,3 @@ namespace startup {
   }
 
 }  // namespace startup
-
-
-

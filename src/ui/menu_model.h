@@ -37,7 +37,7 @@ namespace ui {
    * @brief Menu state that supports controller and keyboard navigation.
    */
   class MenuModel {
-   public:
+  public:
     static constexpr std::size_t npos = std::numeric_limits<std::size_t>::max();
 
     /**
@@ -85,7 +85,7 @@ namespace ui {
      */
     MenuUpdate handle_command(input::UiCommand command);
 
-   private:
+  private:
     bool move_selection(int direction);
     std::size_t find_first_enabled_index() const;
 
@@ -94,4 +94,3 @@ namespace ui {
   };
 
 }  // namespace ui
-

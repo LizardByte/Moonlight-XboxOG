@@ -19,8 +19,8 @@ namespace {
     _rmdir(path.c_str());
   }
 
-  class HostStorageTest : public ::testing::Test {
-   protected:
+  class HostStorageTest: public ::testing::Test {
+  protected:
     void TearDown() override {
       remove_if_present(nestedFilePath);
       remove_directory_if_present(testDirectory + "\\nested");

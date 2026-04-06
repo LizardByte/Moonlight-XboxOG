@@ -29,4 +29,3 @@ namespace app {
   }
 
 }  // namespace app
-

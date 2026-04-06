@@ -18,8 +18,8 @@ namespace {
     _rmdir(path.c_str());
   }
 
-  class ClientIdentityStorageTest : public ::testing::Test {
-   protected:
+  class ClientIdentityStorageTest: public ::testing::Test {
+  protected:
     void TearDown() override {
       remove_if_present((nestedIdentityDirectory + "\\uniqueid.dat"));
       remove_if_present((nestedIdentityDirectory + "\\client.pem"));
@@ -73,6 +73,3 @@ namespace {
   }
 
 }  // namespace
-
-
-

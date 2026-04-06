@@ -6,8 +6,8 @@
 
 namespace ui {
 
-  MenuModel::MenuModel(std::vector<MenuItem> items)
-    : selectedIndex_(npos) {
+  MenuModel::MenuModel(std::vector<MenuItem> items):
+      selectedIndex_(npos) {
     set_items(std::move(items));
   }
 
@@ -93,9 +93,7 @@ namespace ui {
     std::size_t candidateIndex = selectedIndex_;
 
     for (std::size_t visited = 0; visited < itemCount; ++visited) {
-      candidateIndex = direction < 0
-        ? (candidateIndex + itemCount - 1) % itemCount
-        : (candidateIndex + 1) % itemCount;
+      candidateIndex = direction < 0 ? (candidateIndex + itemCount - 1) % itemCount : (candidateIndex + 1) % itemCount;
 
       if (items_[candidateIndex].enabled) {
         const bool changed = candidateIndex != selectedIndex_;

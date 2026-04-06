@@ -1,7 +1,6 @@
 #include "src/network/host_pairing.h"
 
 #include <atomic>
-
 #include <gtest/gtest.h>
 
 namespace {
@@ -23,12 +22,13 @@ namespace {
 
     std::atomic<bool> cancelRequested = true;
     const network::HostPairingResult result = network::pair_host({
-      "192.168.1.20",
-      47984,
-      "1234",
-      "MoonlightXboxOG",
-      identity,
-    }, &cancelRequested);
+                                                                   "192.168.1.20",
+                                                                   47984,
+                                                                   "1234",
+                                                                   "MoonlightXboxOG",
+                                                                   identity,
+                                                                 },
+                                                                 &cancelRequested);
 
     EXPECT_FALSE(result.success);
     EXPECT_FALSE(result.alreadyPaired);
@@ -223,5 +223,3 @@ namespace {
   }
 
 }  // namespace
-
-

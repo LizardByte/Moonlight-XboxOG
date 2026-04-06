@@ -3,9 +3,9 @@
 
 // standard includes
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -15,15 +15,15 @@ extern "C" {
 
 // nxdk includes
 #if defined(__has_include)
-#if __has_include(<nxdk/xbe.h>)
-#include <nxdk/xbe.h>
-#include <winnt.h>
-#define MOONLIGHT_HAS_NXDK_XBE 1
-#endif
-#if __has_include(<nxdk/mount.h>)
-#include <nxdk/mount.h>
-#define MOONLIGHT_HAS_NXDK_MOUNT 1
-#endif
+  #if __has_include(<nxdk/xbe.h>)
+    #include <nxdk/xbe.h>
+    #include <winnt.h>
+    #define MOONLIGHT_HAS_NXDK_XBE 1
+  #endif
+  #if __has_include(<nxdk/mount.h>)
+    #include <nxdk/mount.h>
+    #define MOONLIGHT_HAS_NXDK_MOUNT 1
+  #endif
 #endif
 
 namespace {
@@ -90,11 +90,11 @@ namespace {
 
   std::string title_scoped_storage_root() {
 #ifdef MOONLIGHT_HAS_NXDK_XBE
-#ifdef MOONLIGHT_HAS_NXDK_MOUNT
+  #ifdef MOONLIGHT_HAS_NXDK_MOUNT
     if (!nxIsDriveMounted('E') && !nxMountDrive('E', "\\Device\\Harddisk0\\Partition1\\")) {
       return {};
     }
-#endif
+  #endif
 
     char titleIdBuffer[9] = {};
     std::snprintf(titleIdBuffer, sizeof(titleIdBuffer), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
@@ -222,4 +222,3 @@ namespace startup {
   }
 
 }  // namespace startup
-

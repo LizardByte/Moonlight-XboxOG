@@ -29,4 +29,3 @@ namespace startup {
   SaveCoverArtResult save_cover_art(std::string_view cacheKey, const std::vector<unsigned char> &bytes, const std::string &cacheRoot = default_cover_art_cache_root());
 
 }  // namespace startup
-

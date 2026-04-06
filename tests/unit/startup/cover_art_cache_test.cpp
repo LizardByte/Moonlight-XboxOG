@@ -19,8 +19,8 @@ namespace {
     _rmdir(path.c_str());
   }
 
-  class CoverArtCacheTest : public ::testing::Test {
-   protected:
+  class CoverArtCacheTest: public ::testing::Test {
+  protected:
     void TearDown() override {
       remove_if_present(testFilePath);
       remove_directory_if_present(testDirectory);
@@ -54,4 +54,3 @@ namespace {
   }
 
 }  // namespace
-

@@ -22,9 +22,10 @@ namespace {
     app::ClientState state = app::create_initial_state();
 
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
-    }, "Loaded 2 saved host(s)");
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
+                              },
+                       "Loaded 2 saved host(s)");
 
     ASSERT_EQ(state.hosts.size(), 2U);
     EXPECT_FALSE(state.hostsDirty);
@@ -163,8 +164,8 @@ namespace {
   TEST(ClientStateTest, SelectingAnUnpairedHostStartsPairing) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
-    });
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -180,8 +181,8 @@ namespace {
   TEST(ClientStateTest, SelectingAnOfflineUnpairedHostDoesNotOpenThePairingScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::offline},
-    });
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::offline},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -195,8 +196,8 @@ namespace {
   TEST(ClientStateTest, BackingOutOfThePairingScreenRequestsPairingCancellation) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
-    });
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -213,11 +214,11 @@ namespace {
   TEST(ClientStateTest, HostGridNavigationMatchesTheRenderedThreeColumnLayout) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     EXPECT_EQ(state.selectedHostIndex, 0U);
     app::handle_command(state, input::UiCommand::move_right);
@@ -231,11 +232,11 @@ namespace {
   TEST(ClientStateTest, HostGridCanMoveDownIntoAPartialNextRowFromAnyColumn) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_right);
     EXPECT_EQ(state.selectedHostIndex, 1U);
@@ -250,12 +251,12 @@ namespace {
   TEST(ClientStateTest, HostGridWrapsRightToTheNextRowAndLeftToThePreviousRow) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
-      {"Host E", "192.168.0.14", 0, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host E", "192.168.0.14", 0, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     state.selectedHostIndex = 2U;
     app::handle_command(state, input::UiCommand::move_right);
@@ -268,8 +269,8 @@ namespace {
   TEST(ClientStateTest, SelectingAPairedHostOpensTheAppsScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -283,8 +284,8 @@ namespace {
   TEST(ClientStateTest, SelectingAnOfflinePairedHostDoesNotOpenTheAppsScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::offline},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::offline},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -298,8 +299,8 @@ namespace {
   TEST(ClientStateTest, AppliesFetchedAppListsAndPreservesPerAppFlags) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
@@ -309,9 +310,12 @@ namespace {
     };
 
     app::apply_app_list_result(state, "10.0.0.25", 48000, {
-      {"Steam", 101, true, false, false, "cached-steam", false, false},
-      {"Desktop", 102, false, false, false, "cached-desktop", true, false},
-    }, 0x55AAU, true, "Loaded 2 Sunshine app(s)");
+                                                            {"Steam", 101, true, false, false, "cached-steam", false, false},
+                                                            {"Desktop", 102, false, false, false, "cached-desktop", true, false},
+                                                          },
+                               0x55AAU,
+                               true,
+                               "Loaded 2 Sunshine app(s)");
 
     ASSERT_EQ(state.hosts.front().apps.size(), 2U);
     EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
@@ -326,16 +330,19 @@ namespace {
   TEST(ClientStateTest, AppliesFetchedAppListsWhenBackgroundTasksReportTheResolvedHttpPort) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     state.hosts.front().resolvedHttpPort = 47989;
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
 
     app::apply_app_list_result(state, "10.0.0.25", 47989, {
-      {"Steam", 101, true, false, false, "steam-cover", true, false},
-    }, 0xBEEFU, true, "Loaded 1 Sunshine app(s)");
+                                                            {"Steam", 101, true, false, false, "steam-cover", true, false},
+                                                          },
+                               0xBEEFU,
+                               true,
+                               "Loaded 1 Sunshine app(s)");
 
     ASSERT_EQ(state.hosts.front().apps.size(), 1U);
     EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
@@ -346,8 +353,8 @@ namespace {
   TEST(ClientStateTest, MarksCoverArtCachedWhenBackgroundTasksReportTheResolvedHttpsPort) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     state.hosts.front().httpsPort = 47990;
     state.hosts.front().apps = {
@@ -363,8 +370,8 @@ namespace {
   TEST(ClientStateTest, FailedRefreshKeepsCachedAppsAvailable) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     state.hosts.front().apps = {
@@ -383,8 +390,8 @@ namespace {
   TEST(ClientStateTest, ExplicitUnpairedAppListFailureMarksTheHostAsNotPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
@@ -406,8 +413,8 @@ namespace {
   TEST(ClientStateTest, ExplicitUnpairedAppListFailureClearsCachedApps) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
@@ -434,8 +441,8 @@ namespace {
   TEST(ClientStateTest, TransientAppListFailuresDoNotMarkTheHostAsNotPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
@@ -448,17 +455,20 @@ namespace {
   TEST(ClientStateTest, AppGridWrapsHorizontallyAndFindsTheClosestItemInPartialRows) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     app::apply_app_list_result(state, "10.0.0.25", 48000, {
-      {"App 1", 1, false, false, false, "app-1", false, false},
-      {"App 2", 2, false, false, false, "app-2", false, false},
-      {"App 3", 3, false, false, false, "app-3", false, false},
-      {"App 4", 4, false, false, false, "app-4", false, false},
-      {"App 5", 5, false, false, false, "app-5", false, false},
-    }, 0x99U, true, "Loaded 5 Sunshine app(s)");
+                                                            {"App 1", 1, false, false, false, "app-1", false, false},
+                                                            {"App 2", 2, false, false, false, "app-2", false, false},
+                                                            {"App 3", 3, false, false, false, "app-3", false, false},
+                                                            {"App 4", 4, false, false, false, "app-4", false, false},
+                                                            {"App 5", 5, false, false, false, "app-5", false, false},
+                                                          },
+                               0x99U,
+                               true,
+                               "Loaded 5 Sunshine app(s)");
 
     state.selectedAppIndex = 3U;
     app::handle_command(state, input::UiCommand::move_right);
@@ -504,8 +514,8 @@ namespace {
   TEST(ClientStateTest, LeavingTheAppsScreenClearsTransientAppStatusAndIgnoresLaterRefreshText) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     ASSERT_EQ(state.activeScreen, app::ScreenId::apps);
@@ -517,8 +527,11 @@ namespace {
     EXPECT_TRUE(state.statusMessage.empty());
 
     app::apply_app_list_result(state, "10.0.0.25", 48000, {
-      {"Steam", 101, false, false, false, "steam-cover", false, false},
-    }, 0, false, "The host applist response did not contain any app entries");
+                                                            {"Steam", 101, false, false, false, "steam-cover", false, false},
+                                                          },
+                               0,
+                               false,
+                               "The host applist response did not contain any app entries");
 
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
     EXPECT_TRUE(state.statusMessage.empty());
@@ -534,8 +547,8 @@ namespace {
     ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
 
     app::replace_saved_files(state, {
-      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 128U},
-    });
+                                      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 128U},
+                                    });
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::move_down);
@@ -580,9 +593,9 @@ namespace {
   TEST(ClientStateTest, HostContextMenuCanDeleteTheSelectedHost) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
-    });
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
+                              });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::open_context_menu);
@@ -645,9 +658,9 @@ namespace {
   TEST(ClientStateTest, SuccessfulPairingReturnsToHostsAndKeepsTheHostSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
 
     state.selectedHostIndex = 1U;
     EXPECT_TRUE(app::apply_pairing_result(state, "192.168.1.20", app::DEFAULT_HOST_PORT, true, "Paired successfully"));

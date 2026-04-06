@@ -1,12 +1,11 @@
 // class header include
 #include "src/network/runtime_network.h"
 
-
 // nxdk includes
 #ifdef NXDK
-#include <lwip/ip4_addr.h>
-#include <lwip/netif.h>
-#include <nxdk/net.h>
+  #include <lwip/ip4_addr.h>
+  #include <lwip/netif.h>
+  #include <nxdk/net.h>
 
 extern "C" struct netif *g_pnetif;
 #endif
@@ -93,8 +92,7 @@ namespace network {
       g_runtimeNetworkStatus.ipAddress = copy_ipv4_string(netif_ip4_addr(g_pnetif));
       g_runtimeNetworkStatus.subnetMask = copy_ipv4_string(netif_ip4_netmask(g_pnetif));
       g_runtimeNetworkStatus.gateway = copy_ipv4_string(netif_ip4_gw(g_pnetif));
-    }
-    else if (g_runtimeNetworkStatus.ready) {
+    } else if (g_runtimeNetworkStatus.ready) {
       g_runtimeNetworkStatus.ready = false;
       g_runtimeNetworkStatus.initializationCode = -3;
       g_runtimeNetworkStatus.summary = "nxdk networking initialized without publishing an lwIP network interface";

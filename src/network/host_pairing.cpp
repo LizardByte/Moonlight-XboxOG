@@ -2,13 +2,13 @@
 #include "src/network/host_pairing.h"
 
 // standard includes
-#include <atomic>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -17,27 +17,27 @@
 
 // platform includes
 #ifdef NXDK
-#include <errno.h>
-#include <lwip/inet.h>
-#include <lwip/sockets.h>
+  #include <errno.h>
+  #include <lwip/inet.h>
+  #include <lwip/sockets.h>
 #else
-#include <winsock2.h>
-#include <windows.h>
+  #include <windows.h>
+  #include <winsock2.h>
 #endif
 
 // nxdk includes
 #ifdef NXDK
-#include <hal/debug.h>
+  #include <hal/debug.h>
 
 using SOCKET = int;
 
-#ifndef INVALID_SOCKET
-#define INVALID_SOCKET (-1)
-#endif
+  #ifndef INVALID_SOCKET
+    #define INVALID_SOCKET (-1)
+  #endif
 
-#ifndef SOCKET_ERROR
-#define SOCKET_ERROR (-1)
-#endif
+  #ifndef SOCKET_ERROR
+    #define SOCKET_ERROR (-1)
+  #endif
 #endif
 
 #define OPENSSL_SUPPRESS_DEPRECATED
@@ -57,7 +57,7 @@ using SOCKET = int;
 #include "src/network/runtime_network.h"
 
 #ifdef NXDK
-#define _CRT_RAND_S
+  #define _CRT_RAND_S
 #endif
 
 #ifdef NXDK
@@ -85,8 +85,8 @@ namespace {
   constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
 
   struct WsaGuard {
-    WsaGuard()
-      : initialized(false) {
+    WsaGuard():
+        initialized(false) {
 #ifdef NXDK
       initialized = true;
 #else
@@ -107,8 +107,8 @@ namespace {
   };
 
   struct SocketGuard {
-    SocketGuard()
-      : handle(INVALID_SOCKET) {
+    SocketGuard():
+        handle(INVALID_SOCKET) {
     }
 
     ~SocketGuard() {
@@ -305,17 +305,13 @@ namespace {
       const unsigned char character = static_cast<unsigned char>(text[index]);
       if (character >= 0x20U && character <= 0x7EU) {
         preview.push_back(static_cast<char>(character));
-      }
-      else if (character == '\r') {
+      } else if (character == '\r') {
         preview += "\\r";
-      }
-      else if (character == '\n') {
+      } else if (character == '\n') {
         preview += "\\n";
-      }
-      else if (character == '\t') {
+      } else if (character == '\t') {
         preview += "\\t";
-      }
-      else {
+      } else {
         char buffer[5] = {};
         std::snprintf(buffer, sizeof(buffer), "\\x%02X", character);
         preview += buffer;
@@ -528,8 +524,7 @@ namespace {
           if (!hasContentLength) {
             return append_error(errorMessage, "Received an invalid Content-Length header while pairing");
           }
-        }
-        else if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked")) {
+        } else if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked")) {
           isChunked = true;
         }
       }
@@ -1157,11 +1152,9 @@ namespace {
       if (inString) {
         if (escaped) {
           escaped = false;
-        }
-        else if (character == '\\') {
+        } else if (character == '\\') {
           escaped = true;
-        }
-        else if (character == '"') {
+        } else if (character == '"') {
           inString = false;
         }
         continue;
@@ -1298,20 +1291,17 @@ namespace {
           return false;
         }
         valueEnd = keyCursor;
-      }
-      else if (object[keyCursor] == '{') {
+      } else if (object[keyCursor] == '{') {
         if (!find_matching_json_delimiter(object, keyCursor, '{', '}', &valueEnd)) {
           return false;
         }
         keyCursor = valueEnd + 1U;
-      }
-      else if (object[keyCursor] == '[') {
+      } else if (object[keyCursor] == '[') {
         if (!find_matching_json_delimiter(object, keyCursor, '[', ']', &valueEnd)) {
           return false;
         }
         keyCursor = valueEnd + 1U;
-      }
-      else {
+      } else {
         while (keyCursor < object.size() && object[keyCursor] != ',' && object[keyCursor] != '}') {
           ++keyCursor;
         }
@@ -1354,8 +1344,7 @@ namespace {
           }
           return true;
         }
-      }
-      else if (!rawValue.empty()) {
+      } else if (!rawValue.empty()) {
         if (value != nullptr) {
           *value = std::string(trim_ascii_whitespace(rawValue));
         }
@@ -1397,8 +1386,7 @@ namespace {
     std::string_view appArray;
     if (!trimmed.empty() && trimmed.front() == '[') {
       appArray = trimmed;
-    }
-    else {
+    } else {
       for (std::string_view fieldName : {std::string_view("apps"), std::string_view("Applications"), std::string_view("applications"), std::string_view("games"), std::string_view("Games"), std::string_view("applist"), std::string_view("data")}) {
         if (extract_json_named_array(trimmed, fieldName, &appArray)) {
           break;
@@ -1458,9 +1446,7 @@ namespace {
 
     uint32_t statusCode = 200;
     if (!statusCodeText.empty() && try_parse_uint32(trim_ascii_whitespace(statusCodeText), &statusCode) && statusCode != 200U) {
-      const std::string normalizedStatusMessage = statusMessage.empty()
-        ? "The host returned Sunshine status " + std::to_string(statusCode) + " while requesting /applist"
-        : statusMessage;
+      const std::string normalizedStatusMessage = statusMessage.empty() ? "The host returned Sunshine status " + std::to_string(statusCode) + " while requesting /applist" : statusMessage;
       return append_error(errorMessage, normalizedStatusMessage);
     }
 
@@ -1679,9 +1665,7 @@ namespace {
         if (pairing_cancel_requested(cancelRequested)) {
           return append_cancelled_pairing_error(errorMessage);
         }
-        return append_error(errorMessage, selectResult == 0
-          ? "Timed out connecting to the host pairing endpoint at " + address + ":" + std::to_string(port)
-          : "Connection test failed while waiting for the host pairing endpoint at " + address + ":" + std::to_string(port));
+        return append_error(errorMessage, selectResult == 0 ? "Timed out connecting to the host pairing endpoint at " + address + ":" + std::to_string(port) : "Connection test failed while waiting for the host pairing endpoint at " + address + ":" + std::to_string(port));
       }
 
       int socketError = 0;
@@ -1725,9 +1709,7 @@ namespace {
       }
       if (bytesRead < 0) {
         const int socketError = last_socket_error();
-        return append_error(errorMessage, is_timeout_error(socketError)
-          ? "Timed out while reading the host pairing response"
-          : "Failed while reading the host pairing response (socket error " + std::to_string(socketError) + ")");
+        return append_error(errorMessage, is_timeout_error(socketError) ? "Timed out while reading the host pairing response" : "Failed while reading the host pairing response (socket error " + std::to_string(socketError) + ")");
       }
       received.append(buffer, buffer + bytesRead);
 
@@ -1769,9 +1751,7 @@ namespace {
         if (errorCode == SSL_ERROR_WANT_READ || errorCode == SSL_ERROR_WANT_WRITE) {
           continue;
         }
-        return append_openssl_error(errorMessage, errorCode == SSL_ERROR_SYSCALL && is_timeout_error(last_socket_error())
-          ? "Timed out while reading the encrypted host pairing response"
-          : "Failed while reading the encrypted host pairing response");
+        return append_openssl_error(errorMessage, errorCode == SSL_ERROR_SYSCALL && is_timeout_error(last_socket_error()) ? "Timed out while reading the encrypted host pairing response" : "Failed while reading the encrypted host pairing response");
       }
       received.append(buffer, buffer + bytesRead);
 
@@ -1941,8 +1921,11 @@ namespace {
     }
 
     const std::string request =
-      "GET " + std::string(pathAndQuery) + " HTTP/1.1\r\n"
-      "Host: " + address + ":" + std::to_string(port) + "\r\n"
+      "GET " + std::string(pathAndQuery) +
+      " HTTP/1.1\r\n"
+      "Host: " +
+      address + ":" + std::to_string(port) +
+      "\r\n"
       "User-Agent: Moonlight-XboxOG\r\n"
       "Connection: close\r\n\r\n";
 
@@ -1952,8 +1935,7 @@ namespace {
       if (!send_all_plain(socketGuard.handle, request, errorMessage, cancelRequested) || !recv_all_plain(socketGuard.handle, &rawResponse, errorMessage, cancelRequested)) {
         return false;
       }
-    }
-    else {
+    } else {
       if (pairing_cancel_requested(cancelRequested)) {
         return append_cancelled_pairing_error(errorMessage);
       }
@@ -2223,8 +2205,7 @@ namespace network {
     std::string activeAddress;
     if (!localAddress.empty()) {
       activeAddress = localAddress;
-    }
-    else if (!remoteAddress.empty()) {
+    } else if (!remoteAddress.empty()) {
       activeAddress = remoteAddress;
     }
 
@@ -2267,24 +2248,8 @@ namespace network {
     for (const XmlElementView &appElement : appElements) {
       std::string name;
       std::string idText;
-      extract_xml_tag_value(appElement.innerXml, "AppTitle", &name)
-        || extract_xml_tag_value(appElement.innerXml, "Title", &name)
-        || extract_xml_tag_value(appElement.innerXml, "Name", &name)
-        || extract_xml_tag_value(appElement.innerXml, "title", &name)
-        || extract_xml_tag_value(appElement.innerXml, "name", &name)
-        || extract_xml_attribute_value(appElement.openTag, "AppTitle", &name)
-        || extract_xml_attribute_value(appElement.openTag, "Title", &name)
-        || extract_xml_attribute_value(appElement.openTag, "Name", &name)
-        || extract_xml_attribute_value(appElement.openTag, "title", &name)
-        || extract_xml_attribute_value(appElement.openTag, "name", &name);
-      extract_xml_tag_value(appElement.innerXml, "ID", &idText)
-        || extract_xml_tag_value(appElement.innerXml, "Id", &idText)
-        || extract_xml_tag_value(appElement.innerXml, "id", &idText)
-        || extract_xml_attribute_value(appElement.openTag, "ID", &idText)
-        || extract_xml_attribute_value(appElement.openTag, "Id", &idText)
-        || extract_xml_attribute_value(appElement.openTag, "id", &idText)
-        || extract_xml_attribute_value(appElement.openTag, "appid", &idText)
-        || extract_xml_attribute_value(appElement.openTag, "appId", &idText);
+      extract_xml_tag_value(appElement.innerXml, "AppTitle", &name) || extract_xml_tag_value(appElement.innerXml, "Title", &name) || extract_xml_tag_value(appElement.innerXml, "Name", &name) || extract_xml_tag_value(appElement.innerXml, "title", &name) || extract_xml_tag_value(appElement.innerXml, "name", &name) || extract_xml_attribute_value(appElement.openTag, "AppTitle", &name) || extract_xml_attribute_value(appElement.openTag, "Title", &name) || extract_xml_attribute_value(appElement.openTag, "Name", &name) || extract_xml_attribute_value(appElement.openTag, "title", &name) || extract_xml_attribute_value(appElement.openTag, "name", &name);
+      extract_xml_tag_value(appElement.innerXml, "ID", &idText) || extract_xml_tag_value(appElement.innerXml, "Id", &idText) || extract_xml_tag_value(appElement.innerXml, "id", &idText) || extract_xml_attribute_value(appElement.openTag, "ID", &idText) || extract_xml_attribute_value(appElement.openTag, "Id", &idText) || extract_xml_attribute_value(appElement.openTag, "id", &idText) || extract_xml_attribute_value(appElement.openTag, "appid", &idText) || extract_xml_attribute_value(appElement.openTag, "appId", &idText);
 
       uint32_t parsedId = 0;
       if (name.empty() || !try_parse_uint32(trim_ascii_whitespace(idText), &parsedId) || parsedId == 0U) {
@@ -2295,18 +2260,8 @@ namespace network {
       bool hidden = false;
       std::string hdrText;
       std::string hiddenText;
-      extract_xml_tag_value(appElement.innerXml, "IsHdrSupported", &hdrText)
-        || extract_xml_tag_value(appElement.innerXml, "HDRSupported", &hdrText)
-        || extract_xml_tag_value(appElement.innerXml, "isHdrSupported", &hdrText)
-        || extract_xml_attribute_value(appElement.openTag, "IsHdrSupported", &hdrText)
-        || extract_xml_attribute_value(appElement.openTag, "HDRSupported", &hdrText)
-        || extract_xml_attribute_value(appElement.openTag, "isHdrSupported", &hdrText);
-      extract_xml_tag_value(appElement.innerXml, "Hidden", &hiddenText)
-        || extract_xml_tag_value(appElement.innerXml, "IsHidden", &hiddenText)
-        || extract_xml_tag_value(appElement.innerXml, "hidden", &hiddenText)
-        || extract_xml_attribute_value(appElement.openTag, "Hidden", &hiddenText)
-        || extract_xml_attribute_value(appElement.openTag, "IsHidden", &hiddenText)
-        || extract_xml_attribute_value(appElement.openTag, "hidden", &hiddenText);
+      extract_xml_tag_value(appElement.innerXml, "IsHdrSupported", &hdrText) || extract_xml_tag_value(appElement.innerXml, "HDRSupported", &hdrText) || extract_xml_tag_value(appElement.innerXml, "isHdrSupported", &hdrText) || extract_xml_attribute_value(appElement.openTag, "IsHdrSupported", &hdrText) || extract_xml_attribute_value(appElement.openTag, "HDRSupported", &hdrText) || extract_xml_attribute_value(appElement.openTag, "isHdrSupported", &hdrText);
+      extract_xml_tag_value(appElement.innerXml, "Hidden", &hiddenText) || extract_xml_tag_value(appElement.innerXml, "IsHidden", &hiddenText) || extract_xml_tag_value(appElement.innerXml, "hidden", &hiddenText) || extract_xml_attribute_value(appElement.openTag, "Hidden", &hiddenText) || extract_xml_attribute_value(appElement.openTag, "IsHidden", &hiddenText) || extract_xml_attribute_value(appElement.openTag, "hidden", &hiddenText);
       try_parse_flag(hdrText, &hdrSupported);
       try_parse_flag(hiddenText, &hidden);
 
@@ -2380,12 +2335,7 @@ namespace network {
       normalized.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
     }
 
-    return normalized.find("no longer paired") != std::string::npos
-      || normalized.find("pair the host again") != std::string::npos
-      || normalized.find("not authorized") != std::string::npos
-      || normalized.find("unauthorized") != std::string::npos
-      || normalized.find("http 401") != std::string::npos
-      || normalized.find("http 403") != std::string::npos;
+    return normalized.find("no longer paired") != std::string::npos || normalized.find("pair the host again") != std::string::npos || normalized.find("not authorized") != std::string::npos || normalized.find("unauthorized") != std::string::npos || normalized.find("http 401") != std::string::npos || normalized.find("http 403") != std::string::npos;
   }
 
   std::string resolve_reachable_address(const std::string &requestedAddress, const HostPairingServerInfo &serverInfo) {
@@ -2534,9 +2484,7 @@ namespace network {
         return true;
       }
 
-      result.message = errorMessage != nullptr && !errorMessage->empty()
-        ? *errorMessage
-        : "Failed to generate the UUID used for pairing";
+      result.message = errorMessage != nullptr && !errorMessage->empty() ? *errorMessage : "Failed to generate the UUID used for pairing";
       return false;
     };
 

@@ -10,14 +10,14 @@
 namespace startup {
 
   struct LoadSavedHostsResult {
-	std::vector<app::HostRecord> hosts;
-	std::vector<std::string> warnings;
-	bool fileFound;
+    std::vector<app::HostRecord> hosts;
+    std::vector<std::string> warnings;
+    bool fileFound;
   };
 
   struct SaveSavedHostsResult {
-	bool success;
-	std::string errorMessage;
+    bool success;
+    std::string errorMessage;
   };
 
   std::string default_host_storage_path();
@@ -25,8 +25,8 @@ namespace startup {
   LoadSavedHostsResult load_saved_hosts(const std::string &filePath = default_host_storage_path());
 
   SaveSavedHostsResult save_saved_hosts(
-	const std::vector<app::HostRecord> &hosts,
-	const std::string &filePath = default_host_storage_path()
+    const std::vector<app::HostRecord> &hosts,
+    const std::string &filePath = default_host_storage_path()
   );
 
 }  // namespace startup

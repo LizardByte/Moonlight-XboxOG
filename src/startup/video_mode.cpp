@@ -58,17 +58,11 @@ namespace startup {
     lines.emplace_back("Available video modes:");
     for (const VIDEO_MODE &availableVideoMode : selection.availableVideoModes) {
       lines.push_back(
-        "Width: " + std::to_string(availableVideoMode.width)
-        + ", Height: " + std::to_string(availableVideoMode.height)
-        + ", BPP: " + std::to_string(availableVideoMode.bpp)
-        + ", Refresh: " + std::to_string(availableVideoMode.refresh)
+        "Width: " + std::to_string(availableVideoMode.width) + ", Height: " + std::to_string(availableVideoMode.height) + ", BPP: " + std::to_string(availableVideoMode.bpp) + ", Refresh: " + std::to_string(availableVideoMode.refresh)
       );
     }
     lines.push_back(
-      "Best video mode: Width: " + std::to_string(selection.bestVideoMode.width)
-      + ", Height: " + std::to_string(selection.bestVideoMode.height)
-      + ", BPP: " + std::to_string(selection.bestVideoMode.bpp)
-      + ", Refresh: " + std::to_string(selection.bestVideoMode.refresh)
+      "Best video mode: Width: " + std::to_string(selection.bestVideoMode.width) + ", Height: " + std::to_string(selection.bestVideoMode.height) + ", BPP: " + std::to_string(selection.bestVideoMode.bpp) + ", Refresh: " + std::to_string(selection.bestVideoMode.refresh)
     );
     return lines;
   }

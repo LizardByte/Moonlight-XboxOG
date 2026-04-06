@@ -178,4 +178,3 @@ namespace app {
   ParseHostRecordsResult parse_host_records(std::string_view serializedRecords);
 
 }  // namespace app
-

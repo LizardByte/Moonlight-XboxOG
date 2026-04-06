@@ -3,12 +3,12 @@
 
 // standard includes
 #include <chrono>
-#include <ctime>
 #include <cstdio>
+#include <ctime>
 #include <utility>
 
 #if defined(_WIN32)
-#include <windows.h>
+  #include <windows.h>
 #endif
 
 namespace {
@@ -34,11 +34,11 @@ namespace {
     const auto now = std::chrono::system_clock::now();
     const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
     std::tm localTime {};
-#if defined(_MSC_VER)
+  #if defined(_MSC_VER)
     localtime_s(&localTime, &nowTime);
-#else
+  #else
     localtime_r(&nowTime, &localTime);
-#endif
+  #endif
     const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     return {
       localTime.tm_year + 1900,
@@ -53,19 +53,7 @@ namespace {
   }
 
   bool is_valid_timestamp(const logging::LogTimestamp &timestamp) {
-    return timestamp.year > 0
-      && timestamp.month >= 1
-      && timestamp.month <= 12
-      && timestamp.day >= 1
-      && timestamp.day <= 31
-      && timestamp.hour >= 0
-      && timestamp.hour <= 23
-      && timestamp.minute >= 0
-      && timestamp.minute <= 59
-      && timestamp.second >= 0
-      && timestamp.second <= 60
-      && timestamp.millisecond >= 0
-      && timestamp.millisecond <= 999;
+    return timestamp.year > 0 && timestamp.month >= 1 && timestamp.month <= 12 && timestamp.day >= 1 && timestamp.day <= 31 && timestamp.hour >= 0 && timestamp.hour <= 23 && timestamp.minute >= 0 && timestamp.minute <= 59 && timestamp.second >= 0 && timestamp.second <= 60 && timestamp.millisecond >= 0 && timestamp.millisecond <= 999;
   }
 
 }  // namespace
@@ -115,8 +103,8 @@ namespace logging {
     return std::string("[") + to_string(entry.level) + "] " + entry.category + ": " + entry.message;
   }
 
-  Logger::Logger(std::size_t capacity, TimestampProvider timestampProvider)
-    : capacity_(capacity == 0 ? 1 : capacity),
+  Logger::Logger(std::size_t capacity, TimestampProvider timestampProvider):
+      capacity_(capacity == 0 ? 1 : capacity),
       minimumLevel_(LogLevel::info),
       nextSequence_(1),
       timestampProvider_(timestampProvider ? std::move(timestampProvider) : TimestampProvider(current_local_timestamp)) {}

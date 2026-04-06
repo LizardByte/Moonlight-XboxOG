@@ -172,8 +172,7 @@ namespace app {
 
     if (const std::string normalizedAddress = normalize_ipv4_address(record.address); normalizedAddress.empty()) {
       return append_error(errorMessage, "Host address must be a valid IPv4 address");
-    }
-    else if (normalizedAddress != record.address) {
+    } else if (normalizedAddress != record.address) {
       return append_error(errorMessage, "Host address must already be normalized before saving");
     }
 
@@ -215,9 +214,7 @@ namespace app {
     std::size_t lineNumber = 1;
     while (lineStart <= serializedRecords.size()) {
       const std::size_t lineEnd = serializedRecords.find('\n', lineStart);
-      std::string_view line = lineEnd == std::string_view::npos
-        ? serializedRecords.substr(lineStart)
-        : serializedRecords.substr(lineStart, lineEnd - lineStart);
+      std::string_view line = lineEnd == std::string_view::npos ? serializedRecords.substr(lineStart) : serializedRecords.substr(lineStart, lineEnd - lineStart);
 
       if (!line.empty() && line.back() == '\r') {
         line.remove_suffix(1);
@@ -227,8 +224,7 @@ namespace app {
         const std::vector<std::string_view> fields = split_string_view(line, '\t');
         if (fields.size() != 3 && fields.size() != 4) {
           result.errors.push_back("Line " + std::to_string(lineNumber) + " must contain three or four tab-separated fields");
-        }
-        else {
+        } else {
           uint16_t port = 0;
           PairingState pairingState = PairingState::not_paired;
           const std::string_view pairingField = fields.size() == 4 ? fields[3] : fields[2];
@@ -239,11 +235,9 @@ namespace app {
 
           if (pairingField == "not_paired") {
             pairingState = PairingState::not_paired;
-          }
-          else if (pairingField == "paired") {
+          } else if (pairingField == "paired") {
             pairingState = PairingState::paired;
-          }
-          else {
+          } else {
             result.errors.push_back("Line " + std::to_string(lineNumber) + " uses an unknown pairing state");
             pairingState = PairingState::not_paired;
           }
@@ -258,8 +252,7 @@ namespace app {
           std::string errorMessage;
           if (validate_host_record(record, &errorMessage)) {
             result.records.push_back(std::move(record));
-          }
-          else {
+          } else {
             result.errors.push_back("Line " + std::to_string(lineNumber) + ": " + errorMessage);
           }
         }

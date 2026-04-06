@@ -14,4 +14,4 @@ namespace splash {
 
   void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing);
 
-}
+}  // namespace splash

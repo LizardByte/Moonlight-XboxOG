@@ -73,13 +73,13 @@ namespace logging {
    * @brief Small in-memory logger with a ring buffer and optional sinks.
    */
   class Logger {
-   public:
+  public:
     /**
      * @brief Construct a logger with the provided entry capacity.
      *
      * @param capacity Maximum number of retained entries.
      */
-     explicit Logger(std::size_t capacity = 256, TimestampProvider timestampProvider = {});
+    explicit Logger(std::size_t capacity = 256, TimestampProvider timestampProvider = {});
 
     /**
      * @brief Return the maximum number of retained entries.
@@ -136,7 +136,7 @@ namespace logging {
      */
     std::vector<LogEntry> snapshot(LogLevel minimumLevel = LogLevel::trace) const;
 
-   private:
+  private:
     std::size_t capacity_;
     LogLevel minimumLevel_;
     uint64_t nextSequence_;

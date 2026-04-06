@@ -1,42 +1,37 @@
 #ifdef NXDK
 
-#include <cstring>
-
-#include <sys/stat.h>
+  #include <cstring>
+  #include <sys/stat.h>
 
 extern "C" {
 
-int stat(const char *path, struct stat *status)
-{
-  (void) path;
+  int stat(const char *path, struct stat *status) {
+    (void) path;
 
-  if (status != nullptr) {
-    std::memset(status, 0, sizeof(*status));
+    if (status != nullptr) {
+      std::memset(status, 0, sizeof(*status));
+    }
+
+    return -1;
   }
 
-  return -1;
-}
+  int fstat(int fd, struct stat *status) {
+    (void) fd;
 
-int fstat(int fd, struct stat *status)
-{
-  (void) fd;
+    if (status != nullptr) {
+      std::memset(status, 0, sizeof(*status));
+    }
 
-  if (status != nullptr) {
-    std::memset(status, 0, sizeof(*status));
+    return 0;
   }
 
-  return 0;
-}
+  int _stat(const char *path, struct stat *status) {
+    return stat(path, status);
+  }
 
-int _stat(const char *path, struct stat *status)
-{
-  return stat(path, status);
-}
-
-int _fstat(int fd, struct stat *status)
-{
-  return fstat(fd, status);
-}
+  int _fstat(int fd, struct stat *status) {
+    return fstat(fd, status);
+  }
 
 }  // extern "C"
 

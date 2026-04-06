@@ -119,6 +119,7 @@ namespace app {
   struct ModalState {
     ModalId id = ModalId::none;
     std::size_t selectedActionIndex = 0;
+
     bool active() const {
       return id != ModalId::none;
     }

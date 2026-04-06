@@ -14,10 +14,10 @@
 #include <vector>
 
 // nxdk includes
+#include <hal/debug.h>
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
-#include <hal/debug.h>
 #include <windows.h>
 
 // local includes
@@ -26,8 +26,8 @@
 #include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 #include "src/os.h"
-#include "src/startup/cover_art_cache.h"
 #include "src/startup/client_identity_storage.h"
+#include "src/startup/cover_art_cache.h"
 #include "src/startup/host_storage.h"
 #include "src/startup/saved_files.h"
 #include "src/ui/shell_view.h"
@@ -355,11 +355,9 @@ namespace {
       std::size_t sequenceLength = 0U;
       if ((character & 0xE0U) == 0xC0U) {
         sequenceLength = 2U;
-      }
-      else if ((character & 0xF0U) == 0xE0U) {
+      } else if ((character & 0xF0U) == 0xE0U) {
         sequenceLength = 3U;
-      }
-      else if ((character & 0xF8U) == 0xF0U) {
+      } else if ((character & 0xF8U) == 0xF0U) {
         sequenceLength = 4U;
       }
 
@@ -731,8 +729,7 @@ namespace {
     if ((textureWidth * rect.h) > (textureHeight * rect.w)) {
       destination.h = std::max(1, (textureHeight * rect.w) / textureWidth);
       destination.y = rect.y + std::max(0, (rect.h - destination.h) / 2);
-    }
-    else {
+    } else {
       destination.w = std::max(1, (textureWidth * rect.h) / textureHeight);
       destination.x = rect.x + std::max(0, (rect.w - destination.w) / 2);
     }
@@ -755,8 +752,7 @@ namespace {
     if ((textureWidth * rect.h) > (textureHeight * rect.w)) {
       source.w = std::max(1, (textureHeight * rect.w) / rect.h);
       source.x = std::max(0, (textureWidth - source.w) / 2);
-    }
-    else {
+    } else {
       source.h = std::max(1, (textureWidth * rect.h) / rect.w);
       source.y = std::max(0, (textureHeight - source.h) / 2);
     }
@@ -899,8 +895,7 @@ namespace {
       if (!render_texture_fill(renderer, texture, rect)) {
         return false;
       }
-    }
-    else {
+    } else {
       if (!render_default_app_cover(renderer, labelFont, tile, rect, assetCache)) {
         return false;
       }
@@ -923,8 +918,7 @@ namespace {
 
     if (tile.selected) {
       draw_rect(renderer, rect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
-    }
-    else {
+    } else {
       draw_rect(renderer, rect, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x28);
     }
     return true;
@@ -949,11 +943,7 @@ namespace {
 
   void render_vertical_scrollbar(SDL_Renderer *renderer, const SDL_Rect &trackRect, int totalItemCount, int visibleItemCount, int startItemIndex) {
     if (
-      renderer == nullptr
-      || trackRect.w <= 0
-      || trackRect.h <= 0
-      || totalItemCount <= visibleItemCount
-      || visibleItemCount <= 0
+      renderer == nullptr || trackRect.w <= 0 || trackRect.h <= 0 || totalItemCount <= visibleItemCount || visibleItemCount <= 0
     ) {
       return;
     }
@@ -1078,8 +1068,7 @@ namespace {
       if (!render_text_line_simple(renderer, smallFont, "The log file is empty.", {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
         return false;
       }
-    }
-    else {
+    } else {
       for (const std::string *line : logViewerLayout.visibleLines) {
         int drawnHeight = 0;
         if (!render_text_line_simple(renderer, smallFont, truncate_text_for_render(*line, LOG_VIEWER_MAX_RENDER_CHARACTERS), {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12), &drawnHeight)) {
@@ -1156,9 +1145,7 @@ namespace {
       }
 
       const std::string label = row.checked ? "[x] " + row.label : row.label;
-      const SDL_Color color = row.enabled
-        ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}
-        : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
+      const SDL_Color color = row.enabled ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
       if (!render_text_line_simple(renderer, font, label, color, rowRect.x + 12, rowRect.y + 8, rowRect.w - 24)) {
         return false;
       }
@@ -1190,8 +1177,7 @@ namespace {
     if (button.selected) {
       fill_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0x55);
       draw_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
-    }
-    else {
+    } else {
       fill_rect(renderer, buttonRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xC8);
       draw_rect(renderer, buttonRect, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x50);
     }
@@ -1693,12 +1679,9 @@ namespace {
     }
 
     if (message != nullptr) {
-      *message = "Received /serverinfo from " + address + ":" + std::to_string(serverInfo.httpPort)
-        + " and discovered HTTPS pairing on port " + std::to_string(serverInfo.httpsPort);
+      *message = "Received /serverinfo from " + address + ":" + std::to_string(serverInfo.httpPort) + " and discovered HTTPS pairing on port " + std::to_string(serverInfo.httpsPort);
       if (serverInfo.pairingStatusCurrentClientKnown) {
-        *message += serverInfo.pairingStatusCurrentClient
-          ? "; the current client is paired and authorized"
-          : "; the current client is no longer paired or authorized";
+        *message += serverInfo.pairingStatusCurrentClient ? "; the current client is paired and authorized" : "; the current client is no longer paired or authorized";
       }
     }
     return true;
@@ -1711,10 +1694,12 @@ namespace {
     std::atomic<bool> cancelRequested;
     network::HostPairingRequest request;
     network::HostPairingResult result;
+
     struct DeferredLogEntry {
       logging::LogLevel level;
       std::string message;
     };
+
     std::vector<DeferredLogEntry> deferredLogs;
   };
 
@@ -1940,9 +1925,7 @@ namespace {
         task->result = {
           false,
           false,
-          identityError.empty()
-            ? "Failed to generate a valid client pairing identity"
-            : "Failed to generate a valid client pairing identity: " + identityError,
+          identityError.empty() ? "Failed to generate a valid client pairing identity" : "Failed to generate a valid client pairing identity: " + identityError,
         };
         task->completed.store(true, std::memory_order_release);
         return 0;
@@ -2011,8 +1994,7 @@ namespace {
     const bool success = test_tcp_host_connection(address, port, clientIdentityPointer, &resultMessage, &serverInfo);
     if (success) {
       apply_server_info_to_host(state, address, port, serverInfo);
-    }
-    else {
+    } else {
       for (app::HostRecord &host : state.hosts) {
         if (host.address == address && app::effective_host_port(host.port) == port) {
           host.reachability = app::HostReachability::offline;
@@ -2065,9 +2047,7 @@ namespace {
 
     host = app::selected_host(state);
     if (host == nullptr || host->pairingState != app::PairingState::paired) {
-      state.statusMessage = host != nullptr && !host->appListStatusMessage.empty()
-        ? host->appListStatusMessage
-        : "This host is no longer paired. Pair it again from Sunshine before opening apps.";
+      state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again from Sunshine before opening apps.";
       logger.log(logging::LogLevel::warning, "apps", state.statusMessage);
       return;
     }
@@ -2281,9 +2261,7 @@ namespace {
       });
     }
 
-    task->message = task->apps.empty()
-      ? "Sunshine returned no launchable apps for this host"
-      : "Loaded " + std::to_string(task->apps.size()) + " Sunshine app(s)";
+    task->message = task->apps.empty() ? "Sunshine returned no launchable apps for this host" : "Loaded " + std::to_string(task->apps.size()) + " Sunshine app(s)";
     task->completed.store(true, std::memory_order_release);
     return 0;
   }
@@ -2487,14 +2465,11 @@ namespace {
     std::vector<std::string> lines = loadedLog.lines;
     if (!loadedLog.fileFound) {
       lines = {"The log file does not exist yet."};
-    }
-    else if (lines.empty()) {
+    } else if (lines.empty()) {
       lines = {"The log file is empty."};
     }
 
-    const std::string statusMessage = loadedLog.fileFound
-      ? "Loaded recent log file lines"
-      : "No log file has been written yet";
+    const std::string statusMessage = loadedLog.fileFound ? "Loaded recent log file lines" : "No log file has been written yet";
     app::apply_log_viewer_contents(state, std::move(lines), statusMessage);
     logger.log(logging::LogLevel::info, "logging", statusMessage + ": " + loadedLog.filePath);
   }
@@ -2565,9 +2540,7 @@ namespace {
 
     const int pageTitleX = headerRect.x + (headerRect.w / 3);
     const int pageTitleY = headerRect.y + 18;
-    const bool renderedPageTitle = viewModel.screen == app::ScreenId::apps
-      ? render_text_line_simple(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3)
-      : render_text_line(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3);
+    const bool renderedPageTitle = viewModel.screen == app::ScreenId::apps ? render_text_line_simple(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3) : render_text_line(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3);
     if (!viewModel.pageTitle.empty() && !renderedPageTitle) {
       return false;
     }
@@ -2657,15 +2630,13 @@ namespace {
       if (viewport.scrollbarWidth > 0) {
         render_grid_scrollbar(renderer, {gridRect.x + gridRect.w - viewport.scrollbarWidth, gridRect.y, viewport.scrollbarWidth, gridRect.h}, viewport);
       }
-    }
-    else if (viewModel.screen == app::ScreenId::apps) {
+    } else if (viewModel.screen == app::ScreenId::apps) {
       const SDL_Rect gridRect {
         contentRect.x + 16,
         contentRect.y + 16,
         contentRect.w - 32,
         contentRect.h - 28,
       };
-
 
       if (!viewModel.appTiles.empty()) {
         const int columnCount = std::max(1, static_cast<int>(viewModel.appColumnCount));
@@ -2702,8 +2673,7 @@ namespace {
             viewport
           );
         }
-      }
-      else if (!viewModel.bodyLines.empty()) {
+      } else if (!viewModel.bodyLines.empty()) {
         const int lineGap = 8;
         int textHeight = 0;
         for (std::size_t index = 0; index < viewModel.bodyLines.size(); ++index) {
@@ -2722,8 +2692,7 @@ namespace {
           messageY += drawnHeight + lineGap;
         }
       }
-    }
-    else {
+    } else {
       const int menuPanelWidth = std::max(228, (contentRect.w * 34) / 100);
       const SDL_Rect menuPanel {contentRect.x, contentRect.y, menuPanelWidth, contentRect.h};
       const SDL_Rect bodyPanel {contentRect.x + menuPanelWidth + panelGap, contentRect.y, contentRect.w - menuPanelWidth - panelGap, contentRect.h};
@@ -2813,8 +2782,7 @@ namespace {
         render_text_line_simple(renderer, smallFont, "The full log viewer could not be rendered safely.", {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 54, modalRect.w - 32);
         render_text_line_simple(renderer, smallFont, "Press B to close.", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 54 + TTF_FontLineSkip(smallFont) + 8, modalRect.w - 32);
       }
-    }
-    else if (viewModel.modalVisible) {
+    } else if (viewModel.modalVisible) {
       SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
       fill_rect(renderer, {0, 0, screenWidth, screenHeight}, 0x00, 0x00, 0x00, 0xA6);
       const SDL_Rect modalRect {
@@ -2842,8 +2810,7 @@ namespace {
         if (!render_action_rows(renderer, bodyFont, viewModel.modalActions, {modalRect.x + 16, modalY + 8, modalRect.w - 32, modalRect.h - (modalY - modalRect.y) - 24}, std::max(34, TTF_FontLineSkip(bodyFont) + 12))) {
           return false;
         }
-      }
-      else if (!viewModel.modalFooterActions.empty()) {
+      } else if (!viewModel.modalFooterActions.empty()) {
         const SDL_Rect modalFooterRect {modalRect.x + 16, modalRect.y + modalRect.h - 56, modalRect.w - 32, 40};
         if (!render_footer_actions(renderer, smallFont, assetCache, viewModel.modalFooterActions, modalFooterRect)) {
           return false;
@@ -2910,15 +2877,12 @@ namespace {
 
         if (button.selected) {
           fill_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0x55);
-        }
-        else {
+        } else {
           fill_rect(renderer, buttonRect, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xE0);
         }
         draw_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
 
-        const SDL_Color buttonColor = button.enabled
-          ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}
-          : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
+        const SDL_Color buttonColor = button.enabled ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
         if (!render_text_centered(renderer, bodyFont, button.label, buttonColor, buttonRect)) {
           return false;
         }
@@ -3073,10 +3037,7 @@ namespace ui {
       start_app_art_task_if_needed(logger, state, &appArtTask);
 
       if (
-        !controllerExitComboTriggered
-        && controllerStartPressed
-        && controllerBackPressed
-        && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
+        !controllerExitComboTriggered && controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
       ) {
         controllerExitComboArmed = true;
         const Uint32 comboStartTick = controllerStartDownTick > controllerBackDownTick ? controllerStartDownTick : controllerBackDownTick;
@@ -3152,34 +3113,28 @@ namespace ui {
                 controllerAContextTriggered = false;
                 controllerADownTick = SDL_GetTicks();
               }
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
               if (!controllerStartPressed) {
                 controllerStartPressed = true;
                 controllerStartDownTick = SDL_GetTicks();
               }
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) {
               if (!controllerBackPressed) {
                 controllerBackPressed = true;
                 controllerBackDownTick = SDL_GetTicks();
               }
-            }
-            else {
+            } else {
               if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
                 leftShoulderPressed = true;
                 leftShoulderRepeatTick = SDL_GetTicks();
-              }
-              else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
                 rightShoulderPressed = true;
                 rightShoulderRepeatTick = SDL_GetTicks();
               }
               command = translate_controller_button(event.cbutton.button);
             }
             if (
-              controllerStartPressed
-              && controllerBackPressed
-              && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
+              controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
             ) {
               controllerExitComboArmed = true;
             }
@@ -3191,8 +3146,7 @@ namespace ui {
                 command = input::UiCommand::activate;
               }
               controllerAContextTriggered = false;
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START && controllerStartPressed) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START && controllerStartPressed) {
               controllerStartPressed = false;
               if (!controllerExitComboArmed && !controllerExitComboTriggered) {
                 command = input::map_gamepad_button_to_ui_command(input::GamepadButton::start);
@@ -3201,8 +3155,7 @@ namespace ui {
                 controllerExitComboArmed = false;
                 controllerExitComboTriggered = false;
               }
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && controllerBackPressed) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && controllerBackPressed) {
               controllerBackPressed = false;
               if (!controllerExitComboArmed && !controllerExitComboTriggered) {
                 command = input::map_gamepad_button_to_ui_command(input::GamepadButton::back);
@@ -3211,11 +3164,9 @@ namespace ui {
                 controllerExitComboArmed = false;
                 controllerExitComboTriggered = false;
               }
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
               leftShoulderPressed = false;
-            }
-            else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
               rightShoulderPressed = false;
             }
             break;
@@ -3223,8 +3174,7 @@ namespace ui {
             command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
             if (command == input::UiCommand::fast_previous_page) {
               leftTriggerRepeatTick = SDL_GetTicks();
-            }
-            else if (command == input::UiCommand::fast_next_page) {
+            } else if (command == input::UiCommand::fast_next_page) {
               rightTriggerRepeatTick = SDL_GetTicks();
             }
             break;

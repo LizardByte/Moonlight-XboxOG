@@ -26,4 +26,3 @@ namespace logging {
   LoadLogFileResult load_log_file(const std::string &filePath = default_log_file_path(), std::size_t maxLines = 64U);
 
 }  // namespace logging
-

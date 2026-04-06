@@ -1,8 +1,7 @@
 #include "src/ui/shell_view.h"
 
-#include <vector>
-
 #include <gtest/gtest.h>
+#include <vector>
 
 namespace {
 
@@ -31,9 +30,10 @@ namespace {
   TEST(ShellViewTest, ShowsSavedHostsAsTiles) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired, app::HostReachability::offline},
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    }, "Loaded 2 saved host(s)");
+                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired, app::HostReachability::offline},
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              },
+                       "Loaded 2 saved host(s)");
     app::handle_command(state, input::UiCommand::move_right);
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
@@ -53,8 +53,8 @@ namespace {
   TEST(ShellViewTest, HidesHostMenuFooterActionWhenToolbarIsSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
     state.hostsFocusArea = app::HostsFocusArea::toolbar;
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
@@ -94,9 +94,9 @@ namespace {
     app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
     state.loggingLevel = logging::LogLevel::debug;
     app::replace_saved_files(state, {
-      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 2048U},
-      {"E:\\UDATA\\12345678\\pairing\\client.pem", "pairing\\client.pem", 1536U},
-    });
+                                      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 2048U},
+                                      {"E:\\UDATA\\12345678\\pairing\\client.pem", "pairing\\client.pem", 1536U},
+                                    });
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
@@ -118,8 +118,8 @@ namespace {
 
     state.selectedSettingsCategory = app::SettingsCategory::reset;
     app::replace_saved_files(state, {
-      {"E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", "pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", 1536U},
-    });
+                                      {"E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", "pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", 1536U},
+                                    });
     state.settingsFocusArea = app::SettingsFocusArea::options;
     ASSERT_TRUE(state.detailMenu.select_item_by_id("delete-saved-file:E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin"));
 
@@ -151,14 +151,17 @@ namespace {
   TEST(ShellViewTest, BuildsTheAppsPageForASelectedPairedHost) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     state.hosts.front().runningGameId = 101;
     app::apply_app_list_result(state, "10.0.0.25", 48000, {
-      {"Steam", 101, true, false, false, "steam-cover", true, false},
-      {"Desktop", 102, false, false, false, "desktop-cover", false, false},
-    }, 0x4242U, true, "Loaded 2 Sunshine app(s)");
+                                                            {"Steam", 101, true, false, false, "steam-cover", true, false},
+                                                            {"Desktop", 102, false, false, false, "desktop-cover", false, false},
+                                                          },
+                               0x4242U,
+                               true,
+                               "Loaded 2 Sunshine app(s)");
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
@@ -181,8 +184,8 @@ namespace {
   TEST(ShellViewTest, HidesCachedAppTilesWhenTheSelectedHostIsNoLongerPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
+                              });
     state.activeScreen = app::ScreenId::apps;
     state.hosts.front().apps = {
       {"Steam", 101, false, false, false, "steam-cover", true, false},
@@ -200,8 +203,8 @@ namespace {
   TEST(ShellViewTest, SuppressesTransientAppsLoadingTextAndNotifications) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     state.statusMessage = "Loading apps for Office PC...";
 
@@ -214,8 +217,8 @@ namespace {
   TEST(ShellViewTest, ShowsOnlyBackOnAppsScreenWhenNoVisibleAppIsSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
-    });
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
@@ -227,8 +230,8 @@ namespace {
   TEST(ShellViewTest, BuildsHostDetailsModalContent) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online, "192.168.0.10", "uuid-123", "192.168.0.10", "203.0.113.7", {}, "192.168.0.10", "00:11:22:33:44:55", 47990, 0},
-    });
+                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online, "192.168.0.10", "uuid-123", "192.168.0.10", "203.0.113.7", {}, "192.168.0.10", "00:11:22:33:44:55", 47990, 0},
+                              });
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::open_context_menu);
     app::handle_command(state, input::UiCommand::move_down);
@@ -251,9 +254,10 @@ namespace {
     app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
     state.logViewerPlacement = app::LogViewerPlacement::right;
     app::apply_log_viewer_contents(state, {
-      "[000001] [INFO] app: Entered shell",
-      "[000002] [WARN] network: No active stream",
-    }, "Loaded log file preview");
+                                            "[000001] [INFO] app: Entered shell",
+                                            "[000002] [WARN] network: No active stream",
+                                          },
+                                   "Loaded log file preview");
     state.logViewerScrollOffset = 1;
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
@@ -358,6 +362,4 @@ namespace {
     EXPECT_EQ(viewModel.overlayLines.front(), "Showing earlier log entries");
   }
 
-
 }  // namespace
-

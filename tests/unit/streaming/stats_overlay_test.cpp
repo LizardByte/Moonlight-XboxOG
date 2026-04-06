@@ -1,8 +1,7 @@
 #include "src/streaming/stats_overlay.h"
 
-#include <vector>
-
 #include <gtest/gtest.h>
+#include <vector>
 
 namespace {
 
@@ -56,4 +55,3 @@ namespace {
   }
 
 }  // namespace
-

@@ -2,13 +2,13 @@
 #include "src/app/client_state.h"
 
 // standard includes
+#include "src/network/host_pairing.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <random>
 #include <utility>
 #include <vector>
-
-#include "src/network/host_pairing.h"
 
 namespace {
 
@@ -287,9 +287,7 @@ namespace {
   }
 
   void rebuild_menu(app::ClientState &state, const std::string &preferredItemId = {}, bool preserveSelection = true) {
-    const std::string previousSelection = preserveSelection && state.menu.selected_item() != nullptr
-      ? state.menu.selected_item()->id
-      : std::string {};
+    const std::string previousSelection = preserveSelection && state.menu.selected_item() != nullptr ? state.menu.selected_item()->id : std::string {};
     state.menu.set_items(build_menu_for_state(state));
     if (!preferredItemId.empty() && state.menu.select_item_by_id(preferredItemId)) {
       return;
@@ -298,9 +296,7 @@ namespace {
       state.menu.select_item_by_id(previousSelection);
     }
 
-    const std::string previousDetailSelection = preserveSelection && state.detailMenu.selected_item() != nullptr
-      ? state.detailMenu.selected_item()->id
-      : std::string {};
+    const std::string previousDetailSelection = preserveSelection && state.detailMenu.selected_item() != nullptr ? state.detailMenu.selected_item()->id : std::string {};
     state.detailMenu.set_items(build_detail_menu_for_state(state));
     if (!preferredItemId.empty() && state.detailMenu.select_item_by_id(preferredItemId)) {
       return;
@@ -409,8 +405,7 @@ namespace {
     if (state.addHostDraft.activeField == app::AddHostField::address) {
       state.addHostDraft.addressInput = state.addHostDraft.keypad.stagedInput;
       state.statusMessage = "Updated host address";
-    }
-    else {
+    } else {
       state.addHostDraft.portInput = state.addHostDraft.keypad.stagedInput;
       state.statusMessage = state.addHostDraft.portInput.empty() ? "Using default Moonlight host port 47989" : "Updated host port";
     }
@@ -510,9 +505,7 @@ namespace {
 
   void move_toolbar_selection(app::ClientState &state, int direction) {
     const std::size_t current = state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT;
-    state.selectedToolbarButtonIndex = direction < 0
-      ? (current + HOST_TOOLBAR_BUTTON_COUNT - 1U) % HOST_TOOLBAR_BUTTON_COUNT
-      : (current + 1U) % HOST_TOOLBAR_BUTTON_COUNT;
+    state.selectedToolbarButtonIndex = direction < 0 ? (current + HOST_TOOLBAR_BUTTON_COUNT - 1U) % HOST_TOOLBAR_BUTTON_COUNT : (current + 1U) % HOST_TOOLBAR_BUTTON_COUNT;
   }
 
   std::size_t grid_row_count(std::size_t itemCount, std::size_t columnCount) {
@@ -806,8 +799,7 @@ namespace {
               if (host->pairingState == app::PairingState::paired) {
                 update->appsBrowseRequested = true;
                 update->appsBrowseShowHidden = true;
-              }
-              else {
+              } else {
                 if (enter_pair_host_screen(state, host->address, host->port)) {
                   update->screenChanged = true;
                   update->pairingRequested = true;
@@ -1079,8 +1071,7 @@ namespace app {
         mergedApps.push_back(std::move(appRecord));
       }
       host->apps = std::move(mergedApps);
-    }
-    else {
+    } else {
       refresh_running_flags(host);
     }
 
@@ -1261,14 +1252,11 @@ namespace app {
         update.activatedItemId = categoryUpdate.activatedItemId;
         if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::logging)) {
           state.selectedSettingsCategory = SettingsCategory::logging;
-        }
-        else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::display)) {
+        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::display)) {
           state.selectedSettingsCategory = SettingsCategory::display;
-        }
-        else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::input)) {
+        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::input)) {
           state.selectedSettingsCategory = SettingsCategory::input;
-        }
-        else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::reset)) {
+        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::reset)) {
           state.selectedSettingsCategory = SettingsCategory::reset;
         }
         rebuild_menu(state);
@@ -1335,16 +1323,14 @@ namespace app {
         case input::UiCommand::move_left:
           if (state.hostsFocusArea == HostsFocusArea::toolbar) {
             move_toolbar_selection(state, -1);
-          }
-          else {
+          } else {
             move_host_grid_selection(state, 0, -1);
           }
           return update;
         case input::UiCommand::move_right:
           if (state.hostsFocusArea == HostsFocusArea::toolbar) {
             move_toolbar_selection(state, 1);
-          }
-          else {
+          } else {
             move_host_grid_selection(state, 0, 1);
           }
           return update;
@@ -1353,8 +1339,7 @@ namespace app {
             if (!state.hosts.empty()) {
               state.hostsFocusArea = HostsFocusArea::grid;
             }
-          }
-          else {
+          } else {
             move_host_grid_selection(state, 1, 0);
           }
           return update;
@@ -1395,8 +1380,7 @@ namespace app {
             if (host->pairingState == PairingState::paired) {
               update.appsBrowseRequested = true;
               update.appsBrowseShowHidden = false;
-            }
-            else {
+            } else {
               if (enter_pair_host_screen(state, host->address, host->port)) {
                 update.screenChanged = true;
                 update.pairingRequested = true;

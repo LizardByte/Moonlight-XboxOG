@@ -13,10 +13,7 @@ namespace {
   }
 
   bool screen_supports_notifications(const app::ClientState &state) {
-    return state.activeScreen == app::ScreenId::home
-      || state.activeScreen == app::ScreenId::hosts
-      || state.activeScreen == app::ScreenId::apps
-      || state.activeScreen == app::ScreenId::settings;
+    return state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts || state.activeScreen == app::ScreenId::apps || state.activeScreen == app::ScreenId::settings;
   }
 
   std::string format_file_size(std::uint64_t sizeBytes) {
@@ -34,15 +31,7 @@ namespace {
       return true;
     }
 
-    if (starts_with(state.statusMessage, "Loaded recent log file lines")
-      || starts_with(state.statusMessage, "No log file has been written yet")
-      || starts_with(state.statusMessage, "Testing connection to ")
-      || starts_with(state.statusMessage, "Editing host ")
-      || starts_with(state.statusMessage, "Updated host ")
-      || starts_with(state.statusMessage, "Cancelled host ")
-      || starts_with(state.statusMessage, "Using default Moonlight host port")
-      || starts_with(state.statusMessage, "Loading apps for ")
-      || starts_with(state.statusMessage, "Pairing is preparing the client identity")) {
+    if (starts_with(state.statusMessage, "Loaded recent log file lines") || starts_with(state.statusMessage, "No log file has been written yet") || starts_with(state.statusMessage, "Testing connection to ") || starts_with(state.statusMessage, "Editing host ") || starts_with(state.statusMessage, "Updated host ") || starts_with(state.statusMessage, "Cancelled host ") || starts_with(state.statusMessage, "Using default Moonlight host port") || starts_with(state.statusMessage, "Loading apps for ") || starts_with(state.statusMessage, "Pairing is preparing the client identity")) {
       return true;
     }
 
@@ -143,11 +132,9 @@ namespace {
       std::string badgeLabel;
       if (appRecord.favorite) {
         badgeLabel = "Favorite";
-      }
-      else if (appRecord.hdrSupported) {
+      } else if (appRecord.hdrSupported) {
         badgeLabel = "HDR";
-      }
-      else if (appRecord.hidden) {
+      } else if (appRecord.hidden) {
         badgeLabel = "Hidden";
       }
 
@@ -175,20 +162,14 @@ namespace {
 
   std::string keypad_value(const app::ClientState &state) {
     if (state.addHostDraft.keypad.visible) {
-      return state.addHostDraft.keypad.stagedInput.empty() && state.addHostDraft.activeField == app::AddHostField::port
-        ? "default (47989)"
-        : state.addHostDraft.keypad.stagedInput;
+      return state.addHostDraft.keypad.stagedInput.empty() && state.addHostDraft.activeField == app::AddHostField::port ? "default (47989)" : state.addHostDraft.keypad.stagedInput;
     }
 
-    return state.addHostDraft.activeField == app::AddHostField::address
-      ? state.addHostDraft.addressInput
-      : (state.addHostDraft.portInput.empty() ? "default (47989)" : state.addHostDraft.portInput);
+    return state.addHostDraft.activeField == app::AddHostField::address ? state.addHostDraft.addressInput : (state.addHostDraft.portInput.empty() ? "default (47989)" : state.addHostDraft.portInput);
   }
 
   std::vector<ui::ShellModalButton> keypad_buttons(const app::ClientState &state) {
-    const std::vector<std::string> labels = state.addHostDraft.activeField == app::AddHostField::address
-      ? std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"}
-      : std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
+    const std::vector<std::string> labels = state.addHostDraft.activeField == app::AddHostField::address ? std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"} : std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
 
     std::vector<ui::ShellModalButton> buttons;
     buttons.reserve(labels.size());
@@ -212,8 +193,7 @@ namespace {
 
     if (state.addHostDraft.activeField == app::AddHostField::address) {
       lines.emplace_back("Enter a dotted IPv4 address such as 192.168.0.10.");
-    }
-    else {
+    } else {
       lines.emplace_back("Enter digits for a custom TCP port, or leave it empty to keep the default of 47989.");
     }
 
@@ -250,9 +230,7 @@ namespace {
           }
           if (host->appListState == app::HostAppListState::failed) {
             return {
-              host->appListStatusMessage.empty()
-                ? "The app list could not be refreshed."
-                : host->appListStatusMessage,
+              host->appListStatusMessage.empty() ? "The app list could not be refreshed." : host->appListStatusMessage,
             };
           }
           if (host->apps.empty()) {
@@ -285,8 +263,7 @@ namespace {
           };
           if (state.pairingDraft.stage == app::PairingStage::idle) {
             lines.push_back("Checking whether the host is reachable before showing a PIN.");
-          }
-          else {
+          } else {
             lines.push_back(std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort));
             if (!state.pairingDraft.generatedPin.empty()) {
               lines.push_back(std::string("PIN: ") + app::current_pairing_pin(state));
@@ -301,18 +278,15 @@ namespace {
       case app::ScreenId::settings:
         {
           std::vector<std::string> lines = {
-          std::string("Category: ") + (state.selectedSettingsCategory == app::SettingsCategory::logging
-            ? "Logging"
-            : state.selectedSettingsCategory == app::SettingsCategory::display
-              ? "Display"
-              : state.selectedSettingsCategory == app::SettingsCategory::input ? "Input" : "Reset"),
+            std::string("Category: ") + (state.selectedSettingsCategory == app::SettingsCategory::logging ? "Logging" : state.selectedSettingsCategory == app::SettingsCategory::display ? "Display" :
+                                                                                                                      state.selectedSettingsCategory == app::SettingsCategory::input     ? "Input" :
+                                                                                                                                                                                           "Reset"),
           };
           if (state.selectedSettingsCategory == app::SettingsCategory::logging) {
             lines.push_back(std::string("Log file: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
             lines.push_back(std::string("Current logging level: ") + logging::to_string(state.loggingLevel));
             lines.push_back("Use View Log File to inspect persisted startup and applist diagnostics.");
-          }
-          else if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
+          } else if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
             if (state.savedFiles.empty()) {
               lines.push_back("Saved files: none found.");
               return lines;
@@ -321,11 +295,9 @@ namespace {
             for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
               lines.push_back("- " + savedFile.displayName + " (" + format_file_size(savedFile.sizeBytes) + ")");
             }
-          }
-          else if (state.selectedSettingsCategory == app::SettingsCategory::display) {
+          } else if (state.selectedSettingsCategory == app::SettingsCategory::display) {
             lines.push_back("Display options will be added here.");
-          }
-          else {
+          } else {
             lines.push_back("Input options will be added here.");
           }
           return lines;
@@ -406,7 +378,8 @@ namespace {
           if (const app::HostRecord *host = app::selected_host(state); host != nullptr) {
             viewModel->modalLines = {
               "Name: " + host->displayName,
-              std::string("State: ") + (host->reachability == app::HostReachability::online ? "ONLINE" : host->reachability == app::HostReachability::offline ? "OFFLINE" : "UNKNOWN"),
+              std::string("State: ") + (host->reachability == app::HostReachability::online ? "ONLINE" : host->reachability == app::HostReachability::offline ? "OFFLINE" :
+                                                                                                                                                                "UNKNOWN"),
               std::string("Active Address: ") + (host->activeAddress.empty() ? "NULL" : host->activeAddress),
               std::string("UUID: ") + (host->uuid.empty() ? "NULL" : host->uuid),
               std::string("Local Address: ") + (host->localAddress.empty() ? "NULL" : host->localAddress),
@@ -527,11 +500,7 @@ namespace ui {
     viewModel.title = "Moonlight";
     viewModel.pageTitle = page_title(state);
     viewModel.statusMessage = state.statusMessage;
-    viewModel.notificationVisible = screen_supports_notifications(state)
-      && !state.statusMessage.empty()
-      && !is_minor_status_message(state)
-      && !state.modal.active()
-      && !(state.activeScreen == app::ScreenId::add_host && state.addHostDraft.keypad.visible);
+    viewModel.notificationVisible = screen_supports_notifications(state) && !state.statusMessage.empty() && !is_minor_status_message(state) && !state.modal.active() && !(state.activeScreen == app::ScreenId::add_host && state.addHostDraft.keypad.visible);
     if (viewModel.notificationVisible) {
       viewModel.notification = notification(state);
     }
@@ -546,8 +515,7 @@ namespace ui {
     if (state.activeScreen == app::ScreenId::settings) {
       if (state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.detailMenu.selected_item()->label;
-      }
-      else if (state.menu.selected_item() != nullptr) {
+      } else if (state.menu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.menu.selected_item()->label;
       }
     }
@@ -568,8 +536,7 @@ namespace ui {
     if (viewModel.overlayVisible) {
       if (!statsLines.empty()) {
         viewModel.overlayLines.insert(viewModel.overlayLines.end(), statsLines.begin(), statsLines.end());
-      }
-      else {
+      } else {
         viewModel.overlayLines.emplace_back("No active stream");
       }
 

@@ -69,5 +69,3 @@ namespace startup {
   );
 
 }  // namespace startup
-
-

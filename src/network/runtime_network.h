@@ -23,7 +23,6 @@ namespace network {
 
   bool runtime_network_ready();
 
-
   std::string describe_runtime_network_initialization_code(int initializationCode);
 
   std::vector<std::string> format_runtime_network_status_lines(const RuntimeNetworkStatus &status);
