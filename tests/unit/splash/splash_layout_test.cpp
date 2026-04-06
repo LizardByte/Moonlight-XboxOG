@@ -18,6 +18,19 @@ namespace {
     EXPECT_NEAR(splash::get_display_aspect_ratio(videoMode, VIDEO_WIDESCREEN), 1280.0f / 720.0f, 0.001f);
   }
 
+  TEST(SplashLayoutTest, AppliesFourByThreeCorrectionToHighDefinitionModesWhenWidescreenIsDisabled) {
+    const VIDEO_MODE videoMode {1280, 720, 32, 60};
+
+    EXPECT_NEAR(splash::get_display_aspect_ratio(videoMode, 0UL), 4.0f / 3.0f, 0.001f);
+  }
+
+  TEST(SplashLayoutTest, CalculatesLogicalDisplayWidthFromTheEffectiveAspectRatio) {
+    const VIDEO_MODE videoMode {1280, 720, 32, 60};
+
+    EXPECT_EQ(splash::calculate_display_width(720, videoMode, 0UL), 960);
+    EXPECT_EQ(splash::calculate_display_width(720, videoMode, VIDEO_WIDESCREEN), 1280);
+  }
+
   TEST(SplashLayoutTest, ScalesAndCentersTheLogoInsideTheConfiguredBounds) {
     const VIDEO_MODE videoMode {640, 480, 32, 60};
 

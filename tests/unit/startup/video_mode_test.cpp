@@ -41,4 +41,19 @@ namespace {
     EXPECT_FALSE(startup::is_preferred_video_mode(candidateVideoMode, currentBestVideoMode));
   }
 
+  TEST(VideoModeTest, Prefers720pOver1080iForHdStartupModes) {
+    const std::vector<VIDEO_MODE> availableVideoModes = {
+      {640, 480, 32, 60},
+      {1280, 720, 32, 60},
+      {1920, 1080, 32, 60},
+    };
+
+    const VIDEO_MODE bestVideoMode = startup::choose_best_video_mode(availableVideoModes);
+
+    EXPECT_EQ(bestVideoMode.width, 1280);
+    EXPECT_EQ(bestVideoMode.height, 720);
+    EXPECT_EQ(bestVideoMode.bpp, 32);
+    EXPECT_EQ(bestVideoMode.refresh, 60);
+  }
+
 }  // namespace

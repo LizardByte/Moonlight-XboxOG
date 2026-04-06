@@ -26,6 +26,7 @@
 #include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 #include "src/os.h"
+#include "src/splash/splash_layout.h"
 #include "src/startup/client_identity_storage.h"
 #include "src/startup/cover_art_cache.h"
 #include "src/startup/host_storage.h"
@@ -2426,6 +2427,8 @@ namespace {
 
   bool draw_shell(
     SDL_Renderer *renderer,
+    const VIDEO_MODE &videoMode,
+    unsigned long encoderSettings,
     SDL_Texture *titleLogoTexture,
     TTF_Font *titleFont,
     TTF_Font *bodyFont,
@@ -2434,11 +2437,17 @@ namespace {
     CoverArtTextureCache *textureCache,
     AssetTextureCache *assetCache
   ) {
-    int screenWidth = 0;
-    int screenHeight = 0;
-    if (SDL_GetRendererOutputSize(renderer, &screenWidth, &screenHeight) != 0 || screenWidth <= 0 || screenHeight <= 0) {
+    int framebufferWidth = 0;
+    int framebufferHeight = 0;
+    if (SDL_GetRendererOutputSize(renderer, &framebufferWidth, &framebufferHeight) != 0 || framebufferWidth <= 0 || framebufferHeight <= 0) {
       return false;
     }
+
+    const int screenHeight = framebufferHeight;
+    const int screenWidth = splash::calculate_display_width(screenHeight, videoMode, encoderSettings);
+    const float horizontalScale = static_cast<float>(framebufferWidth) / static_cast<float>(screenWidth);
+
+    SDL_RenderSetScale(renderer, 1.0f, 1.0f);
 
     const int outerMargin = std::max(18, screenHeight / 24);
     const int panelGap = std::max(14, screenWidth / 48);
@@ -2450,6 +2459,10 @@ namespace {
 
     SDL_SetRenderDrawColor(renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
     if (SDL_RenderClear(renderer) != 0) {
+      return false;
+    }
+
+    if (SDL_RenderSetScale(renderer, horizontalScale, 1.0f) != 0) {
       return false;
     }
 
@@ -2867,6 +2880,7 @@ namespace {
     }
 
     SDL_RenderPresent(renderer);
+    SDL_RenderSetScale(renderer, 1.0f, 1.0f);
     return true;
   }
 
@@ -2962,6 +2976,7 @@ namespace ui {
     HostProbeTaskState hostProbeTask {};
     CoverArtTextureCache coverArtTextureCache {};
     AssetTextureCache assetTextureCache {};
+    const unsigned long encoderSettings = XVideoGetEncoderSettings();
     reset_pairing_task(&pairingTask);
     reset_app_list_task(&appListTask);
     reset_app_art_task(&appArtTask);
@@ -2971,7 +2986,7 @@ namespace ui {
 
     const auto draw_current_shell = [&]() {
       const ui::ShellViewModel viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info));
-      if (draw_shell(renderer, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
+      if (draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
         return true;
       }
 
@@ -3178,7 +3193,7 @@ namespace ui {
       start_app_art_task_if_needed(logger, state, &appArtTask);
 
       const ui::ShellViewModel viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info));
-      if (!draw_shell(renderer, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
+      if (!draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
         report_shell_failure(logger, "render", std::string("Shell render failed: ") + SDL_GetError());
         running = false;
         break;

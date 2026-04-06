@@ -35,6 +35,32 @@ namespace {
     return 1;
   }
 
+  void debug_print_startup_checkpoint(const char *message) {
+    if (message == nullptr) {
+      return;
+    }
+
+    debugPrint("[startup] %s\n", message);
+  }
+
+  void debug_print_video_mode_selection(const startup::VideoModeSelection &selection) {
+    debugPrint("[startup] Detected %u video mode(s)\n", static_cast<unsigned int>(selection.availableVideoModes.size()));
+    for (const std::string &line : startup::format_video_mode_lines(selection)) {
+      debugPrint("[startup] %s\n", line.c_str());
+    }
+  }
+
+  void debug_print_encoder_settings(DWORD encoderSettings) {
+    debugPrint(
+      "[startup] Encoder settings: 0x%08lX (widescreen=%s, 480p=%s, 720p=%s, 1080i=%s)\n",
+      static_cast<unsigned long>(encoderSettings),
+      (encoderSettings & VIDEO_WIDESCREEN) != 0 ? "on" : "off",
+      (encoderSettings & VIDEO_MODE_480P) != 0 ? "on" : "off",
+      (encoderSettings & VIDEO_MODE_720P) != 0 ? "on" : "off",
+      (encoderSettings & VIDEO_MODE_1080I) != 0 ? "on" : "off"
+    );
+  }
+
   int run_startup_task(void *context) {
     StartupTaskState *task = static_cast<StartupTaskState *>(context);
     if (task == nullptr) {
@@ -93,16 +119,27 @@ int main() {
   logger.set_minimum_level(clientState.loggingLevel);
   logger.log(logging::LogLevel::info, "app", std::string("Initial screen: ") + app::to_string(clientState.activeScreen));
   logger.log(logging::LogLevel::info, "logging", "Writing runtime logs to " + logFilePath);
+  debug_print_startup_checkpoint("Runtime logging initialized");
+  debug_print_encoder_settings(XVideoGetEncoderSettings());
 
   const startup::VideoModeSelection videoModeSelection = startup::select_best_video_mode();
   const VIDEO_MODE &bestVideoMode = videoModeSelection.bestVideoMode;
+  debug_print_video_mode_selection(videoModeSelection);
 
-  XVideoSetMode(bestVideoMode.width, bestVideoMode.height, bestVideoMode.bpp, bestVideoMode.refresh);
+  debug_print_startup_checkpoint(
+    (std::string("About to call XVideoSetMode with ") + std::to_string(bestVideoMode.width) + "x" + std::to_string(bestVideoMode.height) + ", bpp=" + std::to_string(bestVideoMode.bpp) + ", refresh=" + std::to_string(bestVideoMode.refresh)).c_str()
+  );
 
+  const BOOL setVideoModeResult = XVideoSetMode(bestVideoMode.width, bestVideoMode.height, bestVideoMode.bpp, bestVideoMode.refresh);
+  debug_print_startup_checkpoint(setVideoModeResult ? "Returned from XVideoSetMode successfully" : "XVideoSetMode returned failure");
+
+  debug_print_startup_checkpoint("About to call SDL_Init");
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
     return report_startup_failure(logger, "sdl", std::string("SDL_Init failed: ") + SDL_GetError());
   }
+  debug_print_startup_checkpoint("SDL_Init succeeded");
 
+  debug_print_startup_checkpoint("About to create SDL window");
   SDL_Window *window = SDL_CreateWindow(
     "Moonlight Xbox",
     SDL_WINDOWPOS_UNDEFINED,
@@ -116,17 +153,24 @@ int main() {
     SDL_Quit();
     return exitCode;
   }
+  debug_print_startup_checkpoint("SDL window creation succeeded");
 
   StartupTaskState startupTask {};
+  debug_print_startup_checkpoint("Starting background startup task");
   startupTask.thread = SDL_CreateThread(run_startup_task, "startup-init", &startupTask);
   if (startupTask.thread == nullptr) {
+    debug_print_startup_checkpoint("SDL_CreateThread failed; running startup task synchronously");
     run_startup_task(&startupTask);
+  } else {
+    debug_print_startup_checkpoint("Background startup task created");
   }
 
   logger.log(logging::LogLevel::info, "app", "Showing splash screen");
+  debug_print_startup_checkpoint("About to show splash screen");
   splash::show_splash_screen(window, bestVideoMode, [&startupTask]() {
     return !startupTask.completed.load(std::memory_order_acquire);
   });
+  debug_print_startup_checkpoint("Returned from splash screen");
 
   finish_startup_task(logger, clientState, &startupTask);
   for (const std::string &line : startup::format_video_mode_lines(videoModeSelection)) {

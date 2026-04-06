@@ -188,6 +188,9 @@ If you only want the emulator without the ROM/HDD support bundle, run:
 scripts\setup-xemu.cmd --skip-support-files
 ```
 
+> [!NOTE]
+> You can set Xemu to use widescreen mode by using https://github.com/Ernegien/XboxEepromEditor
+
 ## Todo
 
 - Build

@@ -6,7 +6,23 @@
 
 namespace startup {
 
+  namespace {
+
+    bool is_1080i_mode(const VIDEO_MODE &videoMode) {
+      return videoMode.width >= 1920 && videoMode.height >= 1080;
+    }
+
+  }  // namespace
+
   bool is_preferred_video_mode(const VIDEO_MODE &candidateVideoMode, const VIDEO_MODE &currentBestVideoMode) {
+    if (is_1080i_mode(candidateVideoMode) && !is_1080i_mode(currentBestVideoMode) && currentBestVideoMode.width >= 1280 && currentBestVideoMode.height >= 720) {
+      return false;
+    }
+
+    if (!is_1080i_mode(candidateVideoMode) && is_1080i_mode(currentBestVideoMode) && candidateVideoMode.width >= 1280 && candidateVideoMode.height >= 720) {
+      return true;
+    }
+
     if (candidateVideoMode.height < currentBestVideoMode.height) {
       return false;
     }

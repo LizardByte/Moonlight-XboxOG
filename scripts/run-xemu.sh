@@ -71,6 +71,8 @@ write_xemu_config() {
         printf 'show_welcome = false\n'
         printf 'games_dir = "%s"\n' "$(escape_toml_string "$games_dir")"
         printf 'skip_boot_anim = true\n'
+        printf '\n[display.ui]\n'
+        printf "aspect_ratio = 'native\'\n"
         printf '\n[net]\n'
         printf 'enable = true\n'
         printf '\n[sys.files]\n'
