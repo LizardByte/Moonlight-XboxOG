@@ -74,6 +74,7 @@ namespace ui {
         update.overlayToggleRequested = true;
         break;
       case input::UiCommand::none:
+      case input::UiCommand::open_context_menu:
       case input::UiCommand::delete_character:
       case input::UiCommand::move_left:
       case input::UiCommand::move_right:

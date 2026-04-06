@@ -3,6 +3,10 @@ You need to prefix commands with `C:\msys64\msys2_shell.cmd -defterm -here -no-s
 
 Prefix build directories with `cmake-build-`.
 
+The xbox build uses Unix Makefiles.
+
+The host native tests will use MinGW Makefiles on Windows, but Unix Makefiles on other platforms.
+
 The project uses gtest as a test framework.
 
 Always follow the style guidelines defined in .clang-format for c/c++ code.

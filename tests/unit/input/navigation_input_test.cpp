@@ -13,7 +13,7 @@ namespace {
     EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::x), input::UiCommand::delete_character);
     EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::start), input::UiCommand::confirm);
     EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::left_shoulder), input::UiCommand::previous_page);
-    EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::y), input::UiCommand::toggle_overlay);
+    EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::y), input::UiCommand::open_context_menu);
   }
 
   TEST(NavigationInputTest, MapsKeyboardKeysToNavigationCommands) {
@@ -24,6 +24,8 @@ namespace {
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::delete_key), input::UiCommand::delete_character);
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::tab, false), input::UiCommand::next_page);
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::tab, true), input::UiCommand::previous_page);
+    EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::i), input::UiCommand::open_context_menu);
+    EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::m), input::UiCommand::open_context_menu);
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::f3), input::UiCommand::toggle_overlay);
   }
 

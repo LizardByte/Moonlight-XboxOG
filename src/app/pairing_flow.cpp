@@ -8,8 +8,8 @@ namespace app {
       targetAddress,
       targetPort,
       std::move(generatedPin),
-      PairingStage::pin_ready,
-      "Pairing request sent. Enter the PIN on the host if prompted.",
+      PairingStage::idle,
+      "Checking whether the host is reachable before pairing begins.",
     };
     return draft;
   }

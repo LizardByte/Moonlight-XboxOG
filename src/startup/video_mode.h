@@ -1,6 +1,7 @@
 #pragma once
 
 // standard includes
+#include <string>
 #include <vector>
 
 // nxdk includes
@@ -66,6 +67,8 @@ namespace startup {
    *         selected best mode.
    */
   VideoModeSelection select_best_video_mode(int bpp = 32, int refresh = REFRESH_DEFAULT);
+
+  std::vector<std::string> format_video_mode_lines(const VideoModeSelection &selection);
 
   /**
    * @brief Log information about available and selected video modes.

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <g fill="none" stroke="#F2F5F8" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.5">
+    <path d="M12 24c3-8 10-12 20-12h20v28H12z"/>
+  </g>
+  <text x="32" y="38" fill="#F2F5F8" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">LB</text>
+</svg>
+

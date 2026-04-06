@@ -6,43 +6,66 @@
 
 namespace {
 
-  TEST(ShellViewTest, BuildsHomeScreenContentFromTheInitialState) {
+  TEST(ShellViewTest, BuildsHostsScreenContentFromTheInitialState) {
     const app::ClientState state = app::create_initial_state();
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    EXPECT_EQ(viewModel.title, "Xbox");
+    EXPECT_EQ(viewModel.title, "Moonlight");
+    EXPECT_TRUE(viewModel.pageTitle.empty());
+    ASSERT_EQ(viewModel.toolbarButtons.size(), 3U);
+    EXPECT_TRUE(viewModel.toolbarButtons[2].selected);
+    EXPECT_EQ(viewModel.toolbarButtons[2].label, "Add Host");
+    EXPECT_EQ(viewModel.toolbarButtons[2].iconAssetPath, "icons\\add-host.svg");
     ASSERT_FALSE(viewModel.bodyLines.empty());
-    EXPECT_EQ(viewModel.bodyLines.front(), "Controller-first Moonlight shell prototype.");
-    EXPECT_EQ(viewModel.bodyLines.back(), "Saved hosts available: 0");
-    ASSERT_EQ(viewModel.menuRows.size(), 4U);
-    EXPECT_TRUE(viewModel.menuRows.front().selected);
-    EXPECT_EQ(viewModel.menuRows.front().label, "Hosts");
+    EXPECT_EQ(viewModel.bodyLines.front(), "No PCs have been added yet.");
+    ASSERT_EQ(viewModel.footerActions.size(), 2U);
+    EXPECT_EQ(viewModel.footerActions[0].label, "Select");
+    EXPECT_EQ(viewModel.footerActions[0].iconAssetPath, "icons\\button-a.svg");
+    EXPECT_EQ(viewModel.footerActions[1].label, "Exit");
+    EXPECT_EQ(viewModel.footerActions[1].iconAssetPath, "icons\\button-start.svg");
+    EXPECT_EQ(viewModel.footerActions[1].secondaryIconAssetPath, "icons\\button-select.svg");
     EXPECT_FALSE(viewModel.overlayVisible);
   }
 
-  TEST(ShellViewTest, ShowsSavedHostDetailsOnTheHostsScreen) {
+  TEST(ShellViewTest, ShowsSavedHostsAsTiles) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired},
-    }, "Loaded 1 saved host(s)");
-    app::handle_command(state, input::UiCommand::activate);
+      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired, app::HostReachability::offline},
+      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+    }, "Loaded 2 saved host(s)");
+    app::handle_command(state, input::UiCommand::move_right);
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    EXPECT_EQ(viewModel.title, "Hosts");
-    ASSERT_GE(viewModel.bodyLines.size(), 6U);
-    EXPECT_EQ(viewModel.bodyLines[0], "Saved hosts: 1");
-    EXPECT_EQ(viewModel.bodyLines[1], "Selected host: Living Room PC");
-    EXPECT_EQ(viewModel.bodyLines[2], "Address: 192.168.0.10");
-    EXPECT_EQ(viewModel.bodyLines[3], "Port: 48000");
-    EXPECT_EQ(viewModel.bodyLines[4], "Pairing: Not paired yet");
-    EXPECT_NE(viewModel.bodyLines[5].find("Pair Selected Host"), std::string::npos);
+    EXPECT_TRUE(viewModel.pageTitle.empty());
+    EXPECT_EQ(viewModel.hostColumnCount, 3U);
+    ASSERT_EQ(viewModel.hostTiles.size(), 2U);
+    EXPECT_EQ(viewModel.hostTiles[0].displayName, "Living Room PC");
+    EXPECT_EQ(viewModel.hostTiles[0].statusLabel, "Offline");
+    EXPECT_EQ(viewModel.hostTiles[0].iconAssetPath, "icons\\host-monitor-offline.svg");
+    EXPECT_EQ(viewModel.hostTiles[1].displayName, "Office PC");
+    EXPECT_EQ(viewModel.hostTiles[1].statusLabel, "Online");
+    EXPECT_EQ(viewModel.hostTiles[1].iconAssetPath, "icons\\host-monitor-online.svg");
+    EXPECT_TRUE(viewModel.hostTiles[1].selected);
+  }
+
+  TEST(ShellViewTest, HidesHostMenuFooterActionWhenToolbarIsSelected) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online},
+    });
+    state.hostsFocusArea = app::HostsFocusArea::toolbar;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_EQ(viewModel.footerActions.size(), 2U);
+    EXPECT_EQ(viewModel.footerActions[0].label, "Select");
+    EXPECT_EQ(viewModel.footerActions[1].label, "Exit");
   }
 
   TEST(ShellViewTest, ShowsKeypadBasedHostEntryInstructionsAndValidation) {
     app::ClientState state = app::create_initial_state();
-    state.menu.handle_command(input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
     state.addHostDraft.activeField = app::AddHostField::port;
     state.addHostDraft.portInput = "48000";
@@ -51,23 +74,62 @@ namespace {
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    EXPECT_EQ(viewModel.title, "Add Host");
-    ASSERT_GE(viewModel.bodyLines.size(), 8U);
-    EXPECT_EQ(viewModel.bodyLines[0], "Manual host entry with a popup keypad.");
-    EXPECT_EQ(viewModel.bodyLines[1], "Current address: 192.168.0.10");
-    EXPECT_EQ(viewModel.bodyLines[2], "Current port: 48000");
-    EXPECT_EQ(viewModel.bodyLines[3], "Selected field: Port");
-    EXPECT_EQ(viewModel.bodyLines[4], "Select Host Address or Port to open the keypad modal.");
-    EXPECT_EQ(viewModel.bodyLines[5], "Use Clear Current Field to erase the selected field.");
-    EXPECT_EQ(viewModel.bodyLines[7], "Validation: That host is already saved");
-    EXPECT_EQ(viewModel.bodyLines[8], "Connection: Connected to 192.168.0.10:48000");
-    ASSERT_GE(viewModel.footerLines.size(), 6U);
-    EXPECT_EQ(viewModel.footerLines[1], "Select Address or Port to open the keypad modal");
+    EXPECT_EQ(viewModel.pageTitle, "Add Host");
+    ASSERT_GE(viewModel.bodyLines.size(), 4U);
+    EXPECT_EQ(viewModel.bodyLines[0], "Manual host entry with a keypad modal.");
+    EXPECT_EQ(viewModel.bodyLines[1], "Address: 192.168.0.10");
+    EXPECT_EQ(viewModel.bodyLines[2], "Port: 48000");
+    EXPECT_EQ(viewModel.bodyLines[3], "Press A to edit either field with the keypad modal.");
+    ASSERT_EQ(viewModel.footerActions.size(), 2U);
+    EXPECT_EQ(viewModel.footerActions[0].label, "Select");
+    EXPECT_EQ(viewModel.footerActions[1].label, "Back");
+  }
+
+  TEST(ShellViewTest, ShowsLoggingDetailsOnTheSettingsScreen) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
+    app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
+    state.loggingLevel = logging::LogLevel::debug;
+    app::replace_saved_files(state, {
+      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 2048U},
+      {"E:\\UDATA\\12345678\\pairing\\client.pem", "pairing\\client.pem", 1536U},
+    });
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_GE(viewModel.bodyLines.size(), 4U);
+    EXPECT_EQ(viewModel.bodyLines[0], "Category: Logging");
+    EXPECT_EQ(viewModel.bodyLines[1], "Log file: E:\\UDATA\\12345678\\moonlight.log");
+    EXPECT_EQ(viewModel.bodyLines[2], "Current logging level: DEBUG");
+    EXPECT_EQ(viewModel.bodyLines[3], "Use View Log File to inspect persisted startup and applist diagnostics.");
+    ASSERT_EQ(viewModel.detailMenuRows.size(), 2U);
+    EXPECT_EQ(viewModel.detailMenuRows[0].label, "View Log File");
+  }
+
+  TEST(ShellViewTest, ExposesTheFullSelectedSettingsLabelBesideTheMenu) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
+
+    state.selectedSettingsCategory = app::SettingsCategory::reset;
+    app::replace_saved_files(state, {
+      {"E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", "pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", 1536U},
+    });
+    state.settingsFocusArea = app::SettingsFocusArea::options;
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("delete-saved-file:E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin"));
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_EQ(viewModel.selectedMenuRowLabel, "Delete pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin");
   }
 
   TEST(ShellViewTest, BuildsTheAddHostKeypadModalAsANumberPad) {
     app::ClientState state = app::create_initial_state();
-    state.menu.handle_command(input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
     state.addHostDraft.addressInput.clear();
     app::handle_command(state, input::UiCommand::activate);
@@ -84,34 +146,175 @@ namespace {
     EXPECT_TRUE(viewModel.keypadModalButtons[0].selected);
     EXPECT_EQ(viewModel.keypadModalButtons[9].label, ".");
     EXPECT_EQ(viewModel.keypadModalButtons[10].label, "0");
-    EXPECT_EQ(viewModel.footerLines[1], "Keypad open: D-pad moves, A enters, X deletes, Start accepts, B cancels");
   }
 
-  TEST(ShellViewTest, ShowsThatPairingCanBeStartedForAnUnpairedHost) {
+  TEST(ShellViewTest, BuildsTheAppsPageForASelectedPairedHost) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired},
+      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
     });
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+    state.hosts.front().runningGameId = 101;
+    app::apply_app_list_result(state, "10.0.0.25", 48000, {
+      {"Steam", 101, true, false, false, "steam-cover", true, false},
+      {"Desktop", 102, false, false, false, "desktop-cover", false, false},
+    }, 0x4242U, true, "Loaded 2 Sunshine app(s)");
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_EQ(viewModel.screen, app::ScreenId::apps);
+    EXPECT_EQ(viewModel.pageTitle, "Office PC");
+    ASSERT_FALSE(viewModel.appTiles.empty());
+    EXPECT_EQ(viewModel.appTiles[0].name, "Steam");
+    EXPECT_TRUE(viewModel.appTiles[0].selected);
+    EXPECT_TRUE(viewModel.bodyLines.empty());
+    EXPECT_EQ(viewModel.appTiles[0].detail, "Running now");
+    EXPECT_EQ(viewModel.appTiles[0].badgeLabel, "HDR");
+    EXPECT_TRUE(viewModel.appTiles[0].boxArtCached);
+    EXPECT_TRUE(viewModel.appTiles[1].detail.empty());
+    ASSERT_EQ(viewModel.footerActions.size(), 3U);
+    EXPECT_EQ(viewModel.footerActions[0].label, "Launch");
+    EXPECT_EQ(viewModel.footerActions[1].label, "App Menu");
+    EXPECT_EQ(viewModel.footerActions[2].label, "Back");
+  }
+
+  TEST(ShellViewTest, HidesCachedAppTilesWhenTheSelectedHostIsNoLongerPaired) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+      {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
+    });
+    state.activeScreen = app::ScreenId::apps;
+    state.hosts.front().apps = {
+      {"Steam", 101, false, false, false, "steam-cover", true, false},
+    };
+    state.hosts.front().appListState = app::HostAppListState::failed;
+    state.hosts.front().appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.appTiles.empty());
+    ASSERT_FALSE(viewModel.bodyLines.empty());
+    EXPECT_EQ(viewModel.bodyLines.front(), "This host is not paired yet. Return and select it to begin pairing.");
+  }
+
+  TEST(ShellViewTest, SuppressesTransientAppsLoadingTextAndNotifications) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+    });
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+    state.statusMessage = "Loading apps for Office PC...";
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.bodyLines.empty());
+    EXPECT_FALSE(viewModel.notificationVisible);
+  }
+
+  TEST(ShellViewTest, ShowsOnlyBackOnAppsScreenWhenNoVisibleAppIsSelected) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+      {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+    });
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_EQ(viewModel.footerActions.size(), 1U);
+    EXPECT_EQ(viewModel.footerActions[0].label, "Back");
+  }
+
+  TEST(ShellViewTest, BuildsHostDetailsModalContent) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+      {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online, "192.168.0.10", "uuid-123", "192.168.0.10", "203.0.113.7", {}, "192.168.0.10", "00:11:22:33:44:55", 47990, 0},
+    });
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    EXPECT_EQ(viewModel.title, "Hosts");
-    ASSERT_GE(viewModel.bodyLines.size(), 5U);
-    EXPECT_EQ(viewModel.bodyLines[0], "Saved hosts: 1");
-    EXPECT_EQ(viewModel.bodyLines[1], "Selected host: Living Room PC");
-    EXPECT_EQ(viewModel.bodyLines[4], "Pairing: Not paired yet");
-    EXPECT_EQ(viewModel.bodyLines[5], "Select Pair Selected Host to start the Sunshine pairing handshake in the background.");
+    EXPECT_TRUE(viewModel.modalVisible);
+    EXPECT_EQ(viewModel.modalTitle, "Host Details");
+    ASSERT_GE(viewModel.modalLines.size(), 5U);
+    EXPECT_EQ(viewModel.modalLines[0], "Name: Living Room PC");
+    EXPECT_EQ(viewModel.modalLines[1], "State: ONLINE");
+    EXPECT_EQ(viewModel.modalLines[2], "Active Address: 192.168.0.10");
+  }
 
-    bool foundPairingAction = false;
-    for (const ui::ShellMenuRow &row : viewModel.menuRows) {
-      if (row.id == "pair-host") {
-        foundPairingAction = true;
-        EXPECT_TRUE(row.enabled);
-        EXPECT_EQ(row.label, "Pair Selected Host");
-      }
+  TEST(ShellViewTest, BuildsDedicatedLogViewerModalState) {
+    app::ClientState state = app::create_initial_state();
+    app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
+    state.logViewerPlacement = app::LogViewerPlacement::right;
+    app::apply_log_viewer_contents(state, {
+      "[000001] [INFO] app: Entered shell",
+      "[000002] [WARN] network: No active stream",
+    }, "Loaded log file preview");
+    state.logViewerScrollOffset = 1;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.modalVisible);
+    EXPECT_TRUE(viewModel.logViewerVisible);
+    EXPECT_EQ(viewModel.modalTitle, "Log File");
+    EXPECT_EQ(viewModel.logViewerPath, "E:\\UDATA\\12345678\\moonlight.log");
+    EXPECT_EQ(viewModel.logViewerPlacement, app::LogViewerPlacement::right);
+    EXPECT_EQ(viewModel.logViewerScrollOffset, 1U);
+    ASSERT_EQ(viewModel.logViewerLines.size(), 2U);
+    EXPECT_EQ(viewModel.logViewerLines[0], "[000001] [INFO] app: Entered shell");
+  }
+
+  TEST(ShellViewTest, BuildsConfirmationModalFooterActionsForResetDialogs) {
+    app::ClientState state = app::create_initial_state();
+    state.activeScreen = app::ScreenId::settings;
+    state.modal.id = app::ModalId::confirmation;
+    state.confirmation.action = app::ConfirmationAction::factory_reset;
+    state.confirmation.title = "Factory Reset";
+    state.confirmation.lines = {
+      "Delete all Moonlight saved data?",
+      "This removes hosts, logs, pairing identity, and cached cover art.",
+    };
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.modalVisible);
+    EXPECT_EQ(viewModel.modalTitle, "Factory Reset");
+    ASSERT_EQ(viewModel.modalFooterActions.size(), 2U);
+    EXPECT_EQ(viewModel.modalFooterActions[0].label, "OK");
+    EXPECT_EQ(viewModel.modalFooterActions[0].iconAssetPath, "icons\\button-a.svg");
+    EXPECT_EQ(viewModel.modalFooterActions[1].label, "Cancel");
+    EXPECT_EQ(viewModel.modalFooterActions[1].iconAssetPath, "icons\\button-b.svg");
+  }
+
+  TEST(ShellViewTest, ShowsNotificationsOnTheSettingsScreen) {
+    app::ClientState state = app::create_initial_state();
+    state.activeScreen = app::ScreenId::settings;
+    state.statusMessage = "Deleted saved file moonlight.log";
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.notificationVisible);
+    EXPECT_EQ(viewModel.notification.message, "Deleted saved file moonlight.log");
+  }
+
+  TEST(ShellViewTest, HidesThePairingPinUntilReachabilityHasBeenConfirmed) {
+    app::ClientState state = app::create_initial_state();
+    state.activeScreen = app::ScreenId::pair_host;
+    state.pairingDraft = {"192.168.0.10", 47984, "1234", app::PairingStage::idle, "Checking whether the host is reachable before pairing begins."};
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_GE(viewModel.bodyLines.size(), 2U);
+    EXPECT_EQ(viewModel.bodyLines[0], "Target host: 192.168.0.10");
+    EXPECT_EQ(viewModel.bodyLines[1], "Checking whether the host is reachable before showing a PIN.");
+    for (const std::string &line : viewModel.bodyLines) {
+      EXPECT_EQ(line.find("PIN:"), std::string::npos);
     }
-    EXPECT_TRUE(foundPairingAction);
+    EXPECT_FALSE(viewModel.notificationVisible);
   }
 
   TEST(ShellViewTest, AddsStatsAndRecentLogsToTheOverlayWhenVisible) {
@@ -155,19 +358,6 @@ namespace {
     EXPECT_EQ(viewModel.overlayLines.front(), "Showing earlier log entries");
   }
 
-  TEST(ShellViewTest, UsesScreenSpecificTextForTheSettingsScreen) {
-    app::ClientState state = app::create_initial_state();
-    state.menu.handle_command(input::UiCommand::move_down);
-    state.menu.handle_command(input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
-
-    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
-
-    EXPECT_EQ(state.activeScreen, app::ScreenId::settings);
-    EXPECT_EQ(viewModel.title, "Settings");
-    ASSERT_FALSE(viewModel.bodyLines.empty());
-    EXPECT_NE(viewModel.bodyLines.front().find("Display, input, overlay, and logging settings"), std::string::npos);
-  }
 
 }  // namespace
 

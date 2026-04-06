@@ -11,9 +11,9 @@ namespace {
 
     EXPECT_EQ(draft.targetAddress, "192.168.1.20");
     EXPECT_EQ(draft.targetPort, 47984);
-    EXPECT_EQ(draft.stage, app::PairingStage::pin_ready);
+    EXPECT_EQ(draft.stage, app::PairingStage::idle);
     EXPECT_EQ(draft.generatedPin, "4821");
-    EXPECT_FALSE(draft.statusMessage.empty());
+    EXPECT_EQ(draft.statusMessage, "Checking whether the host is reachable before pairing begins.");
   }
 
   TEST(PairingFlowTest, AcceptsOnlyFourDigitPins) {

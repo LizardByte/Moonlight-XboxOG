@@ -200,7 +200,6 @@ namespace {
       return nullptr;
     }
 
-    debugPrint("Normalized splash asset to format: %s\n", SDL_GetPixelFormatName(normalizedSurface->format->format));
     return normalizedSurface;
   }
 
@@ -227,11 +226,7 @@ namespace {
     IMG_Quit();
   }
 
-}  // namespace
-
-namespace splash {
-
-  void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, unsigned int durationMilliseconds) {
+  void runSplashScreen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {
     int done = 0;
     const int imageInitFlags = IMG_INIT_JPG | IMG_INIT_PNG;
     const int initializedImageFlags = IMG_Init(imageInitFlags);
@@ -247,9 +242,7 @@ namespace splash {
       return;
     }
 
-    if ((initializedImageFlags & imageInitFlags) != imageInitFlags) {
-      debugPrint("SDL_image initialized without all raster fallback decoders. Flags: %d\n", initializedImageFlags);
-    }
+    (void) initializedImageFlags;
 
     screenSurface = SDL_GetWindowSurface(window);
     if (!screenSurface) {
@@ -273,7 +266,6 @@ namespace splash {
     }
 
     SDL_Rect logoDestination = createCenteredRect(screenSurface, imageSurface->w, imageSurface->h);
-    const Uint32 startTicks = SDL_GetTicks();
 
     while (!done) {
       while (SDL_PollEvent(&event)) {
@@ -300,7 +292,7 @@ namespace splash {
         return;
       }
 
-      if (SDL_GetTicks() - startTicks >= durationMilliseconds) {
+      if (!keepShowing()) {
         done = 1;
       }
 
@@ -308,6 +300,21 @@ namespace splash {
     }
 
     cleanupSplashScreen(imageSurface);
+  }
+
+}  // namespace
+
+namespace splash {
+
+  void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, unsigned int durationMilliseconds) {
+    const Uint32 startTicks = SDL_GetTicks();
+    runSplashScreen(window, videoMode, [startTicks, durationMilliseconds]() {
+      return SDL_GetTicks() - startTicks < durationMilliseconds;
+    });
+  }
+
+  void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {
+    runSplashScreen(window, videoMode, keepShowing);
   }
 
 }  // namespace splash

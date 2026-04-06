@@ -14,9 +14,12 @@ namespace input {
     activate,
     confirm,
     back,
+    open_context_menu,
     delete_character,
     previous_page,
     next_page,
+    fast_previous_page,
+    fast_next_page,
     toggle_overlay,
   };
 
@@ -55,6 +58,7 @@ namespace input {
     page_up,
     page_down,
     i,
+    m,
     f3,
   };
 

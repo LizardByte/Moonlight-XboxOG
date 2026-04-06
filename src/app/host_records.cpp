@@ -72,6 +72,19 @@ namespace app {
     return "unknown";
   }
 
+  const char *to_string(HostReachability reachability) {
+    switch (reachability) {
+      case HostReachability::unknown:
+        return "unknown";
+      case HostReachability::online:
+        return "online";
+      case HostReachability::offline:
+        return "offline";
+    }
+
+    return "unknown";
+  }
+
   std::string normalize_ipv4_address(std::string_view address) {
     const std::vector<std::string_view> segments = split_string_view(address, '.');
     if (segments.size() != 4) {

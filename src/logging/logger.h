@@ -24,14 +24,26 @@ namespace logging {
   /**
    * @brief Structured log entry stored by the in-memory logger.
    */
+  struct LogTimestamp {
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int minute = 0;
+    int second = 0;
+    int millisecond = 0;
+  };
+
   struct LogEntry {
     uint64_t sequence;
     LogLevel level;
     std::string category;
     std::string message;
+    LogTimestamp timestamp {};
   };
 
   using LogSink = std::function<void(const LogEntry &entry)>;
+  using TimestampProvider = std::function<LogTimestamp()>;
 
   /**
    * @brief Return the display label for a log level.
@@ -40,6 +52,14 @@ namespace logging {
    * @return A stable, uppercase label.
    */
   const char *to_string(LogLevel level);
+
+  /**
+   * @brief Format a local wall-clock timestamp for log prefixes.
+   *
+   * @param timestamp Local timestamp to format.
+   * @return A stable YYYY-MM-DD HH:MM:SS.mmm timestamp string.
+   */
+  std::string format_timestamp(const LogTimestamp &timestamp);
 
   /**
    * @brief Format a log entry for text consoles or overlays.
@@ -59,7 +79,7 @@ namespace logging {
      *
      * @param capacity Maximum number of retained entries.
      */
-    explicit Logger(std::size_t capacity = 256);
+     explicit Logger(std::size_t capacity = 256, TimestampProvider timestampProvider = {});
 
     /**
      * @brief Return the maximum number of retained entries.
@@ -120,6 +140,7 @@ namespace logging {
     std::size_t capacity_;
     LogLevel minimumLevel_;
     uint64_t nextSequence_;
+    TimestampProvider timestampProvider_;
     std::deque<LogEntry> entries_;
     std::vector<LogSink> sinks_;
   };

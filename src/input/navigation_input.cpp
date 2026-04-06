@@ -22,12 +22,12 @@ namespace input {
         return UiCommand::back;
       case GamepadButton::x:
         return UiCommand::delete_character;
+      case GamepadButton::y:
+        return UiCommand::open_context_menu;
       case GamepadButton::left_shoulder:
         return UiCommand::previous_page;
       case GamepadButton::right_shoulder:
         return UiCommand::next_page;
-      case GamepadButton::y:
-        return UiCommand::toggle_overlay;
     }
 
     return UiCommand::none;
@@ -59,6 +59,8 @@ namespace input {
       case KeyboardKey::page_down:
         return UiCommand::next_page;
       case KeyboardKey::i:
+      case KeyboardKey::m:
+        return UiCommand::open_context_menu;
       case KeyboardKey::f3:
         return UiCommand::toggle_overlay;
     }

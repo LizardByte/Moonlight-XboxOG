@@ -12,23 +12,32 @@ namespace startup {
 
   }  // namespace
 
-  void log_memory_statistics() {
+  std::vector<std::string> format_memory_statistics_lines() {
     MM_STATISTICS memoryStatistics {};
     memoryStatistics.Length = sizeof(memoryStatistics);
 
     if (const NTSTATUS status = MmQueryStatistics(&memoryStatistics); !NT_SUCCESS(status)) {
-      debugPrint("Failed to query memory statistics. NTSTATUS: 0x%08lx\n", static_cast<unsigned long>(status));
-      return;
+      return {
+        "Failed to query memory statistics. NTSTATUS: 0x" + std::to_string(static_cast<unsigned long>(status)),
+      };
     }
 
     const unsigned long long totalPhysicalBytes = static_cast<unsigned long long>(memoryStatistics.TotalPhysicalPages) * PAGE_SIZE;
     const unsigned long long availableBytes = static_cast<unsigned long long>(memoryStatistics.AvailablePages) * PAGE_SIZE;
     const auto committedBytes = static_cast<unsigned long long>(memoryStatistics.VirtualMemoryBytesCommitted);
 
-    debugPrint("Memory statistics:\n");
-    debugPrint("Total physical memory: %llu MiB (%lu pages)\n", totalPhysicalBytes / BYTES_PER_MEBIBYTE, memoryStatistics.TotalPhysicalPages);
-    debugPrint("Available memory: %llu MiB (%lu pages)\n", availableBytes / BYTES_PER_MEBIBYTE, memoryStatistics.AvailablePages);
-    debugPrint("Committed virtual memory: %llu MiB\n", committedBytes / BYTES_PER_MEBIBYTE);
+    return {
+      "Memory statistics:",
+      "Total physical memory: " + std::to_string(totalPhysicalBytes / BYTES_PER_MEBIBYTE) + " MiB (" + std::to_string(memoryStatistics.TotalPhysicalPages) + " pages)",
+      "Available memory: " + std::to_string(availableBytes / BYTES_PER_MEBIBYTE) + " MiB (" + std::to_string(memoryStatistics.AvailablePages) + " pages)",
+      "Committed virtual memory: " + std::to_string(committedBytes / BYTES_PER_MEBIBYTE) + " MiB",
+    };
+  }
+
+  void log_memory_statistics() {
+    for (const std::string &line : format_memory_statistics_lines()) {
+      debugPrint("%s\n", line.c_str());
+    }
   }
 
 }  // namespace startup

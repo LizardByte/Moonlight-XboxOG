@@ -8,7 +8,7 @@
 
 namespace app {
 
-  inline constexpr uint16_t DEFAULT_HOST_PORT = 47984;
+  inline constexpr uint16_t DEFAULT_HOST_PORT = 47989;
 
   /**
    * @brief Pairing state tracked for a saved host record.
@@ -19,13 +19,62 @@ namespace app {
   };
 
   /**
+   * @brief Reachability state tracked for a discovered or saved host.
+   */
+  enum class HostReachability {
+    unknown,
+    online,
+    offline,
+  };
+
+  /**
+   * @brief Fetch state for the per-host Sunshine app library.
+   */
+  enum class HostAppListState {
+    idle,
+    loading,
+    ready,
+    failed,
+  };
+
+  /**
+   * @brief App metadata shown on the per-host apps page.
+   */
+  struct HostAppRecord {
+    std::string name;
+    int id = 0;
+    bool hdrSupported = false;
+    bool hidden = false;
+    bool favorite = false;
+    std::string boxArtCacheKey;
+    bool boxArtCached = false;
+    bool running = false;
+  };
+
+  /**
    * @brief Manual host record shown in the shell.
    */
   struct HostRecord {
     std::string displayName;
     std::string address;
-    uint16_t port;
-    PairingState pairingState;
+    uint16_t port = 0;
+    PairingState pairingState = PairingState::not_paired;
+    HostReachability reachability = HostReachability::unknown;
+    std::string activeAddress;
+    std::string uuid;
+    std::string localAddress;
+    std::string remoteAddress;
+    std::string ipv6Address;
+    std::string manualAddress;
+    std::string macAddress;
+    uint16_t httpsPort = 0;
+    uint32_t runningGameId = 0;
+    std::vector<HostAppRecord> apps;
+    HostAppListState appListState = HostAppListState::idle;
+    std::string appListStatusMessage;
+    uint16_t resolvedHttpPort = 0;
+    uint64_t appListContentHash = 0;
+    uint32_t lastAppListRefreshTick = 0;
   };
 
   /**
@@ -43,6 +92,14 @@ namespace app {
    * @return Stable lowercase label.
    */
   const char *to_string(PairingState pairingState);
+
+  /**
+   * @brief Return a stable lowercase label for a host reachability state.
+   *
+   * @param reachability Reachability state to stringify.
+   * @return Stable lowercase label.
+   */
+  const char *to_string(HostReachability reachability);
 
   /**
    * @brief Normalize a user-provided IPv4 address.

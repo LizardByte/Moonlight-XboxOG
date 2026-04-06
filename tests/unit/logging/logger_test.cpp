@@ -10,8 +10,15 @@
 
 namespace {
 
+  TEST(LoggerTest, FormatsWallClockTimestampsWithDateAndMilliseconds) {
+    EXPECT_EQ(logging::format_timestamp({2026, 4, 5, 13, 7, 9, 42}), "2026-04-05 13:07:09.042");
+    EXPECT_EQ(logging::format_timestamp({}), "0000-00-00 00:00:00.000");
+  }
+
   TEST(LoggerTest, StoresEntriesAboveTheConfiguredMinimumLevel) {
-    logging::Logger logger(4);
+    logging::Logger logger(4, []() {
+      return logging::LogTimestamp {2026, 4, 5, 13, 7, 9, 42};
+    });
     logger.set_minimum_level(logging::LogLevel::debug);
 
     EXPECT_FALSE(logger.log(logging::LogLevel::trace, "streaming", "ignored"));
@@ -23,6 +30,13 @@ namespace {
     EXPECT_EQ(logger.entries().back().sequence, 2U);
     EXPECT_EQ(logger.entries().front().category, "streaming");
     EXPECT_EQ(logger.entries().back().message, "failed");
+    EXPECT_EQ(logger.entries().front().timestamp.year, 2026);
+    EXPECT_EQ(logger.entries().front().timestamp.month, 4);
+    EXPECT_EQ(logger.entries().front().timestamp.day, 5);
+    EXPECT_EQ(logger.entries().front().timestamp.hour, 13);
+    EXPECT_EQ(logger.entries().front().timestamp.minute, 7);
+    EXPECT_EQ(logger.entries().front().timestamp.second, 9);
+    EXPECT_EQ(logger.entries().front().timestamp.millisecond, 42);
   }
 
   TEST(LoggerTest, DropsTheOldestEntriesWhenCapacityIsReached) {
