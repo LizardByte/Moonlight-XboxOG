@@ -28,6 +28,13 @@ extern "C" {
 
 namespace {
 
+  bool append_error(std::string *errorMessage, std::string message) {
+    if (errorMessage != nullptr) {
+      *errorMessage = std::move(message);
+    }
+    return false;
+  }
+
   std::string normalize_directory_component(std::string path) {
     while (path.size() > 3 && (path.back() == '\\' || path.back() == '/')) {
       path.pop_back();
@@ -172,6 +179,19 @@ namespace startup {
 
     std::fclose(file);
     return true;
+  }
+
+  bool delete_cover_art(std::string_view cacheKey, std::string *errorMessage, const std::string &cacheRoot) {
+    if (cacheKey.empty()) {
+      return true;
+    }
+
+    const std::string path = cover_art_cache_path(cacheKey, cacheRoot);
+    if (std::remove(path.c_str()) == 0 || errno == ENOENT) {
+      return true;
+    }
+
+    return append_error(errorMessage, "Failed to delete cached cover art '" + path + "': " + std::strerror(errno));
   }
 
   LoadCoverArtResult load_cover_art(std::string_view cacheKey, const std::string &cacheRoot) {

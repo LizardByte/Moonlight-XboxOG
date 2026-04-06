@@ -1,8 +1,3 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <g fill="none" stroke="#F2F5F8" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.5">
-    <path d="M18 10h20l8 18v24H18z"/>
-    <path d="M46 28v24"/>
-  </g>
-  <text x="32" y="42" fill="#F2F5F8" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle">RT</text>
+  <path d="M24 14h20l10 10v24H30V24z" fill="none" stroke="#F2F5F8" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.5"/>
 </svg>
-

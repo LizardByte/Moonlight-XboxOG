@@ -61,7 +61,6 @@ namespace {
   constexpr Uint32 EXIT_COMBO_HOLD_MILLISECONDS = 900U;
   constexpr Uint32 LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS = 110U;
   constexpr Uint32 LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS = 45U;
-  constexpr int MIN_SVG_RASTER_DIMENSION = 256;
   constexpr std::size_t LOG_VIEWER_MAX_LOADED_LINES = 512U;
   constexpr std::size_t LOG_VIEWER_MAX_RENDER_CHARACTERS = 320U;
 
@@ -78,64 +77,13 @@ namespace {
     return path.size() >= 4U && path.substr(path.size() - 4U) == ".svg";
   }
 
-  Uint32 read_surface_pixel(const SDL_Surface *surface, int x, int y) {
-    const Uint8 *row = static_cast<const Uint8 *>(surface->pixels) + (y * surface->pitch);
-    Uint32 pixel = 0;
-    std::memcpy(&pixel, row + (x * static_cast<int>(sizeof(Uint32))), sizeof(Uint32));
-    return pixel;
-  }
+  bool asset_path_is_svg_icon(const char *relativePath) {
+    if (!asset_path_uses_svg(relativePath)) {
+      return false;
+    }
 
-  void write_surface_pixel(SDL_Surface *surface, int x, int y, Uint32 pixel) {
-    Uint8 *row = static_cast<Uint8 *>(surface->pixels) + (y * surface->pitch);
-    std::memcpy(row + (x * static_cast<int>(sizeof(Uint32))), &pixel, sizeof(Uint32));
-  }
-
-  Uint32 sample_bilinear_pixel(const SDL_Surface *sourceSurface, float sourceX, float sourceY, const SDL_PixelFormat *targetFormat) {
-    const int x0 = std::clamp(static_cast<int>(std::floor(sourceX)), 0, sourceSurface->w - 1);
-    const int y0 = std::clamp(static_cast<int>(std::floor(sourceY)), 0, sourceSurface->h - 1);
-    const int x1 = std::min(x0 + 1, sourceSurface->w - 1);
-    const int y1 = std::min(y0 + 1, sourceSurface->h - 1);
-    const float tx = std::clamp(sourceX - static_cast<float>(x0), 0.0f, 1.0f);
-    const float ty = std::clamp(sourceY - static_cast<float>(y0), 0.0f, 1.0f);
-
-    Uint8 topLeftRed = 0;
-    Uint8 topLeftGreen = 0;
-    Uint8 topLeftBlue = 0;
-    Uint8 topLeftAlpha = 0;
-    Uint8 topRightRed = 0;
-    Uint8 topRightGreen = 0;
-    Uint8 topRightBlue = 0;
-    Uint8 topRightAlpha = 0;
-    Uint8 bottomLeftRed = 0;
-    Uint8 bottomLeftGreen = 0;
-    Uint8 bottomLeftBlue = 0;
-    Uint8 bottomLeftAlpha = 0;
-    Uint8 bottomRightRed = 0;
-    Uint8 bottomRightGreen = 0;
-    Uint8 bottomRightBlue = 0;
-    Uint8 bottomRightAlpha = 0;
-
-    SDL_GetRGBA(read_surface_pixel(sourceSurface, x0, y0), sourceSurface->format, &topLeftRed, &topLeftGreen, &topLeftBlue, &topLeftAlpha);
-    SDL_GetRGBA(read_surface_pixel(sourceSurface, x1, y0), sourceSurface->format, &topRightRed, &topRightGreen, &topRightBlue, &topRightAlpha);
-    SDL_GetRGBA(read_surface_pixel(sourceSurface, x0, y1), sourceSurface->format, &bottomLeftRed, &bottomLeftGreen, &bottomLeftBlue, &bottomLeftAlpha);
-    SDL_GetRGBA(read_surface_pixel(sourceSurface, x1, y1), sourceSurface->format, &bottomRightRed, &bottomRightGreen, &bottomRightBlue, &bottomRightAlpha);
-
-    const float topRed = (static_cast<float>(topLeftRed) * (1.0f - tx)) + (static_cast<float>(topRightRed) * tx);
-    const float topGreen = (static_cast<float>(topLeftGreen) * (1.0f - tx)) + (static_cast<float>(topRightGreen) * tx);
-    const float topBlue = (static_cast<float>(topLeftBlue) * (1.0f - tx)) + (static_cast<float>(topRightBlue) * tx);
-    const float topAlpha = (static_cast<float>(topLeftAlpha) * (1.0f - tx)) + (static_cast<float>(topRightAlpha) * tx);
-    const float bottomRed = (static_cast<float>(bottomLeftRed) * (1.0f - tx)) + (static_cast<float>(bottomRightRed) * tx);
-    const float bottomGreen = (static_cast<float>(bottomLeftGreen) * (1.0f - tx)) + (static_cast<float>(bottomRightGreen) * tx);
-    const float bottomBlue = (static_cast<float>(bottomLeftBlue) * (1.0f - tx)) + (static_cast<float>(bottomRightBlue) * tx);
-    const float bottomAlpha = (static_cast<float>(bottomLeftAlpha) * (1.0f - tx)) + (static_cast<float>(bottomRightAlpha) * tx);
-
-    return SDL_MapRGBA(
-      targetFormat,
-      static_cast<Uint8>((topRed * (1.0f - ty)) + (bottomRed * ty)),
-      static_cast<Uint8>((topGreen * (1.0f - ty)) + (bottomGreen * ty)),
-      static_cast<Uint8>((topBlue * (1.0f - ty)) + (bottomBlue * ty)),
-      static_cast<Uint8>((topAlpha * (1.0f - ty)) + (bottomAlpha * ty))
-    );
+    const std::string path(relativePath);
+    return path.rfind("icons\\", 0U) == 0U;
   }
 
   SDL_Surface *normalize_asset_surface(SDL_Surface *surface) {
@@ -158,64 +106,21 @@ namespace {
     return normalizedSurface;
   }
 
-  SDL_Surface *create_scaled_surface_bilinear(SDL_Surface *sourceSurface, int targetWidth, int targetHeight) {
-    if (sourceSurface == nullptr || targetWidth <= 0 || targetHeight <= 0) {
-      return nullptr;
-    }
-
-    SDL_Surface *scaledSurface = SDL_CreateRGBSurfaceWithFormat(0, targetWidth, targetHeight, 32, SDL_PIXELFORMAT_ARGB8888);
-    if (scaledSurface == nullptr) {
-      SDL_FreeSurface(sourceSurface);
-      return nullptr;
-    }
-
-    if (SDL_LockSurface(sourceSurface) < 0) {
-      SDL_FreeSurface(sourceSurface);
-      SDL_FreeSurface(scaledSurface);
-      return nullptr;
-    }
-
-    if (SDL_LockSurface(scaledSurface) < 0) {
-      SDL_UnlockSurface(sourceSurface);
-      SDL_FreeSurface(sourceSurface);
-      SDL_FreeSurface(scaledSurface);
-      return nullptr;
-    }
-
-    for (int y = 0; y < scaledSurface->h; ++y) {
-      const float sourceY = ((static_cast<float>(y) + 0.5f) * static_cast<float>(sourceSurface->h) / static_cast<float>(scaledSurface->h)) - 0.5f;
-      for (int x = 0; x < scaledSurface->w; ++x) {
-        const float sourceX = ((static_cast<float>(x) + 0.5f) * static_cast<float>(sourceSurface->w) / static_cast<float>(scaledSurface->w)) - 0.5f;
-        write_surface_pixel(scaledSurface, x, y, sample_bilinear_pixel(sourceSurface, sourceX, sourceY, scaledSurface->format));
-      }
-    }
-
-    SDL_UnlockSurface(scaledSurface);
-    SDL_UnlockSurface(sourceSurface);
-    SDL_FreeSurface(sourceSurface);
-
-    if (SDL_SetSurfaceBlendMode(scaledSurface, SDL_BLENDMODE_BLEND) != 0) {
-      SDL_FreeSurface(scaledSurface);
-      return nullptr;
-    }
-
-    return scaledSurface;
+  SDL_Surface *prepare_asset_surface(SDL_Surface *surface) {
+    return normalize_asset_surface(surface);
   }
 
-  SDL_Surface *prepare_asset_surface(SDL_Surface *surface, const char *relativePath) {
-    SDL_Surface *normalizedSurface = normalize_asset_surface(surface);
-    if (normalizedSurface == nullptr || !asset_path_uses_svg(relativePath)) {
-      return normalizedSurface;
+  SDL_Texture *create_texture_from_surface_with_scale_quality(SDL_Renderer *renderer, SDL_Surface *surface, const char *scaleQualityHint) {
+    if (renderer == nullptr || surface == nullptr || scaleQualityHint == nullptr) {
+      return nullptr;
     }
 
-    const int sourceMaxDimension = std::max(normalizedSurface->w, normalizedSurface->h);
-    if (sourceMaxDimension <= 0 || sourceMaxDimension >= MIN_SVG_RASTER_DIMENSION) {
-      return normalizedSurface;
-    }
-
-    const int targetWidth = std::max(1, (normalizedSurface->w * MIN_SVG_RASTER_DIMENSION) / sourceMaxDimension);
-    const int targetHeight = std::max(1, (normalizedSurface->h * MIN_SVG_RASTER_DIMENSION) / sourceMaxDimension);
-    return create_scaled_surface_bilinear(normalizedSurface, targetWidth, targetHeight);
+    const char *previousHint = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+    const std::string previousHintValue = previousHint == nullptr ? std::string {} : std::string(previousHint);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, scaleQualityHint);
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, previousHintValue.empty() ? "0" : previousHintValue.c_str());
+    return texture;
   }
 
   int report_shell_failure(logging::Logger &logger, const char *category, const std::string &message) {
@@ -482,12 +387,12 @@ namespace {
       return nullptr;
     }
 
-    surface = prepare_asset_surface(surface, relativePath);
+    surface = prepare_asset_surface(surface);
     if (surface == nullptr) {
       return nullptr;
     }
 
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_Texture *texture = create_texture_from_surface_with_scale_quality(renderer, surface, asset_path_is_svg_icon(relativePath) ? "0" : "1");
     SDL_FreeSurface(surface);
     return texture;
   }
@@ -1495,6 +1400,7 @@ namespace {
       }
 
       bool persistedMetadataChanged = false;
+      const bool hostRequiresManualPairing = app::host_requires_manual_pairing(state, address, port);
       if (!serverInfo.hostName.empty()) {
         persistedMetadataChanged = persistedMetadataChanged || host.displayName != serverInfo.hostName;
         host.displayName = serverInfo.hostName;
@@ -1511,13 +1417,14 @@ namespace {
       host.httpsPort = serverInfo.httpsPort;
       host.runningGameId = serverInfo.runningGameId;
       if (serverInfo.pairingStatusCurrentClientKnown) {
-        const app::PairingState resolvedPairingState = serverInfo.pairingStatusCurrentClient ? app::PairingState::paired : app::PairingState::not_paired;
+        const bool clientIsEffectivelyPaired = serverInfo.pairingStatusCurrentClient && !hostRequiresManualPairing;
+        const app::PairingState resolvedPairingState = clientIsEffectivelyPaired ? app::PairingState::paired : app::PairingState::not_paired;
         persistedMetadataChanged = persistedMetadataChanged || host.pairingState != resolvedPairingState;
         host.pairingState = resolvedPairingState;
-        if (!serverInfo.pairingStatusCurrentClient) {
+        if (!clientIsEffectivelyPaired) {
           host.apps.clear();
-          host.appListState = app::HostAppListState::failed;
-          host.appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
+          host.appListState = hostRequiresManualPairing ? app::HostAppListState::idle : app::HostAppListState::failed;
+          host.appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
           host.appListContentHash = 0;
           host.lastAppListRefreshTick = 0;
           state.selectedAppIndex = 0U;
@@ -1602,6 +1509,49 @@ namespace {
     clear_cover_art_texture(coverArtTextureCache, deletedCoverArtCacheKey);
     state.savedFilesDirty = true;
     state.statusMessage = "Deleted saved file " + deletedDisplayName;
+    logger.log(logging::LogLevel::info, "storage", state.statusMessage);
+  }
+
+  void delete_host_data_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
+    if (!update.hostDeleteCleanupRequested) {
+      return;
+    }
+
+    std::size_t deletedCoverArtCount = 0U;
+    for (const std::string &cacheKey : update.deletedHostCoverArtCacheKeys) {
+      std::string errorMessage;
+      if (!startup::delete_cover_art(cacheKey, &errorMessage)) {
+        logger.log(logging::LogLevel::warning, "storage", errorMessage);
+      } else {
+        ++deletedCoverArtCount;
+      }
+      clear_cover_art_texture(coverArtTextureCache, cacheKey);
+    }
+
+    bool deletedClientIdentity = false;
+    if (update.deletedHostWasPaired) {
+      const bool pairedHostsRemain = std::any_of(state.hosts.begin(), state.hosts.end(), [](const app::HostRecord &host) {
+        return host.pairingState == app::PairingState::paired;
+      });
+      if (!pairedHostsRemain) {
+        std::string errorMessage;
+        if (!startup::delete_client_identity(&errorMessage)) {
+          logger.log(logging::LogLevel::warning, "storage", errorMessage);
+        } else {
+          deletedClientIdentity = true;
+        }
+      } else {
+        logger.log(logging::LogLevel::info, "storage", "Retained the shared pairing identity because other paired hosts still exist");
+      }
+    }
+
+    state.statusMessage = "Deleted saved host";
+    if (deletedCoverArtCount > 0U) {
+      state.statusMessage += " and cleared " + std::to_string(deletedCoverArtCount) + " cached asset" + (deletedCoverArtCount == 1U ? std::string {} : "s");
+    }
+    if (deletedClientIdentity) {
+      state.statusMessage += " and reset local pairing identity";
+    }
     logger.log(logging::LogLevel::info, "storage", state.statusMessage);
   }
 
@@ -2693,40 +2643,67 @@ namespace {
         }
       }
     } else {
-      const int menuPanelWidth = std::max(228, (contentRect.w * 34) / 100);
+      const bool settingsScreen = viewModel.screen == app::ScreenId::settings;
+      const bool hasDetailMenu = settingsScreen && !viewModel.detailMenuRows.empty();
+      const int menuPanelWidth = std::max(232, (contentRect.w * 31) / 100);
       const SDL_Rect menuPanel {contentRect.x, contentRect.y, menuPanelWidth, contentRect.h};
       const SDL_Rect bodyPanel {contentRect.x + menuPanelWidth + panelGap, contentRect.y, contentRect.w - menuPanelWidth - panelGap, contentRect.h};
-      fill_rect(renderer, menuPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xA0);
-      fill_rect(renderer, bodyPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0x60);
-      draw_rect(renderer, menuPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
-      draw_rect(renderer, bodyPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
-      if (!render_action_rows(renderer, bodyFont, viewModel.menuRows, {menuPanel.x + 12, menuPanel.y + 18, menuPanel.w - 24, menuPanel.h - 36}, std::max(36, screenHeight / 13))) {
+      fill_rect(renderer, menuPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xC8);
+      fill_rect(renderer, bodyPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0x88);
+      draw_rect(renderer, menuPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xD8);
+      draw_rect(renderer, bodyPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xB8);
+
+      const SDL_Rect menuHeaderRect {menuPanel.x + 14, menuPanel.y + 14, menuPanel.w - 28, std::max(34, TTF_FontLineSkip(smallFont) + 10)};
+      fill_rect(renderer, menuHeaderRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xD8);
+      if (!render_text_line_simple(renderer, smallFont, settingsScreen ? "Categories" : "Actions", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, menuHeaderRect.x + 10, menuHeaderRect.y + std::max(6, (menuHeaderRect.h - TTF_FontLineSkip(smallFont)) / 2), menuHeaderRect.w - 20)) {
         return false;
       }
-      int bodyY = bodyPanel.y + 16;
-      if (viewModel.screen == app::ScreenId::settings && !viewModel.selectedMenuRowLabel.empty()) {
-        int selectedLabelHeight = 0;
-        if (!render_text_line(renderer, bodyFont, "Selected: " + viewModel.selectedMenuRowLabel, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, bodyPanel.x + 16, bodyY, bodyPanel.w - 32, &selectedLabelHeight)) {
-          return false;
-        }
-        bodyY += selectedLabelHeight + 12;
+
+      if (!render_action_rows(
+            renderer,
+            bodyFont,
+            viewModel.menuRows,
+            {menuPanel.x + 14, menuHeaderRect.y + menuHeaderRect.h + 12, menuPanel.w - 28, menuPanel.h - (menuHeaderRect.h + 40)},
+            std::max(36, screenHeight / 13)
+          )) {
+        return false;
       }
-      if (viewModel.screen == app::ScreenId::settings && !viewModel.detailMenuRows.empty()) {
-        const int detailMenuHeight = std::min(std::max(88, bodyPanel.h / 3), std::max(88, 54 * static_cast<int>(viewModel.detailMenuRows.size())));
-        const SDL_Rect detailMenuRect {bodyPanel.x + 16, bodyY, bodyPanel.w - 32, detailMenuHeight};
-        fill_rect(renderer, detailMenuRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xA8);
-        draw_rect(renderer, detailMenuRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xD0);
-        if (!render_action_rows(renderer, bodyFont, viewModel.detailMenuRows, {detailMenuRect.x + 10, detailMenuRect.y + 10, detailMenuRect.w - 20, detailMenuRect.h - 20}, std::max(34, TTF_FontLineSkip(bodyFont) + 12))) {
+
+      const int bodyCardPadding = 16;
+      if (hasDetailMenu) {
+        const SDL_Rect optionsCard {bodyPanel.x + 16, bodyPanel.y + 16, bodyPanel.w - 32, std::max(1, bodyPanel.h - 32)};
+        fill_rect(renderer, optionsCard, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xCC);
+        draw_rect(renderer, optionsCard, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xC0);
+        if (!render_text_line_simple(renderer, smallFont, "Options", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, optionsCard.x + bodyCardPadding, optionsCard.y + 12, optionsCard.w - (bodyCardPadding * 2))) {
           return false;
         }
-        bodyY = detailMenuRect.y + detailMenuRect.h + 16;
-      }
-      for (const std::string &line : viewModel.bodyLines) {
-        int drawnHeight = 0;
-        if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + 16, bodyY, bodyPanel.w - 32, &drawnHeight)) {
+        if (!render_action_rows(
+              renderer,
+              bodyFont,
+              viewModel.detailMenuRows,
+              {optionsCard.x + 12, optionsCard.y + 40, optionsCard.w - 24, optionsCard.h - 52},
+              std::max(34, TTF_FontLineSkip(bodyFont) + 12)
+            )) {
           return false;
         }
-        bodyY += drawnHeight + 8;
+      } else {
+        const SDL_Rect contentCard {
+          bodyPanel.x + 16,
+          bodyPanel.y + 16,
+          bodyPanel.w - 32,
+          std::max(1, bodyPanel.h - 32),
+        };
+        fill_rect(renderer, contentCard, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xC2);
+        draw_rect(renderer, contentCard, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x50);
+
+        int bodyY = contentCard.y + bodyCardPadding;
+        for (const std::string &line : viewModel.bodyLines) {
+          int drawnHeight = 0;
+          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentCard.x + bodyCardPadding, bodyY, contentCard.w - (bodyCardPadding * 2), &drawnHeight)) {
+            return false;
+          }
+          bodyY += drawnHeight + 8;
+        }
       }
     }
 
@@ -3020,6 +2997,7 @@ namespace ui {
       test_host_connection_if_requested(logger, state, update);
       browse_host_apps_if_requested(logger, state, update);
       pair_host_if_requested(logger, state, update, &pairingTask);
+      delete_host_data_if_requested(logger, state, update, &coverArtTextureCache);
       delete_saved_file_if_requested(logger, state, update, &coverArtTextureCache);
       factory_reset_if_requested(logger, state, update, &coverArtTextureCache);
       refresh_saved_files_if_needed(logger, state);

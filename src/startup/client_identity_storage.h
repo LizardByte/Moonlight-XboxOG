@@ -24,6 +24,11 @@ namespace startup {
 
   LoadClientIdentityResult load_client_identity(const std::string &directoryPath = default_client_identity_directory());
 
+  bool delete_client_identity(
+    std::string *errorMessage = nullptr,
+    const std::string &directoryPath = default_client_identity_directory()
+  );
+
   SaveClientIdentityResult save_client_identity(
     const network::PairingIdentity &identity,
     const std::string &directoryPath = default_client_identity_directory()

@@ -164,6 +164,7 @@ namespace app {
     logging::LogLevel loggingLevel = logging::LogLevel::info;
     std::vector<startup::SavedFileEntry> savedFiles;
     bool savedFilesDirty = true;
+    std::vector<std::string> pairingResetEndpoints;
   };
 
   /**
@@ -183,8 +184,10 @@ namespace app {
     bool logViewRequested;
     bool savedFileDeleteRequested;
     bool factoryResetRequested;
+    bool hostDeleteCleanupRequested;
     bool modalOpened;
     bool modalClosed;
+    bool deletedHostWasPaired;
     std::string activatedItemId;
     std::string connectionTestAddress;
     uint16_t connectionTestPort;
@@ -192,6 +195,9 @@ namespace app {
     uint16_t pairingPort;
     std::string pairingPin;
     std::string savedFileDeletePath;
+    std::string deletedHostAddress;
+    uint16_t deletedHostPort;
+    std::vector<std::string> deletedHostCoverArtCacheKeys;
   };
 
   /**
@@ -304,6 +310,8 @@ namespace app {
   void set_log_file_path(ClientState &state, std::string logFilePath);
 
   void apply_log_viewer_contents(ClientState &state, std::vector<std::string> lines, std::string statusMessage);
+
+  bool host_requires_manual_pairing(const ClientState &state, const std::string &address, uint16_t port);
 
   /**
    * @brief Enter the apps screen for the currently selected host after authorization has been refreshed.

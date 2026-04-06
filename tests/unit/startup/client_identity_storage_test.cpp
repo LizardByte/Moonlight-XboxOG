@@ -72,4 +72,29 @@ namespace {
     EXPECT_EQ(loadResult.identity.uniqueId, identity.uniqueId);
   }
 
+  TEST_F(ClientIdentityStorageTest, DeletesAllPersistedClientIdentityFiles) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    const startup::SaveClientIdentityResult saveResult = startup::save_client_identity(identity, testDirectory);
+    ASSERT_TRUE(saveResult.success) << saveResult.errorMessage;
+
+    std::string errorMessage;
+    EXPECT_TRUE(startup::delete_client_identity(&errorMessage, testDirectory)) << errorMessage;
+    EXPECT_FALSE(std::remove((testDirectory + "\\uniqueid.dat").c_str()) == 0);
+    EXPECT_FALSE(std::remove((testDirectory + "\\client.pem").c_str()) == 0);
+    EXPECT_FALSE(std::remove((testDirectory + "\\key.pem").c_str()) == 0);
+
+    const startup::LoadClientIdentityResult loadResult = startup::load_client_identity(testDirectory);
+    EXPECT_FALSE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.warnings.empty());
+  }
+
+  TEST_F(ClientIdentityStorageTest, DeletingMissingIdentityFilesStillSucceeds) {
+    std::string errorMessage;
+
+    EXPECT_TRUE(startup::delete_client_identity(&errorMessage, testDirectory)) << errorMessage;
+    EXPECT_TRUE(errorMessage.empty());
+  }
+
 }  // namespace

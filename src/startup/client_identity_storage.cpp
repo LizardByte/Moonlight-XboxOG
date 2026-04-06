@@ -17,6 +17,13 @@ extern "C" {
 
 namespace {
 
+  bool append_error(std::string *errorMessage, std::string message) {
+    if (errorMessage != nullptr) {
+      *errorMessage = std::move(message);
+    }
+    return false;
+  }
+
   constexpr const char *UNIQUE_ID_FILE_NAME = "uniqueid.dat";
   constexpr const char *CERTIFICATE_FILE_NAME = "client.pem";
   constexpr const char *PRIVATE_KEY_FILE_NAME = "key.pem";
@@ -151,6 +158,14 @@ namespace {
     return true;
   }
 
+  bool delete_file_if_present(const std::string &filePath, std::string *errorMessage) {
+    if (std::remove(filePath.c_str()) == 0 || errno == ENOENT) {
+      return true;
+    }
+
+    return append_error(errorMessage, "Failed to delete pairing file '" + filePath + "': " + std::strerror(errno));
+  }
+
 }  // namespace
 
 namespace startup {
@@ -204,6 +219,19 @@ namespace startup {
     result.identity = {std::move(uniqueId), std::move(certificatePem), std::move(privateKeyPem)};
     result.fileFound = true;
     return result;
+  }
+
+  bool delete_client_identity(std::string *errorMessage, const std::string &directoryPath) {
+    const std::string uniqueIdPath = join_path(directoryPath, UNIQUE_ID_FILE_NAME);
+    const std::string certificatePath = join_path(directoryPath, CERTIFICATE_FILE_NAME);
+    const std::string privateKeyPath = join_path(directoryPath, PRIVATE_KEY_FILE_NAME);
+
+    std::string deleteError;
+    if (!delete_file_if_present(uniqueIdPath, &deleteError) || !delete_file_if_present(certificatePath, &deleteError) || !delete_file_if_present(privateKeyPath, &deleteError)) {
+      return append_error(errorMessage, deleteError);
+    }
+
+    return true;
   }
 
   SaveClientIdentityResult save_client_identity(const network::PairingIdentity &identity, const std::string &directoryPath) {

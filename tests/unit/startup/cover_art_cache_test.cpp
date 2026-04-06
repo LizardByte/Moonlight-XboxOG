@@ -53,4 +53,27 @@ namespace {
     EXPECT_FALSE(startup::cover_art_exists(cacheKey, testDirectory));
   }
 
+  TEST_F(CoverArtCacheTest, DeletesAnExistingCachedCoverArtEntry) {
+    const std::vector<unsigned char> bytes = {0x89, 0x50, 0x4E, 0x47, 0x10, 0x20, 0x30};
+
+    const startup::SaveCoverArtResult saveResult = startup::save_cover_art(cacheKey, bytes, testDirectory);
+    ASSERT_TRUE(saveResult.success) << saveResult.errorMessage;
+    ASSERT_TRUE(startup::cover_art_exists(cacheKey, testDirectory));
+
+    std::string errorMessage;
+    EXPECT_TRUE(startup::delete_cover_art(cacheKey, &errorMessage, testDirectory)) << errorMessage;
+    EXPECT_FALSE(startup::cover_art_exists(cacheKey, testDirectory));
+
+    const startup::LoadCoverArtResult loadResult = startup::load_cover_art(cacheKey, testDirectory);
+    EXPECT_FALSE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.errorMessage.empty());
+  }
+
+  TEST_F(CoverArtCacheTest, DeletingAMissingCachedCoverArtEntryStillSucceeds) {
+    std::string errorMessage;
+
+    EXPECT_TRUE(startup::delete_cover_art(cacheKey, &errorMessage, testDirectory)) << errorMessage;
+    EXPECT_TRUE(errorMessage.empty());
+  }
+
 }  // namespace

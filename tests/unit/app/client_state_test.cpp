@@ -608,6 +608,60 @@ namespace {
     EXPECT_EQ(state.hosts.front().displayName, "Office PC");
   }
 
+  TEST(ClientStateTest, DeletingAPairedHostRequestsPersistentCleanupAndMarksItForManualRePairing) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
+    state.hosts.front().apps = {
+      {"Steam", 101, false, false, false, "steam-cover", true, false},
+      {"Desktop", 102, false, false, false, "desktop-cover", true, false},
+      {"Duplicate", 103, false, false, false, "steam-cover", true, false},
+    };
+    state.hosts.front().appListState = app::HostAppListState::ready;
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+
+    EXPECT_TRUE(update.hostsChanged);
+    EXPECT_TRUE(update.hostDeleteCleanupRequested);
+    EXPECT_TRUE(update.deletedHostWasPaired);
+    EXPECT_EQ(update.deletedHostAddress, "10.0.0.25");
+    EXPECT_EQ(update.deletedHostPort, 48000);
+    ASSERT_EQ(update.deletedHostCoverArtCacheKeys.size(), 2U);
+    EXPECT_EQ(update.deletedHostCoverArtCacheKeys[0], "steam-cover");
+    EXPECT_EQ(update.deletedHostCoverArtCacheKeys[1], "desktop-cover");
+    EXPECT_TRUE(state.hosts.empty());
+    EXPECT_TRUE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+  }
+
+  TEST(ClientStateTest, SuccessfulRePairingClearsTheManualRePairRequirementAfterHostDeletion) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                              });
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    const app::AppUpdate deleteUpdate = app::handle_command(state, input::UiCommand::activate);
+
+    ASSERT_TRUE(deleteUpdate.hostDeleteCleanupRequested);
+    ASSERT_TRUE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+
+    app::replace_hosts(state, {
+                                {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
+                              });
+
+    EXPECT_TRUE(app::apply_pairing_result(state, "10.0.0.25", 48000, true, "Paired successfully"));
+    EXPECT_FALSE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+    EXPECT_EQ(state.hosts.front().pairingState, app::PairingState::paired);
+  }
+
   TEST(ClientStateTest, RequestsAConnectionTestFromTheAddHostScreen) {
     app::ClientState state = app::create_initial_state();
 

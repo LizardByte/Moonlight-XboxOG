@@ -22,8 +22,8 @@ namespace {
     EXPECT_EQ(viewModel.footerActions[0].label, "Select");
     EXPECT_EQ(viewModel.footerActions[0].iconAssetPath, "icons\\button-a.svg");
     EXPECT_EQ(viewModel.footerActions[1].label, "Exit");
-    EXPECT_EQ(viewModel.footerActions[1].iconAssetPath, "icons\\button-start.svg");
-    EXPECT_EQ(viewModel.footerActions[1].secondaryIconAssetPath, "icons\\button-select.svg");
+    EXPECT_EQ(viewModel.footerActions[1].iconAssetPath, "icons\\button-select.svg");
+    EXPECT_EQ(viewModel.footerActions[1].secondaryIconAssetPath, "icons\\button-start.svg");
     EXPECT_FALSE(viewModel.overlayVisible);
   }
 

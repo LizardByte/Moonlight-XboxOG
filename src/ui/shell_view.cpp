@@ -446,7 +446,7 @@ namespace {
           if (state.hostsFocusArea == app::HostsFocusArea::grid && app::selected_host(state) != nullptr) {
             actions.push_back({"host-menu", "Host Menu", "icons\\button-y.svg", {}, false});
           }
-          actions.push_back({"exit", "Exit", "icons\\button-start.svg", "icons\\button-select.svg", false});
+          actions.push_back({"exit", "Exit", "icons\\button-select.svg", "icons\\button-start.svg", false});
           return actions;
         }
       case app::ScreenId::apps:
@@ -512,8 +512,8 @@ namespace ui {
     viewModel.bodyLines = body_lines(state);
     viewModel.menuRows = menu_rows(state);
     viewModel.detailMenuRows = detail_menu_rows(state);
-    if (state.activeScreen == app::ScreenId::settings) {
-      if (state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
+    if (state.activeScreen == app::ScreenId::settings || state.activeScreen == app::ScreenId::add_host || state.activeScreen == app::ScreenId::pair_host) {
+      if (state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.detailMenu.selected_item()->label;
       } else if (state.menu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.menu.selected_item()->label;

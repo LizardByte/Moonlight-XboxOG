@@ -24,6 +24,12 @@ namespace startup {
 
   bool cover_art_exists(std::string_view cacheKey, const std::string &cacheRoot = default_cover_art_cache_root());
 
+  bool delete_cover_art(
+    std::string_view cacheKey,
+    std::string *errorMessage = nullptr,
+    const std::string &cacheRoot = default_cover_art_cache_root()
+  );
+
   LoadCoverArtResult load_cover_art(std::string_view cacheKey, const std::string &cacheRoot = default_cover_art_cache_root());
 
   SaveCoverArtResult save_cover_art(std::string_view cacheKey, const std::vector<unsigned char> &bytes, const std::string &cacheRoot = default_cover_art_cache_root());

@@ -210,12 +210,12 @@ scripts\setup-xemu.cmd --skip-support-files
       - [x] Set video mode based on the best available mode
       - [x] dynamic splash screen (size based on current resolution)
       - [x] simplify (draw background color and overlay logo) to reduce total size
-   - [ ] Main/Home
-   - [ ] Settings
-   - [ ] Add Host
-   - [ ] Game/App Selection
-   - [ ] Host Details
-   - [ ] App Details
+   - [x] Main/Home
+   - [x] Settings
+   - [x] Add Host
+   - [x] Game/App Selection
+   - [x] Host Details
+   - [x] App Details
    - [ ] Pause/Hotkey overlay
 - Streaming
    - [ ] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions

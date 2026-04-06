@@ -69,6 +69,56 @@ namespace {
     return std::string(SETTINGS_CATEGORY_PREFIX) + "logging";
   }
 
+  app::SettingsCategory settings_category_from_menu_id(const std::string &itemId) {
+    if (itemId == settings_category_menu_id(app::SettingsCategory::display)) {
+      return app::SettingsCategory::display;
+    }
+    if (itemId == settings_category_menu_id(app::SettingsCategory::input)) {
+      return app::SettingsCategory::input;
+    }
+    if (itemId == settings_category_menu_id(app::SettingsCategory::reset)) {
+      return app::SettingsCategory::reset;
+    }
+    return app::SettingsCategory::logging;
+  }
+
+  std::string pairing_reset_endpoint_key(const std::string &address, uint16_t port) {
+    return app::normalize_ipv4_address(address) + ":" + std::to_string(app::effective_host_port(port));
+  }
+
+  void remember_deleted_host_pairing(app::ClientState &state, const app::HostRecord &host) {
+    if (host.pairingState != app::PairingState::paired) {
+      return;
+    }
+
+    const std::string key = pairing_reset_endpoint_key(host.address, host.port);
+    if (key.empty()) {
+      return;
+    }
+
+    if (std::find(state.pairingResetEndpoints.begin(), state.pairingResetEndpoints.end(), key) == state.pairingResetEndpoints.end()) {
+      state.pairingResetEndpoints.push_back(key);
+    }
+  }
+
+  void clear_deleted_host_pairing(app::ClientState &state, const std::string &address, uint16_t port) {
+    const std::string key = pairing_reset_endpoint_key(address, port);
+    if (key.empty()) {
+      return;
+    }
+
+    state.pairingResetEndpoints.erase(
+      std::remove(state.pairingResetEndpoints.begin(), state.pairingResetEndpoints.end(), key),
+      state.pairingResetEndpoints.end()
+    );
+  }
+
+  void sync_selected_settings_category_from_menu(app::ClientState &state) {
+    if (const ui::MenuItem *selectedItem = state.menu.selected_item(); selectedItem != nullptr) {
+      state.selectedSettingsCategory = settings_category_from_menu_id(selectedItem->id);
+    }
+  }
+
   bool starts_with(const std::string &value, const char *prefix) {
     return value.rfind(prefix, 0U) == 0U;
   }
@@ -306,6 +356,17 @@ namespace {
     }
   }
 
+  void rebuild_settings_detail_menu(app::ClientState &state, const std::string &preferredItemId = {}, bool preserveSelection = true) {
+    const std::string previousSelection = preserveSelection && state.detailMenu.selected_item() != nullptr ? state.detailMenu.selected_item()->id : std::string {};
+    state.detailMenu.set_items(build_detail_menu_for_state(state));
+    if (!preferredItemId.empty() && state.detailMenu.select_item_by_id(preferredItemId)) {
+      return;
+    }
+    if (!previousSelection.empty()) {
+      state.detailMenu.select_item_by_id(previousSelection);
+    }
+  }
+
   void close_modal(app::ClientState &state) {
     state.modal = {};
     reset_confirmation(state);
@@ -319,6 +380,10 @@ namespace {
     }
     close_modal(state);
     rebuild_menu(state, preferredItemId, false);
+    if (screen == app::ScreenId::settings) {
+      sync_selected_settings_category_from_menu(state);
+      rebuild_settings_detail_menu(state);
+    }
     clamp_selected_host_index(state);
     clamp_selected_app_index(state);
   }
@@ -818,6 +883,17 @@ namespace {
               return true;
             case 2:
               if (state.selectedHostIndex < state.hosts.size()) {
+                const app::HostRecord deletedHost = state.hosts[state.selectedHostIndex];
+                remember_deleted_host_pairing(state, deletedHost);
+                update->hostDeleteCleanupRequested = true;
+                update->deletedHostAddress = deletedHost.address;
+                update->deletedHostPort = deletedHost.port;
+                update->deletedHostWasPaired = deletedHost.pairingState == app::PairingState::paired;
+                for (const app::HostAppRecord &appRecord : deletedHost.apps) {
+                  if (!appRecord.boxArtCacheKey.empty() && std::find(update->deletedHostCoverArtCacheKeys.begin(), update->deletedHostCoverArtCacheKeys.end(), appRecord.boxArtCacheKey) == update->deletedHostCoverArtCacheKeys.end()) {
+                    update->deletedHostCoverArtCacheKeys.push_back(appRecord.boxArtCacheKey);
+                  }
+                }
                 state.hosts.erase(state.hosts.begin() + static_cast<std::ptrdiff_t>(state.selectedHostIndex));
                 state.hostsDirty = true;
                 update->hostsChanged = true;
@@ -911,6 +987,7 @@ namespace app {
       logging::LogLevel::info,
       {},
       true,
+      {},
     };
   }
 
@@ -997,6 +1074,7 @@ namespace app {
     }
 
     if (success) {
+      clear_deleted_host_pairing(state, address, port);
       host->pairingState = PairingState::paired;
       host->reachability = HostReachability::online;
       select_host_by_endpoint(state, address, port);
@@ -1114,6 +1192,11 @@ namespace app {
     state.logViewerScrollOffset = 0U;
     state.statusMessage = std::move(statusMessage);
     open_modal(state, ModalId::log_viewer);
+  }
+
+  bool host_requires_manual_pairing(const ClientState &state, const std::string &address, uint16_t port) {
+    const std::string key = pairing_reset_endpoint_key(address, port);
+    return !key.empty() && std::find(state.pairingResetEndpoints.begin(), state.pairingResetEndpoints.end(), key) != state.pairingResetEndpoints.end();
   }
 
   const HostRecord *selected_host(const ClientState &state) {
@@ -1245,21 +1328,18 @@ namespace app {
           update.screenChanged = true;
           return update;
         }
+        if (categoryUpdate.selectionChanged) {
+          sync_selected_settings_category_from_menu(state);
+          rebuild_settings_detail_menu(state, {}, false);
+          return update;
+        }
         if (!categoryUpdate.activationRequested) {
           return update;
         }
 
         update.activatedItemId = categoryUpdate.activatedItemId;
-        if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::logging)) {
-          state.selectedSettingsCategory = SettingsCategory::logging;
-        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::display)) {
-          state.selectedSettingsCategory = SettingsCategory::display;
-        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::input)) {
-          state.selectedSettingsCategory = SettingsCategory::input;
-        } else if (categoryUpdate.activatedItemId == settings_category_menu_id(SettingsCategory::reset)) {
-          state.selectedSettingsCategory = SettingsCategory::reset;
-        }
-        rebuild_menu(state);
+        sync_selected_settings_category_from_menu(state);
+        rebuild_menu(state, categoryUpdate.activatedItemId);
         if (!state.detailMenu.items().empty()) {
           state.settingsFocusArea = SettingsFocusArea::options;
         }
