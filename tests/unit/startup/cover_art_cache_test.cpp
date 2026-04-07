@@ -2,7 +2,6 @@
 #include "src/startup/cover_art_cache.h"
 
 // standard includes
-#include <cstdio>
 #include <vector>
 
 // lib includes
@@ -10,10 +9,11 @@
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
+#include "tests/support/network_test_constants.h"
 
 namespace {
 
-  class CoverArtCacheTest: public ::testing::Test {
+  class CoverArtCacheTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     void TearDown() override {
       test_support::remove_if_present(testFilePath);
@@ -21,7 +21,11 @@ namespace {
     }
 
     std::string testDirectory = "cover-art-cache-test";
-    std::string cacheKey = startup::build_cover_art_cache_key("host-uuid-123", "192.168.0.10", 42);
+    std::string cacheKey = startup::build_cover_art_cache_key(
+      "host-uuid-123",
+      test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
+      42
+    );
     std::string testFilePath = test_support::join_path(testDirectory, cacheKey + ".bin");
   };
 

@@ -85,6 +85,8 @@ case "$(uname -s)" in
       -DCMAKE_TOOLCHAIN_FILE="${PROJECT_ROOT}/cmake/host-mingw64-clang.cmake"
     )
     ;;
+  *)
+    ;;
 esac
 
 cmake "${cmake_configure_args[@]}"

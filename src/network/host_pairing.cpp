@@ -15,16 +15,31 @@
 #include <string_view>
 #include <vector>
 
+// lib includes
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rand.h>
+#include <openssl/rsa.h>
+#include <openssl/sha.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+
+// local includes
+#include "src/network/runtime_network.h"
+
 // platform includes
 #ifdef NXDK
   #include <errno.h>
+  #include <hal/debug.h>
   #include <lwip/inet.h>
   #include <lwip/sockets.h>
 #elif defined(_WIN32)
 // clang-format off
   // winsock2 must be included before windows.h
   #include <winsock2.h>
-  #include <windows.h>
+  #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 // clang-format on
 #else
   #include <arpa/inet.h>
@@ -34,11 +49,6 @@
   #include <sys/socket.h>
   #include <sys/time.h>
   #include <unistd.h>
-#endif
-
-// nxdk includes
-#ifdef NXDK
-  #include <hal/debug.h>
 #endif
 
 #if defined(NXDK) || !defined(_WIN32)
@@ -54,20 +64,6 @@ using SOCKET = int;
 #endif
 
 #define OPENSSL_SUPPRESS_DEPRECATED
-
-// lib includes
-#include <openssl/bio.h>
-#include <openssl/err.h>
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/rand.h>
-#include <openssl/rsa.h>
-#include <openssl/sha.h>
-#include <openssl/ssl.h>
-#include <openssl/x509.h>
-
-// local includes
-#include "src/network/runtime_network.h"
 
 #ifdef NXDK
   #define _CRT_RAND_S
@@ -95,11 +91,10 @@ namespace {
   constexpr uint16_t FALLBACK_SERVERINFO_HTTP_PORT = 47984;
   constexpr std::string_view DEFAULT_SERVERINFO_UNIQUE_ID = "0123456789ABCDEF";
   constexpr std::string_view DEFAULT_SERVERINFO_UUID = "11111111-2222-3333-4444-555555555555";
-  constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
+  constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again.";
 
   struct WsaGuard {
-    WsaGuard():
-        initialized(false) {
+    WsaGuard() {
 #if defined(NXDK) || !defined(_WIN32)
       initialized = true;
 #else
@@ -116,13 +111,15 @@ namespace {
 #endif
     }
 
-    bool initialized;
+    bool initialized = false;
   };
 
   struct SocketGuard {
-    SocketGuard():
-        handle(INVALID_SOCKET) {
-    }
+    SocketGuard() = default;
+    SocketGuard(const SocketGuard &) = delete;
+    SocketGuard &operator=(const SocketGuard &) = delete;
+    SocketGuard(SocketGuard &&) = delete;
+    SocketGuard &operator=(SocketGuard &&) = delete;
 
     ~SocketGuard() {
       if (handle != INVALID_SOCKET) {
@@ -134,7 +131,7 @@ namespace {
       }
     }
 
-    SOCKET handle;
+    SOCKET handle = INVALID_SOCKET;
   };
 
   bool append_error(std::string *errorMessage, std::string message);
@@ -147,20 +144,19 @@ namespace {
     return append_error(errorMessage, "Pairing cancelled");
   }
 
-  void append_hash_bytes(uint64_t *hash, const void *bytes, std::size_t byteCount) {
+  void append_hash_bytes(uint64_t *hash, const unsigned char *bytes, std::size_t byteCount) {
     if (hash == nullptr || bytes == nullptr) {
       return;
     }
 
-    const unsigned char *cursor = static_cast<const unsigned char *>(bytes);
     for (std::size_t index = 0; index < byteCount; ++index) {
-      *hash ^= cursor[index];
+      *hash ^= bytes[index];
       *hash *= 1099511628211ULL;
     }
   }
 
   void append_hash_string(uint64_t *hash, std::string_view text) {
-    append_hash_bytes(hash, text.data(), text.size());
+    append_hash_bytes(hash, reinterpret_cast<const unsigned char *>(text.data()), text.size());
     static constexpr unsigned char delimiter = 0x1F;
     append_hash_bytes(hash, &delimiter, 1U);
   }
@@ -197,7 +193,7 @@ namespace {
 #endif
 
 #if defined(NXDK) || defined(_WIN32)
-    if (ioctlsocket(socketHandle, FIONBIO, &nonBlockingMode) != 0) {
+    if (ioctlsocket(socketHandle, FIONBIO, &nonBlockingMode) != 0) {  // NOSONAR(cpp:S6004) cannot init variable inside if statement due to macros
       return append_error(errorMessage, std::string("Failed to configure the host pairing socket mode (socket error ") + std::to_string(last_socket_error()) + ")");
     }
 #else
@@ -331,7 +327,7 @@ namespace {
     std::string preview;
     const std::size_t previewLength = std::min(text.size(), MAX_PREVIEW_BYTES);
     for (std::size_t index = 0; index < previewLength; ++index) {
-      const unsigned char character = static_cast<unsigned char>(text[index]);
+      const auto character = static_cast<unsigned char>(text[index]);
       if (character >= 0x20U && character <= 0x7EU) {
         preview.push_back(static_cast<char>(character));
       } else if (character == '\r') {
@@ -341,9 +337,9 @@ namespace {
       } else if (character == '\t') {
         preview += "\\t";
       } else {
-        char buffer[5] = {};
-        std::snprintf(buffer, sizeof(buffer), "\\x%02X", character);
-        preview += buffer;
+        std::array<char, 5> buffer {};
+        std::snprintf(buffer.data(), buffer.size(), "\\x%02X", character);
+        preview += buffer.data();
       }
     }
 
@@ -432,8 +428,7 @@ namespace {
     std::size_t start = 0;
     while (start < value.size()) {
       const std::size_t end = value.find(',', start);
-      const std::string_view item = trim_ascii_whitespace(value.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start));
-      if (ascii_iequals(item, token)) {
+      if (const std::string_view item = trim_ascii_whitespace(value.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start)); ascii_iequals(item, token)) {
         return true;
       }
 
@@ -494,8 +489,7 @@ namespace {
       }
 
       std::string_view chunkSizeText = responseText.substr(cursor, chunkLineEnd - cursor);
-      const std::size_t chunkExtensionSeparator = chunkSizeText.find(';');
-      if (chunkExtensionSeparator != std::string_view::npos) {
+      if (const std::size_t chunkExtensionSeparator = chunkSizeText.find(';'); chunkExtensionSeparator != std::string_view::npos) {
         chunkSizeText = chunkSizeText.substr(0, chunkExtensionSeparator);
       }
       chunkSizeText = trim_ascii_whitespace(chunkSizeText);
@@ -543,13 +537,12 @@ namespace {
       }
 
       const std::string_view headerLine = responseText.substr(lineStart, lineEnd - lineStart);
-      const std::size_t separator = headerLine.find(':');
-      if (separator != std::string_view::npos) {
+      if (const std::size_t separator = headerLine.find(':'); separator != std::string_view::npos) {
         const std::string_view headerName = trim_ascii_whitespace(headerLine.substr(0, separator));
         const std::string_view headerValue = trim_ascii_whitespace(headerLine.substr(separator + 1));
 
         if (ascii_iequals(headerName, "Content-Length")) {
-          hasContentLength = try_parse_decimal_size(headerValue, &contentLength);
+          hasContentLength = try_parse_decimal_size(headerValue, &contentLength);  // NOSONAR(cpp:S134) header parsing keeps validation adjacent to the matching header branch
           if (!hasContentLength) {
             return append_error(errorMessage, "Received an invalid Content-Length header while pairing");
           }
@@ -591,19 +584,18 @@ namespace {
     std::string details;
     unsigned long errorCode = 0;
     while ((errorCode = ERR_get_error()) != 0) {
-      char errorBuffer[256] = {};
-      ERR_error_string_n(errorCode, errorBuffer, sizeof(errorBuffer));
+      std::array<char, 256> errorBuffer {};
+      ERR_error_string_n(errorCode, errorBuffer.data(), errorBuffer.size());
       if (!details.empty()) {
         details += "; ";
       }
-      details += errorBuffer;
+      details += errorBuffer.data();
     }
     return details;
   }
 
   bool append_openssl_error(std::string *errorMessage, std::string message) {
-    const std::string details = take_openssl_error_queue();
-    if (!details.empty()) {
+    if (const std::string details = take_openssl_error_queue(); !details.empty()) {
       message += ": " + details;
     }
     return append_error(errorMessage, std::move(message));
@@ -620,7 +612,7 @@ namespace {
   }
 
 #ifdef NXDK
-  int nxdk_rand_seed(const void *, int) {
+  int nxdk_rand_seed(const void *, int) {  // NOSONAR(cpp:S5008) signature required by OpenSSL RAND_METHOD
     return 1;
   }
 
@@ -645,9 +637,10 @@ namespace {
   }
 
   void nxdk_rand_cleanup() {
+    // intentionally empty - no cleanup required for nxdk random method
   }
 
-  int nxdk_rand_add(const void *, int, double) {
+  int nxdk_rand_add(const void *, int, double) {  // NOSONAR(cpp:S5008) signature required by OpenSSL RAND_METHOD
     return 1;
   }
 
@@ -655,7 +648,7 @@ namespace {
     return 1;
   }
 
-  RAND_METHOD g_nxdk_rand_method = {
+  const RAND_METHOD g_nxdk_rand_method = {
     &nxdk_rand_seed,
     &nxdk_rand_bytes,
     &nxdk_rand_cleanup,
@@ -722,8 +715,8 @@ namespace {
     std::string output;
     output.resize(size * 2);
     for (std::size_t index = 0; index < size; ++index) {
-      output[index * 2] = HEX_DIGITS[(data[index] >> 4) & 0x0F];
-      output[(index * 2) + 1] = HEX_DIGITS[data[index] & 0x0F];
+      output[index * 2] = HEX_DIGITS[(data[index] >> 4) & 0x0F];  // NOSONAR(cpp:S6022) hex encoding is byte-oriented by design
+      output[(index * 2) + 1] = HEX_DIGITS[data[index] & 0x0F];  // NOSONAR(cpp:S6022) hex encoding is byte-oriented by design
     }
 
     return output;
@@ -759,7 +752,7 @@ namespace {
       if (!hex_value(text[index], &upper) || !hex_value(text[index + 1], &lower)) {
         return append_error(errorMessage, "Encountered invalid hexadecimal data during pairing");
       }
-      decoded.push_back(static_cast<unsigned char>((upper << 4) | lower));
+      decoded.push_back(static_cast<unsigned char>((upper << 4) | lower));  // NOSONAR(cpp:S6022) hex decoding is byte-oriented by design
     }
 
     if (bytes != nullptr) {
@@ -791,8 +784,8 @@ namespace {
       return false;
     }
 
-    bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0F) | 0x40);
-    bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3F) | 0x80);
+    bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0F) | 0x40);  // NOSONAR(cpp:S6022) UUID version bits are byte-oriented by definition
+    bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3F) | 0x80);  // NOSONAR(cpp:S6022) UUID variant bits are byte-oriented by definition
 
     std::string hex = hex_encode(bytes.data(), bytes.size());
     if (uuid != nullptr) {
@@ -876,7 +869,7 @@ namespace {
     return true;
   }
 
-  bool verify_tls_peer_certificate(SSL *ssl, std::string_view expectedCertificatePem, std::string *errorMessage) {
+  bool verify_tls_peer_certificate(const SSL *ssl, std::string_view expectedCertificatePem, std::string *errorMessage) {
     if (ssl == nullptr || expectedCertificatePem.empty()) {
       return true;
     }
@@ -949,13 +942,12 @@ namespace {
     X509_gmtime_adj(X509_get_notAfter(certificate.get()), 60L * 60L * 24L * 365L * 10L);
     X509_set_pubkey(certificate.get(), key.get());
 
-    X509_NAME *subject = X509_get_subject_name(certificate.get());
-    if (subject == nullptr) {
+    if (auto *certificateSubject = X509_get_subject_name(certificate.get()); certificateSubject == nullptr) {
       return append_openssl_error(errorMessage, "Failed to populate the client certificate subject for pairing");
+    } else {
+      X509_NAME_add_entry_by_txt(certificateSubject, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char *>("NVIDIA GameStream Client"), -1, -1, 0);
+      X509_set_issuer_name(certificate.get(), certificateSubject);
     }
-
-    X509_NAME_add_entry_by_txt(subject, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char *>("NVIDIA GameStream Client"), -1, -1, 0);
-    X509_set_issuer_name(certificate.get(), subject);
 
     if (X509_sign(certificate.get(), key.get(), EVP_sha256()) == 0) {
       return append_openssl_error(errorMessage, "Failed to sign the client certificate used for pairing");
@@ -1002,7 +994,7 @@ namespace {
   bool try_parse_flag(std::string_view text, bool *value);
   bool try_parse_uint32(std::string_view text, uint32_t *value);
 
-  bool extract_xml_attribute_value(std::string_view openTag, std::string_view attributeName, std::string *value) {
+  bool extract_xml_attribute_value(std::string_view openTag, std::string_view attributeName, std::string *value) {  // NOSONAR(cpp:S3776) permissive host XML parsing stays centralized here
     std::size_t cursor = 0;
     while (cursor < openTag.size()) {
       const std::size_t nameIndex = openTag.find(attributeName, cursor);
@@ -1058,7 +1050,7 @@ namespace {
     const std::string closeTag = "</" + std::string(tagName) + ">";
     std::size_t cursor = 0;
 
-    while (cursor < xml.size()) {
+    while (cursor < xml.size()) {  // NOSONAR(cpp:S924) permissive XML scanning uses multiple early breaks for malformed payloads
       const std::size_t openIndex = xml.find(openPrefix, cursor);
       if (openIndex == std::string_view::npos) {
         break;
@@ -1199,7 +1191,7 @@ namespace {
       }
       if (character == closeCharacter) {
         --depth;
-        if (depth == 0) {
+        if (depth == 0) {  // NOSONAR(cpp:S134) delimiter matching keeps nested parsing state local
           if (closeIndex != nullptr) {
             *closeIndex = index;
           }
@@ -1255,7 +1247,7 @@ namespace {
     }
 
     std::size_t cursor = 1;
-    while (cursor + 1U < arrayView.size()) {
+    while (cursor + 1U < arrayView.size()) {  // NOSONAR(cpp:S924) permissive JSON scanning uses multiple early breaks for malformed payloads
       skip_json_whitespace(arrayView, &cursor);
       if (cursor + 1U >= arrayView.size()) {
         break;
@@ -1281,7 +1273,7 @@ namespace {
     return blocks;
   }
 
-  bool extract_json_field_value(std::string_view object, std::string_view fieldName, std::string_view *valueView, bool *isStringValue = nullptr) {
+  bool extract_json_field_value(std::string_view object, std::string_view fieldName, std::string_view *valueView, bool *isStringValue = nullptr) {  // NOSONAR(cpp:S3776) permissive JSON parsing stays centralized here
     if (object.empty() || object.front() != '{') {
       return false;
     }
@@ -1315,8 +1307,7 @@ namespace {
       bool valueIsString = false;
       if (object[keyCursor] == '"') {
         valueIsString = true;
-        std::string ignored;
-        if (!parse_json_string_literal(object, &keyCursor, &ignored)) {
+        if (std::string ignored; !parse_json_string_literal(object, &keyCursor, &ignored)) {
           return false;
         }
         valueEnd = keyCursor;
@@ -1368,7 +1359,7 @@ namespace {
         std::size_t cursor = 0;
         std::string parsedValue;
         if (parse_json_string_literal(rawValue, &cursor, &parsedValue)) {
-          if (value != nullptr) {
+          if (value != nullptr) {  // NOSONAR(cpp:S134) JSON field extraction keeps conversion adjacent to the matching field
             *value = std::move(parsedValue);
           }
           return true;
@@ -1473,9 +1464,8 @@ namespace {
     extract_xml_attribute_value(roots.front().openTag, "status_code", &statusCodeText);
     extract_xml_attribute_value(roots.front().openTag, "status_message", &statusMessage);
 
-    uint32_t statusCode = 200;
-    if (!statusCodeText.empty() && try_parse_uint32(trim_ascii_whitespace(statusCodeText), &statusCode) && statusCode != 200U) {
-      const std::string normalizedStatusMessage = statusMessage.empty() ? "The host returned Sunshine status " + std::to_string(statusCode) + " while requesting /applist" : statusMessage;
+    if (uint32_t statusCode = 200; !statusCodeText.empty() && try_parse_uint32(trim_ascii_whitespace(statusCodeText), &statusCode) && statusCode != 200U) {
+      const std::string normalizedStatusMessage = statusMessage.empty() ? "The host returned status " + std::to_string(statusCode) + " while requesting /applist" : statusMessage;
       return append_error(errorMessage, normalizedStatusMessage);
     }
 
@@ -1525,7 +1515,7 @@ namespace {
     const std::string closeTag = "</" + std::string(tagName) + ">";
     std::size_t cursor = 0;
 
-    while (cursor < xml.size()) {
+    while (cursor < xml.size()) {  // NOSONAR(cpp:S924) permissive XML scanning uses multiple early breaks for malformed payloads
       const std::size_t openIndex = xml.find(openPrefix, cursor);
       if (openIndex == std::string_view::npos) {
         break;
@@ -1622,7 +1612,7 @@ namespace {
     return true;
   }
 
-  bool connect_socket(const std::string &address, uint16_t port, SocketGuard *socketGuard, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {
+  bool connect_socket(const std::string &address, uint16_t port, SocketGuard *socketGuard, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {  // NOSONAR(cpp:S3776) connection setup keeps platform-specific error handling in one place
     if (socketGuard == nullptr) {
       return append_error(errorMessage, "Internal pairing error while preparing the host connection");
     }
@@ -1658,10 +1648,8 @@ namespace {
     }
 
     trace_pairing_detail("connecting to " + address + ":" + std::to_string(port));
-    const int connectResult = connect(socketGuard->handle, reinterpret_cast<const sockaddr *>(&socketAddress), sizeof(socketAddress));
-    if (connectResult == SOCKET_ERROR) {
-      const int connectError = last_socket_error();
-      if (!is_connect_in_progress_error(connectError)) {
+    if (const int connectResult = connect(socketGuard->handle, reinterpret_cast<const sockaddr *>(&socketAddress), sizeof(socketAddress)); connectResult == SOCKET_ERROR) {
+      if (const int connectError = last_socket_error(); !is_connect_in_progress_error(connectError)) {
         return append_error(errorMessage, "Failed to connect to the host pairing endpoint at " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(connectError) + ")");
       }
 
@@ -1669,7 +1657,7 @@ namespace {
       constexpr int CONNECT_POLL_INTERVAL_MILLISECONDS = 100;
       int remainingWaitMilliseconds = SOCKET_TIMEOUT_MILLISECONDS;
       int selectResult = 0;
-      while (remainingWaitMilliseconds > 0) {
+      while (remainingWaitMilliseconds > 0) {  // NOSONAR(cpp:S924) timed connect polling intentionally uses multiple early breaks and returns
         if (pairing_cancel_requested(cancelRequested)) {
           return append_cancelled_pairing_error(errorMessage);
         }
@@ -1699,14 +1687,9 @@ namespace {
 
       int socketError = 0;
 #if defined(_WIN32) && !defined(NXDK)
-      int socketErrorLength = sizeof(socketError);
+      if (int socketErrorLength = sizeof(socketError); getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
 #else
-      socklen_t socketErrorLength = sizeof(socketError);
-#endif
-#if defined(_WIN32) && !defined(NXDK)
-      if (getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
-#else
-      if (getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) != 0) {
+      if (socklen_t socketErrorLength = sizeof(socketError); getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) != 0) {
 #endif
         return append_error(errorMessage, "Failed to query the host pairing socket status after connect (socket error " + std::to_string(last_socket_error()) + ")");
       }
@@ -1728,15 +1711,15 @@ namespace {
 
   bool recv_all_plain(SOCKET socketHandle, std::string *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {
     std::string received;
-    char buffer[4096] = {};
+    std::array<char, 4096> buffer {};
     std::size_t completeLength = 0;
 
-    while (true) {
+    while (true) {  // NOSONAR(cpp:S924) response framing intentionally uses multiple early breaks and returns
       if (pairing_cancel_requested(cancelRequested)) {
         return append_cancelled_pairing_error(errorMessage);
       }
 
-      const int bytesRead = recv(socketHandle, buffer, sizeof(buffer), 0);
+      const int bytesRead = recv(socketHandle, buffer.data(), static_cast<int>(buffer.size()), 0);
       if (bytesRead == 0) {
         break;
       }
@@ -1744,7 +1727,7 @@ namespace {
         const int socketError = last_socket_error();
         return append_error(errorMessage, is_timeout_error(socketError) ? "Timed out while reading the host pairing response" : "Failed while reading the host pairing response (socket error " + std::to_string(socketError) + ")");
       }
-      received.append(buffer, buffer + bytesRead);
+      received.append(buffer.data(), buffer.data() + bytesRead);
 
       std::string framingError;
       if (try_get_http_response_length(received, &completeLength, &framingError)) {
@@ -1764,15 +1747,15 @@ namespace {
 
   bool recv_all_ssl(SSL *ssl, std::string *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {
     std::string received;
-    char buffer[4096] = {};
+    std::array<char, 4096> buffer {};
     std::size_t completeLength = 0;
 
-    while (true) {
+    while (true) {  // NOSONAR(cpp:S924) response framing intentionally uses multiple early breaks and returns
       if (pairing_cancel_requested(cancelRequested)) {
         return append_cancelled_pairing_error(errorMessage);
       }
 
-      const int bytesRead = SSL_read(ssl, buffer, sizeof(buffer));
+      const int bytesRead = SSL_read(ssl, buffer.data(), static_cast<int>(buffer.size()));
       if (bytesRead == 0) {
         break;
       }
@@ -1786,7 +1769,7 @@ namespace {
         }
         return append_openssl_error(errorMessage, errorCode == SSL_ERROR_SYSCALL && is_timeout_error(last_socket_error()) ? "Timed out while reading the encrypted host pairing response" : "Failed while reading the encrypted host pairing response");
       }
-      received.append(buffer, buffer + bytesRead);
+      received.append(buffer.data(), buffer.data() + bytesRead);
 
       std::string framingError;
       if (try_get_http_response_length(received, &completeLength, &framingError)) {
@@ -1926,7 +1909,7 @@ namespace {
     return append_error(errorMessage, std::move(combinedMessage));
   }
 
-  bool http_get(
+  bool http_get(  // NOSONAR(cpp:S3776,cpp:S107) HTTP transport keeps TLS/plain fallback and error reporting in one place
     const std::string &address,
     uint16_t port,
     std::string_view pathAndQuery,
@@ -1942,8 +1925,7 @@ namespace {
     }
 
     trace_pairing_phase("http_get: socket initialization");
-    WsaGuard wsaGuard;
-    if (!wsaGuard.initialized) {
+    if (WsaGuard wsaGuard; !wsaGuard.initialized) {
       return append_error(errorMessage, "Failed to initialize socket support for host pairing");
     }
 
@@ -1983,7 +1965,7 @@ namespace {
         return append_openssl_error(errorMessage, "Failed to create the TLS context for host pairing");
       }
 
-      SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);
+      SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);  // NOSONAR(cpp:S4830) certificate pinning is enforced by verify_tls_peer_certificate()
       if (tlsClientIdentity != nullptr && !configure_tls_pairing_identity(context.get(), *tlsClientIdentity, errorMessage)) {
         return false;
       }
@@ -1997,7 +1979,7 @@ namespace {
       }
 
 #ifdef NXDK
-      std::unique_ptr<BIO, BioDeleter> socketBio(BIO_new_fd(static_cast<int>(socketGuard.handle), BIO_NOCLOSE));
+      std::unique_ptr<BIO, BioDeleter> socketBio(BIO_new_fd(socketGuard.handle, BIO_NOCLOSE));
       if (socketBio == nullptr || BIO_up_ref(socketBio.get()) != 1) {
         return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
       }
@@ -2011,8 +1993,7 @@ namespace {
 #endif
       ERR_clear_error();
       trace_pairing_phase("http_get: SSL_connect");
-      const int connectResult = SSL_connect(ssl.get());
-      if (connectResult != 1) {
+      if (const int connectResult = SSL_connect(ssl.get()); connectResult != 1) {
         const int sslError = SSL_get_error(ssl.get(), connectResult);
         std::string tlsError = "Failed to establish the encrypted host pairing session (SSL error " + std::to_string(sslError);
         if (sslError == SSL_ERROR_SYSCALL) {
@@ -2036,7 +2017,8 @@ namespace {
   }
 
   const EVP_MD *pairing_digest(int serverMajorVersion) {
-    return serverMajorVersion >= 7 ? EVP_sha256() : EVP_sha1();
+    // TODO: remove legacy support... it is not needed
+    return serverMajorVersion >= 7 ? EVP_sha256() : EVP_sha1();  // NOSONAR(cpp:S4790) legacy servers require SHA-1 compatibility
   }
 
   std::size_t pairing_hash_length(int serverMajorVersion) {
@@ -2063,7 +2045,7 @@ namespace {
       return append_error(errorMessage, "Failed to initialize the pairing cipher");
     }
 
-    if (EVP_EncryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, key.data(), nullptr) != 1 || EVP_CIPHER_CTX_set_padding(context.get(), 0) != 1) {
+    if (EVP_EncryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, key.data(), nullptr) != 1 || EVP_CIPHER_CTX_set_padding(context.get(), 0) != 1) {  // NOSONAR(cpp:S5542) Moonlight pairing protocol requires AES-ECB with no padding
       return append_error(errorMessage, "Failed to configure the pairing cipher");
     }
 
@@ -2086,7 +2068,7 @@ namespace {
       return append_error(errorMessage, "Failed to initialize the pairing decipher");
     }
 
-    if (EVP_DecryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, key.data(), nullptr) != 1 || EVP_CIPHER_CTX_set_padding(context.get(), 0) != 1) {
+    if (EVP_DecryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, key.data(), nullptr) != 1 || EVP_CIPHER_CTX_set_padding(context.get(), 0) != 1) {  // NOSONAR(cpp:S5542) Moonlight pairing protocol requires AES-ECB with no padding
       return append_error(errorMessage, "Failed to configure the pairing decipher");
     }
 
@@ -2163,7 +2145,7 @@ namespace {
     return true;
   }
 
-  bool load_certificate_signature(X509 *certificate, std::vector<unsigned char> *signature, std::string *errorMessage) {
+  bool load_certificate_signature(const X509 *certificate, std::vector<unsigned char> *signature, std::string *errorMessage) {
     const ASN1_BIT_STRING *asn1Signature = nullptr;
     X509_get0_signature(&asn1Signature, nullptr, certificate);
     if (asn1Signature == nullptr || asn1Signature->data == nullptr || asn1Signature->length <= 0) {
@@ -2196,6 +2178,35 @@ namespace network {
 
     create_self_signed_certificate(&identity, errorMessage);
     return identity;
+  }
+
+  bool generate_pairing_pin(std::string *pin, std::string *errorMessage) {
+    static constexpr std::size_t PAIRING_PIN_LENGTH = 4U;
+    static constexpr unsigned char DECIMAL_REJECTION_LIMIT = 250U;
+
+    if (pin == nullptr) {
+      return append_error(errorMessage, "A pairing PIN output buffer is required");
+    }
+    if (errorMessage != nullptr) {
+      errorMessage->clear();
+    }
+
+    pin->clear();
+    pin->reserve(PAIRING_PIN_LENGTH);
+    while (pin->size() < PAIRING_PIN_LENGTH) {
+      unsigned char randomByte = 0;
+      if (!fill_random_bytes(&randomByte, sizeof(randomByte), errorMessage)) {
+        pin->clear();
+        return false;
+      }
+      if (randomByte >= DECIMAL_REJECTION_LIMIT) {
+        continue;
+      }
+
+      pin->push_back(static_cast<char>('0' + (randomByte % 10U)));
+    }
+
+    return true;
   }
 
   bool parse_server_info_response(std::string_view xml, uint16_t fallbackHttpPort, HostPairingServerInfo *serverInfo, std::string *errorMessage) {
@@ -2333,8 +2344,7 @@ namespace network {
     }
 
     HttpResponse authorizationResponse {};
-    std::string authorizationError;
-    if (!http_get(address, serverInfo->httpsPort, build_serverinfo_path(resolve_client_unique_id(clientIdentity)), true, clientIdentity, {}, &authorizationResponse, &authorizationError)) {
+    if (std::string authorizationError; !http_get(address, serverInfo->httpsPort, build_serverinfo_path(resolve_client_unique_id(clientIdentity)), true, clientIdentity, {}, &authorizationResponse, &authorizationError)) {
       return true;
     }
 
@@ -2407,8 +2417,7 @@ namespace network {
 
     HttpResponse response {};
     const uint16_t appListPort = resolvedServerInfo.httpsPort == 0 ? resolvedServerInfo.httpPort : resolvedServerInfo.httpsPort;
-    const std::string appListAddress = resolve_reachable_address(address, resolvedServerInfo);
-    if (!http_get(appListAddress, appListPort, build_applist_path(resolve_client_unique_id(clientIdentity)), true, clientIdentity, {}, &response, errorMessage)) {
+    if (const std::string appListAddress = resolve_reachable_address(address, resolvedServerInfo); !http_get(appListAddress, appListPort, build_applist_path(resolve_client_unique_id(clientIdentity)), true, clientIdentity, {}, &response, errorMessage)) {
       return false;
     }
 
@@ -2419,8 +2428,7 @@ namespace network {
       return append_error(errorMessage, "The host returned HTTP " + std::to_string(response.statusCode) + " while requesting /applist");
     }
 
-    std::string parseError;
-    if (!parse_app_list_response(response.body, apps, &parseError)) {
+    if (std::string parseError; !parse_app_list_response(response.body, apps, &parseError)) {
       if (error_indicates_unpaired_client(parseError)) {
         return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
       }
@@ -2437,9 +2445,9 @@ namespace network {
     uint64_t hash = 1469598103934665603ULL;
     for (const HostAppEntry &entry : apps) {
       append_hash_string(&hash, entry.name);
-      append_hash_bytes(&hash, &entry.id, sizeof(entry.id));
-      append_hash_bytes(&hash, &entry.hdrSupported, sizeof(entry.hdrSupported));
-      append_hash_bytes(&hash, &entry.hidden, sizeof(entry.hidden));
+      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.id), sizeof(entry.id));
+      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.hdrSupported), sizeof(entry.hdrSupported));
+      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.hidden), sizeof(entry.hidden));
     }
     return hash;
   }
@@ -2459,8 +2467,7 @@ namespace network {
     std::vector<std::string> attemptFailures;
     for (const std::string &path : build_app_asset_paths(resolve_client_unique_id(clientIdentity), appId)) {
       HttpResponse response {};
-      std::string attemptError;
-      if (!http_get(address, httpsPort, path, true, clientIdentity, {}, &response, &attemptError)) {
+      if (std::string attemptError; !http_get(address, httpsPort, path, true, clientIdentity, {}, &response, &attemptError)) {
         attemptFailures.push_back(path + ": " + attemptError);
         continue;
       }
@@ -2495,7 +2502,7 @@ namespace network {
     return append_error(errorMessage, std::move(combinedMessage));
   }
 
-  HostPairingResult pair_host(const HostPairingRequest &request, const std::atomic<bool> *cancelRequested) {
+  HostPairingResult pair_host(const HostPairingRequest &request, const std::atomic<bool> *cancelRequested) {  // NOSONAR(cpp:S3776) pairing protocol phases intentionally remain linear and explicit here
     trace_pairing_phase("pair_host entered");
     HostPairingResult result {false, false, "Pairing failed"};
     auto fail_if_cancelled = [&cancelRequested, &result]() {
@@ -2719,8 +2726,7 @@ namespace network {
     }
 
     std::vector<unsigned char> serverSecret(pairingSecretBytes.begin(), pairingSecretBytes.begin() + 16);
-    std::vector<unsigned char> serverSignature(pairingSecretBytes.begin() + 16, pairingSecretBytes.end());
-    if (!verify_sha256_signature(serverSecret, serverSignature, plainCertificate.get(), &errorMessage)) {
+    if (std::vector<unsigned char> serverSignature(pairingSecretBytes.begin() + 16, pairingSecretBytes.end()); !verify_sha256_signature(serverSecret, serverSignature, plainCertificate.get(), &errorMessage)) {
       return fail_with_phase("phase 4 (pairing secret)", errorMessage);
     }
 

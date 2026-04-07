@@ -1,6 +1,9 @@
 // class header include
 #include "src/app/pairing_flow.h"
 
+// standard includes
+#include <algorithm>
+
 namespace app {
 
   PairingDraft create_pairing_draft(const std::string &targetAddress, uint16_t targetPort, std::string generatedPin) {
@@ -19,13 +22,9 @@ namespace app {
       return false;
     }
 
-    for (char digit : pin) {
-      if (digit < '0' || digit > '9') {
-        return false;
-      }
-    }
-
-    return true;
+    return std::all_of(pin.begin(), pin.end(), [](char digit) {
+      return digit >= '0' && digit <= '9';
+    });
   }
 
 }  // namespace app

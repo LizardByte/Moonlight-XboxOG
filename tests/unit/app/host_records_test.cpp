@@ -7,6 +7,9 @@
 // lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/network_test_constants.h"
+
 namespace {
 
   TEST(HostRecordsTest, NormalizesAndValidatesIpv4Addresses) {
@@ -19,7 +22,7 @@ namespace {
   TEST(HostRecordsTest, ValidatesRecordsBeforeTheyAreSaved) {
     const app::HostRecord validRecord {
       "Living Room PC",
-      "192.168.1.20",
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
       0,
       app::PairingState::not_paired,
     };
@@ -40,8 +43,8 @@ namespace {
 
   TEST(HostRecordsTest, SerializesAndParsesRoundTripHostLists) {
     const std::vector<app::HostRecord> records = {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::paired},
-      {"Steam Deck Dock", "10.0.0.15", 48000, app::PairingState::not_paired},
+      {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired},
+      {"Steam Deck Dock", test_support::kTestIpv4Addresses[test_support::kIpSteamDeckDock], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired},
     };
 
     const std::string serializedRecords = app::serialize_host_records(records);
@@ -50,12 +53,12 @@ namespace {
     ASSERT_TRUE(parsedRecords.errors.empty());
     ASSERT_EQ(parsedRecords.records.size(), 2U);
     EXPECT_EQ(parsedRecords.records[0].displayName, "Living Room PC");
-    EXPECT_EQ(parsedRecords.records[0].address, "192.168.1.20");
+    EXPECT_EQ(parsedRecords.records[0].address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
     EXPECT_EQ(parsedRecords.records[0].port, 0);
     EXPECT_EQ(parsedRecords.records[0].pairingState, app::PairingState::paired);
     EXPECT_EQ(parsedRecords.records[1].displayName, "Steam Deck Dock");
-    EXPECT_EQ(parsedRecords.records[1].address, "10.0.0.15");
-    EXPECT_EQ(parsedRecords.records[1].port, 48000);
+    EXPECT_EQ(parsedRecords.records[1].address, test_support::kTestIpv4Addresses[test_support::kIpSteamDeckDock]);
+    EXPECT_EQ(parsedRecords.records[1].port, test_support::kTestPorts[test_support::kPortDefaultHost]);
     EXPECT_EQ(parsedRecords.records[1].pairingState, app::PairingState::not_paired);
   }
 
@@ -69,10 +72,10 @@ namespace {
     const app::ParseHostRecordsResult parsedRecords = app::parse_host_records(serializedRecords);
 
     ASSERT_EQ(parsedRecords.records.size(), 2U);
-    EXPECT_EQ(parsedRecords.records[0].address, "192.168.1.20");
+    EXPECT_EQ(parsedRecords.records[0].address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
     EXPECT_EQ(parsedRecords.records[0].port, 0);
-    EXPECT_EQ(parsedRecords.records[1].address, "10.0.0.25");
-    EXPECT_EQ(parsedRecords.records[1].port, 48000);
+    EXPECT_EQ(parsedRecords.records[1].address, test_support::kTestIpv4Addresses[test_support::kIpOffice]);
+    EXPECT_EQ(parsedRecords.records[1].port, test_support::kTestPorts[test_support::kPortDefaultHost]);
     ASSERT_EQ(parsedRecords.errors.size(), 2U);
     EXPECT_NE(parsedRecords.errors[0].find("Line 2"), std::string::npos);
     EXPECT_NE(parsedRecords.errors[1].find("Line 3"), std::string::npos);
@@ -80,12 +83,12 @@ namespace {
 
   TEST(HostRecordsTest, DetectsDuplicateSavedAddresses) {
     const std::vector<app::HostRecord> records = {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::paired},
+      {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired},
     };
 
-    EXPECT_TRUE(app::contains_host_address(records, "192.168.1.20"));
-    EXPECT_FALSE(app::contains_host_address(records, "192.168.1.21"));
-    EXPECT_FALSE(app::contains_host_address(records, "192.168.1.20", 48000));
+    EXPECT_TRUE(app::contains_host_address(records, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]));
+    EXPECT_FALSE(app::contains_host_address(records, test_support::kTestIpv4Addresses[test_support::kIpLivingRoomNeighbor]));
+    EXPECT_FALSE(app::contains_host_address(records, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortDefaultHost]));
   }
 
   TEST(HostRecordsTest, ParsesPortOverridesAndFallsBackToTheDefaultPort) {
@@ -96,8 +99,8 @@ namespace {
     EXPECT_EQ(app::effective_host_port(parsedPort), app::DEFAULT_HOST_PORT);
 
     EXPECT_TRUE(app::try_parse_host_port("48000", &parsedPort));
-    EXPECT_EQ(parsedPort, 48000);
-    EXPECT_EQ(app::effective_host_port(parsedPort), 48000);
+    EXPECT_EQ(parsedPort, test_support::kTestPorts[test_support::kPortDefaultHost]);
+    EXPECT_EQ(app::effective_host_port(parsedPort), test_support::kTestPorts[test_support::kPortDefaultHost]);
 
     EXPECT_FALSE(app::try_parse_host_port("0", &parsedPort));
     EXPECT_FALSE(app::try_parse_host_port("70000", &parsedPort));

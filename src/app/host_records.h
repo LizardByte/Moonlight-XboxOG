@@ -28,7 +28,7 @@ namespace app {
   };
 
   /**
-   * @brief Fetch state for the per-host Sunshine app library.
+   * @brief Fetch state for the per-host app library.
    */
   enum class HostAppListState {
     idle,
@@ -151,6 +151,20 @@ namespace app {
    * @return true when a saved host uses the same address and effective port.
    */
   bool contains_host_address(const std::vector<HostRecord> &records, std::string_view normalizedAddress, uint16_t port = 0);
+
+  /**
+   * @brief Return whether a host record matches a specific endpoint.
+   *
+   * A host matches when the canonical host address equals @p normalizedAddress and
+   * @p port matches any known effective host endpoint (stored HTTP port, resolved
+   * HTTP port, or HTTPS port).
+   *
+   * @param host Host record to test.
+   * @param normalizedAddress Canonical IPv4 address to compare.
+   * @param port Endpoint port where zero means DEFAULT_HOST_PORT.
+   * @return true when the host record can be reached by the given endpoint.
+   */
+  bool host_matches_endpoint(const HostRecord &host, std::string_view normalizedAddress, uint16_t port);
 
   /**
    * @brief Validate a host record before saving or serializing it.

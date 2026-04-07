@@ -2,6 +2,7 @@
 #include "src/startup/cover_art_cache.h"
 
 // standard includes
+#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -14,11 +15,11 @@
   #if __has_include(<nxdk/xbe.h>)
     #include <nxdk/xbe.h>
     #include <winnt.h>
-    #define MOONLIGHT_HAS_NXDK_XBE 1
+    #define MOONLIGHT_HAS_NXDK_XBE 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
   #endif
   #if __has_include(<nxdk/mount.h>)
     #include <nxdk/mount.h>
-    #define MOONLIGHT_HAS_NXDK_MOUNT 1
+    #define MOONLIGHT_HAS_NXDK_MOUNT 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
   #endif
 #endif
 
@@ -42,9 +43,9 @@ namespace {
     }
   #endif
 
-    char titleIdBuffer[9] = {};
-    std::snprintf(titleIdBuffer, sizeof(titleIdBuffer), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
-    return std::string("E:\\UDATA\\") + titleIdBuffer + "\\";
+    std::array<char, 9> titleIdBuffer {};
+    std::snprintf(titleIdBuffer.data(), titleIdBuffer.size(), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
+    return std::string("E:\\UDATA\\") + titleIdBuffer.data() + "\\";
 #else
     return {};
 #endif
@@ -97,8 +98,7 @@ namespace {
 namespace startup {
 
   std::string default_cover_art_cache_root() {
-    const std::string titleScopedRoot = title_scoped_storage_root();
-    if (!titleScopedRoot.empty()) {
+    if (const std::string titleScopedRoot = title_scoped_storage_root(); !titleScopedRoot.empty()) {
       return titleScopedRoot + "cover-art-cache";
     }
 
@@ -166,8 +166,7 @@ namespace startup {
       return {false, "Failed to open cover-art cache entry for writing: " + std::string(std::strerror(errno))};
     }
 
-    const std::size_t bytesWritten = std::fwrite(bytes.data(), 1, bytes.size(), file);
-    if (bytesWritten != bytes.size()) {
+    if (const std::size_t bytesWritten = std::fwrite(bytes.data(), 1, bytes.size(), file); bytesWritten != bytes.size()) {
       const std::string writeError = std::strerror(errno);
       std::fclose(file);
       return {false, "Failed to write the cover-art cache entry: " + writeError};

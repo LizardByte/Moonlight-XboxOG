@@ -2,6 +2,7 @@
 #include "src/app/host_records.h"
 
 // standard includes
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -92,9 +93,9 @@ namespace app {
     }
 
     std::string normalizedAddress;
-    for (std::size_t index = 0; index < segments.size(); ++index) {
+    for (std::string_view segment : segments) {
       int octetValue = 0;
-      if (!parse_ipv4_octet(segments[index], &octetValue)) {
+      if (!parse_ipv4_octet(segment, &octetValue)) {
         return {};
       }
 
@@ -152,12 +153,26 @@ namespace app {
 
   bool contains_host_address(const std::vector<HostRecord> &records, std::string_view normalizedAddress, uint16_t port) {
     const uint16_t effectivePort = effective_host_port(port);
-    for (const HostRecord &record : records) {
-      if (record.address == normalizedAddress && effective_host_port(record.port) == effectivePort) {
-        return true;
-      }
+    return std::any_of(records.begin(), records.end(), [normalizedAddress, effectivePort](const HostRecord &record) {
+      return record.address == normalizedAddress && effective_host_port(record.port) == effectivePort;
+    });
+  }
+
+  bool host_matches_endpoint(const HostRecord &host, std::string_view normalizedAddress, uint16_t port) {
+    if (host.address != normalizedAddress) {
+      return false;
     }
 
+    const uint16_t effectivePort = effective_host_port(port);
+    if (effective_host_port(host.port) == effectivePort) {
+      return true;
+    }
+    if (host.resolvedHttpPort != 0 && host.resolvedHttpPort == effectivePort) {
+      return true;
+    }
+    if (host.httpsPort != 0 && host.httpsPort == effectivePort) {
+      return true;
+    }
     return false;
   }
 
@@ -183,12 +198,53 @@ namespace app {
     return true;
   }
 
+  void append_parsed_host_record(std::string_view line, std::size_t lineNumber, ParseHostRecordsResult *result) {
+    if (result == nullptr) {
+      return;
+    }
+
+    const std::vector<std::string_view> fields = split_string_view(line, '\t');
+    if (fields.size() != 3 && fields.size() != 4) {
+      result->errors.push_back("Line " + std::to_string(lineNumber) + " must contain three or four tab-separated fields");
+      return;
+    }
+
+    uint16_t port = 0;
+    const std::string_view pairingField = fields.size() == 4 ? fields[3] : fields[2];
+    if (fields.size() == 4 && !try_parse_host_port(fields[2], &port)) {
+      result->errors.push_back("Line " + std::to_string(lineNumber) + " uses an invalid TCP port");
+      return;
+    }
+
+    PairingState pairingState = PairingState::not_paired;
+    if (pairingField == "paired") {
+      pairingState = PairingState::paired;
+    } else if (pairingField != "not_paired") {
+      result->errors.push_back("Line " + std::to_string(lineNumber) + " uses an unknown pairing state");
+      return;
+    }
+
+    HostRecord record {
+      std::string(fields[0]),
+      std::string(fields[1]),
+      port,
+      pairingState,
+    };
+
+    std::string errorMessage;
+    if (!validate_host_record(record, &errorMessage)) {
+      result->errors.push_back("Line " + std::to_string(lineNumber) + ": " + errorMessage);
+      return;
+    }
+
+    result->records.push_back(std::move(record));
+  }
+
   std::string serialize_host_records(const std::vector<HostRecord> &records) {
     std::string serializedRecords;
 
     for (const HostRecord &record : records) {
-      std::string errorMessage;
-      if (!validate_host_record(record, &errorMessage)) {
+      if (std::string errorMessage; !validate_host_record(record, &errorMessage)) {
         continue;
       }
 
@@ -221,41 +277,7 @@ namespace app {
       }
 
       if (!line.empty()) {
-        const std::vector<std::string_view> fields = split_string_view(line, '\t');
-        if (fields.size() != 3 && fields.size() != 4) {
-          result.errors.push_back("Line " + std::to_string(lineNumber) + " must contain three or four tab-separated fields");
-        } else {
-          uint16_t port = 0;
-          PairingState pairingState = PairingState::not_paired;
-          const std::string_view pairingField = fields.size() == 4 ? fields[3] : fields[2];
-          if (fields.size() == 4 && !try_parse_host_port(fields[2], &port)) {
-            result.errors.push_back("Line " + std::to_string(lineNumber) + " uses an invalid TCP port");
-            port = 0;
-          }
-
-          if (pairingField == "not_paired") {
-            pairingState = PairingState::not_paired;
-          } else if (pairingField == "paired") {
-            pairingState = PairingState::paired;
-          } else {
-            result.errors.push_back("Line " + std::to_string(lineNumber) + " uses an unknown pairing state");
-            pairingState = PairingState::not_paired;
-          }
-
-          HostRecord record {
-            std::string(fields[0]),
-            std::string(fields[1]),
-            port,
-            pairingState,
-          };
-
-          std::string errorMessage;
-          if (validate_host_record(record, &errorMessage)) {
-            result.records.push_back(std::move(record));
-          } else {
-            result.errors.push_back("Line " + std::to_string(lineNumber) + ": " + errorMessage);
-          }
-        }
+        append_parsed_host_record(line, lineNumber, &result);
       }
 
       if (lineEnd == std::string_view::npos) {

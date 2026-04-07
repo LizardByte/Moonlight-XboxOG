@@ -12,7 +12,7 @@
 #include <hal/xbox.h>
 #include <SDL.h>
 #include <SDL_image.h>
-#include <windows.h>
+#include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // local includes
 #include "src/os.h"
@@ -226,7 +226,7 @@ namespace {
     IMG_Quit();
   }
 
-  void runSplashScreen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {
+  void runSplashScreen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {  // NOSONAR(cpp:S5213) splash callback API is cold-path and already shared by callers
     int done = 0;
     const int imageInitFlags = IMG_INIT_JPG | IMG_INIT_PNG;
     const int initializedImageFlags = IMG_Init(imageInitFlags);

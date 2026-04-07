@@ -18,7 +18,7 @@
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
-#include <windows.h>
+#include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // local includes
 #include "src/input/navigation_input.h"
@@ -131,24 +131,6 @@ namespace {
     return 1;
   }
 
-  bool host_matches_endpoint(const app::HostRecord &host, const std::string &address, uint16_t port) {
-    if (host.address != address) {
-      return false;
-    }
-
-    const uint16_t effectivePort = app::effective_host_port(port);
-    if (app::effective_host_port(host.port) == effectivePort) {
-      return true;
-    }
-    if (host.resolvedHttpPort != 0 && host.resolvedHttpPort == effectivePort) {
-      return true;
-    }
-    if (host.httpsPort != 0 && host.httpsPort == effectivePort) {
-      return true;
-    }
-    return false;
-  }
-
   bool append_error(std::string *errorMessage, std::string message) {
     if (errorMessage != nullptr) {
       *errorMessage = std::move(message);
@@ -161,6 +143,29 @@ namespace {
     if (texture != nullptr) {
       SDL_DestroyTexture(texture);
     }
+  }
+
+  bool render_surface_line(SDL_Renderer *renderer, SDL_Surface *surface, int x, int y, int *drawnHeight) {
+    if (renderer == nullptr || surface == nullptr) {
+      return false;
+    }
+
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+    if (texture == nullptr) {
+      SDL_FreeSurface(surface);
+      return false;
+    }
+
+    SDL_Rect destination {x, y, surface->w, surface->h};
+    SDL_FreeSurface(surface);
+    const int renderResult = SDL_RenderCopy(renderer, texture, nullptr, &destination);
+    destroy_texture(texture);
+
+    if (drawnHeight != nullptr) {
+      *drawnHeight = destination.h;
+    }
+
+    return renderResult == 0;
   }
 
   struct CoverArtTextureCache {
@@ -186,8 +191,9 @@ namespace {
       return;
     }
 
-    for (const auto &entry : cache->textures) {
-      destroy_texture(entry.second);
+    for (const auto &[cacheKey, texture] : cache->textures) {
+      (void) cacheKey;
+      destroy_texture(texture);
     }
     cache->textures.clear();
     cache->failedKeys.clear();
@@ -198,8 +204,7 @@ namespace {
       return;
     }
 
-    const auto textureIterator = cache->textures.find(cacheKey);
-    if (textureIterator != cache->textures.end()) {
+    if (const auto textureIterator = cache->textures.find(cacheKey); textureIterator != cache->textures.end()) {
       destroy_texture(textureIterator->second);
       cache->textures.erase(textureIterator);
     }
@@ -211,8 +216,9 @@ namespace {
       return;
     }
 
-    for (const auto &entry : cache->textures) {
-      destroy_texture(entry.second);
+    for (const auto &[assetPath, texture] : cache->textures) {
+      (void) assetPath;
+      destroy_texture(texture);
     }
     cache->textures.clear();
     cache->failedKeys.clear();
@@ -240,8 +246,8 @@ namespace {
   std::string sanitize_text_for_render(std::string_view text) {
     std::string sanitized;
     sanitized.reserve(text.size());
-    for (std::size_t index = 0; index < text.size(); ++index) {
-      const unsigned char character = static_cast<unsigned char>(text[index]);
+    for (std::size_t index = 0; index < text.size(); ++index) {  // NOSONAR(cpp:S886) UTF-8 validation needs explicit cursor control
+      const auto character = static_cast<unsigned char>(text[index]);
       if (character == '\r' || character == '\n') {
         continue;
       }
@@ -259,19 +265,19 @@ namespace {
       }
 
       std::size_t sequenceLength = 0U;
-      if ((character & 0xE0U) == 0xC0U) {
+      if ((character & 0xE0U) == 0xC0U) {  // NOSONAR(cpp:S6022) UTF-8 parsing is byte-oriented by design
         sequenceLength = 2U;
-      } else if ((character & 0xF0U) == 0xE0U) {
+      } else if ((character & 0xF0U) == 0xE0U) {  // NOSONAR(cpp:S6022) UTF-8 parsing is byte-oriented by design
         sequenceLength = 3U;
-      } else if ((character & 0xF8U) == 0xF0U) {
+      } else if ((character & 0xF8U) == 0xF0U) {  // NOSONAR(cpp:S6022) UTF-8 parsing is byte-oriented by design
         sequenceLength = 4U;
       }
 
       const bool sequenceAvailable = sequenceLength > 0U && index + sequenceLength <= text.size();
       bool sequenceValid = sequenceAvailable;
-      for (std::size_t continuationIndex = 1U; sequenceValid && continuationIndex < sequenceLength; ++continuationIndex) {
-        const unsigned char continuation = static_cast<unsigned char>(text[index + continuationIndex]);
-        sequenceValid = (continuation & 0xC0U) == 0x80U;
+      for (std::size_t continuationIndex = 1U; sequenceValid && continuationIndex < sequenceLength; ++continuationIndex) {  // NOSONAR(cpp:S886) UTF-8 validation needs explicit cursor control
+        const auto continuation = static_cast<unsigned char>(text[index + continuationIndex]);
+        sequenceValid = (continuation & 0xC0U) == 0x80U;  // NOSONAR(cpp:S6022) UTF-8 parsing is byte-oriented by design
       }
 
       if (sequenceValid) {
@@ -332,7 +338,7 @@ namespace {
     TTF_Font *labelFont,
     const ui::ShellAppTile &tile,
     const SDL_Rect &rect,
-    AssetTextureCache *assetCache
+    const AssetTextureCache *assetCache
   );
 
   SDL_Texture *load_cover_art_texture(SDL_Renderer *renderer, CoverArtTextureCache *cache, const std::string &cacheKey) {
@@ -340,8 +346,7 @@ namespace {
       return nullptr;
     }
 
-    const auto existingTexture = cache->textures.find(cacheKey);
-    if (existingTexture != cache->textures.end()) {
+    if (const auto existingTexture = cache->textures.find(cacheKey); existingTexture != cache->textures.end()) {
       return existingTexture->second;
     }
     if (cache->failedKeys.find(cacheKey) != cache->failedKeys.end()) {
@@ -373,7 +378,7 @@ namespace {
       return nullptr;
     }
 
-    cache->textures.emplace(cacheKey, texture);
+    cache->textures.try_emplace(cacheKey, texture);
     return texture;
   }
 
@@ -403,8 +408,7 @@ namespace {
       return nullptr;
     }
 
-    const auto existingTexture = cache->textures.find(relativePath);
-    if (existingTexture != cache->textures.end()) {
+    if (const auto existingTexture = cache->textures.find(relativePath); existingTexture != cache->textures.end()) {
       return existingTexture->second;
     }
     if (cache->failedKeys.find(relativePath) != cache->failedKeys.end()) {
@@ -417,7 +421,7 @@ namespace {
       return nullptr;
     }
 
-    cache->textures.emplace(relativePath, texture);
+    cache->textures.try_emplace(relativePath, texture);
     return texture;
   }
 
@@ -431,7 +435,7 @@ namespace {
     SDL_RenderDrawRect(renderer, &rect);
   }
 
-  bool render_text_line(
+  bool render_text_line(  // NOSONAR(cpp:S107) helper keeps the SDL text rendering callsite contract explicit
     SDL_Renderer *renderer,
     TTF_Font *font,
     const std::string &text,
@@ -461,22 +465,7 @@ namespace {
       return false;
     }
 
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (texture == nullptr) {
-      SDL_FreeSurface(surface);
-      return false;
-    }
-
-    SDL_Rect destination {x, y, surface->w, surface->h};
-    SDL_FreeSurface(surface);
-    const int renderResult = SDL_RenderCopy(renderer, texture, nullptr, &destination);
-    destroy_texture(texture);
-
-    if (drawnHeight != nullptr) {
-      *drawnHeight = destination.h;
-    }
-
-    return renderResult == 0;
+    return render_surface_line(renderer, surface, x, y, drawnHeight);
   }
 
   std::string fit_single_line_text(TTF_Font *font, const std::string &text, int maxWidth) {
@@ -497,7 +486,7 @@ namespace {
 
     const std::string ellipsis = "...";
     for (std::size_t length = sanitized.size(); length > 0U; --length) {
-      const std::string candidate = sanitize_ascii_text_for_render(sanitized.substr(0, length)) + ellipsis;
+      const std::string candidate = sanitize_ascii_text_for_render(std::string_view(sanitized).substr(0, length)) + ellipsis;
       if (TTF_SizeText(font, candidate.c_str(), &textWidth, &textHeight) == 0 && textWidth <= maxWidth) {
         return candidate;
       }
@@ -506,7 +495,7 @@ namespace {
     return ellipsis;
   }
 
-  bool render_text_line_simple(
+  bool render_text_line_simple(  // NOSONAR(cpp:S107) helper keeps the SDL text rendering callsite contract explicit
     SDL_Renderer *renderer,
     TTF_Font *font,
     const std::string &text,
@@ -536,22 +525,7 @@ namespace {
       return false;
     }
 
-    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-    if (texture == nullptr) {
-      SDL_FreeSurface(surface);
-      return false;
-    }
-
-    SDL_Rect destination {x, y, surface->w, surface->h};
-    SDL_FreeSurface(surface);
-    const int renderResult = SDL_RenderCopy(renderer, texture, nullptr, &destination);
-    destroy_texture(texture);
-
-    if (drawnHeight != nullptr) {
-      *drawnHeight = destination.h;
-    }
-
-    return renderResult == 0;
+    return render_surface_line(renderer, surface, x, y, drawnHeight);
   }
 
   bool render_text_centered_simple(
@@ -680,7 +654,7 @@ namespace {
     TTF_Font *labelFont,
     const ui::ShellAppTile &tile,
     const SDL_Rect &rect,
-    AssetTextureCache *assetCache
+    const AssetTextureCache *assetCache
   ) {
     (void) assetCache;
     const SDL_Color seedColor = placeholder_color(tile.name);
@@ -719,72 +693,9 @@ namespace {
     return true;
   }
 
-  void draw_line(SDL_Renderer *renderer, int x1, int y1, int x2, int y2, Uint8 red, Uint8 green, Uint8 blue, Uint8 alpha = 0xFF) {
+  void draw_line(SDL_Renderer *renderer, int x1, int y1, int x2, int y2, Uint8 red, Uint8 green, Uint8 blue, Uint8 alpha = 0xFF) {  // NOSONAR(cpp:S107) low-level draw helper intentionally mirrors SDL primitive arguments
     SDL_SetRenderDrawColor(renderer, red, green, blue, alpha);
     SDL_RenderDrawLine(renderer, x1, y1, x2, y2);
-  }
-
-  void draw_host_icon(SDL_Renderer *renderer, const SDL_Rect &rect, const ui::ShellHostTile &tile) {
-    const Uint8 iconRed = tile.reachability == app::HostReachability::online ? TEXT_RED : MUTED_RED;
-    const Uint8 iconGreen = tile.reachability == app::HostReachability::online ? TEXT_GREEN : MUTED_GREEN;
-    const Uint8 iconBlue = tile.reachability == app::HostReachability::online ? TEXT_BLUE : MUTED_BLUE;
-
-    const int iconWidth = std::min(rect.w, std::max(52, (rect.h * 10) / 9));
-    const int iconHeight = std::min(rect.h, std::max(44, (iconWidth * 4) / 5));
-    const SDL_Rect iconRect {
-      rect.x + std::max(0, (rect.w - iconWidth) / 2),
-      rect.y + std::max(0, (rect.h - iconHeight) / 2),
-      iconWidth,
-      iconHeight,
-    };
-    const SDL_Rect monitorRect {iconRect.x + (iconRect.w / 10), iconRect.y + (iconRect.h / 14), (iconRect.w * 4) / 5, (iconRect.h * 3) / 5};
-    const SDL_Rect standRect {iconRect.x + (iconRect.w * 7) / 16, monitorRect.y + monitorRect.h + std::max(4, iconRect.h / 20), std::max(6, iconRect.w / 8), std::max(6, iconRect.h / 10)};
-    const SDL_Rect baseRect {iconRect.x + (iconRect.w * 5) / 16, standRect.y + standRect.h, iconRect.w / 4, std::max(4, iconRect.h / 18)};
-    draw_rect(renderer, monitorRect, iconRed, iconGreen, iconBlue);
-    draw_rect(renderer, standRect, iconRed, iconGreen, iconBlue);
-    draw_rect(renderer, baseRect, iconRed, iconGreen, iconBlue);
-
-    const int symbolMargin = std::max(4, std::min(monitorRect.w, monitorRect.h) / 5);
-    const SDL_Rect symbolRect {
-      monitorRect.x + symbolMargin,
-      monitorRect.y + symbolMargin,
-      std::max(10, monitorRect.w - (symbolMargin * 2)),
-      std::max(10, monitorRect.h - (symbolMargin * 2)),
-    };
-    if (tile.reachability != app::HostReachability::online) {
-      const int centerX = symbolRect.x + (symbolRect.w / 2);
-      const int topY = symbolRect.y;
-      const int bottomY = symbolRect.y + symbolRect.h;
-      draw_line(renderer, centerX, topY, symbolRect.x, bottomY, iconRed, iconGreen, iconBlue);
-      draw_line(renderer, symbolRect.x, bottomY, symbolRect.x + symbolRect.w, bottomY, iconRed, iconGreen, iconBlue);
-      draw_line(renderer, symbolRect.x + symbolRect.w, bottomY, centerX, topY, iconRed, iconGreen, iconBlue);
-      fill_rect(renderer, {centerX - 2, symbolRect.y + std::max(4, symbolRect.h / 5), 4, std::max(6, symbolRect.h / 3)}, iconRed, iconGreen, iconBlue);
-      fill_rect(renderer, {centerX - 2, bottomY - std::max(6, symbolRect.h / 6), 4, 4}, iconRed, iconGreen, iconBlue);
-      return;
-    }
-
-    if (tile.pairingState != app::PairingState::paired) {
-      const int bodyWidth = std::max(10, (symbolRect.w * 3) / 5);
-      const int bodyHeight = std::max(8, (symbolRect.h * 2) / 5);
-      const SDL_Rect bodyRect {
-        symbolRect.x + std::max(0, (symbolRect.w - bodyWidth) / 2),
-        symbolRect.y + std::max(4, symbolRect.h / 3),
-        bodyWidth,
-        bodyHeight,
-      };
-      const SDL_Rect shackleRect {
-        bodyRect.x + std::max(1, bodyRect.w / 8),
-        symbolRect.y + 2,
-        std::max(8, (bodyRect.w * 3) / 4),
-        std::max(8, symbolRect.h / 2),
-      };
-      draw_rect(renderer, shackleRect, iconRed, iconGreen, iconBlue);
-      draw_rect(renderer, bodyRect, iconRed, iconGreen, iconBlue);
-      return;
-    }
-
-    draw_line(renderer, symbolRect.x + std::max(2, symbolRect.w / 10), symbolRect.y + (symbolRect.h / 2), symbolRect.x + (symbolRect.w / 2) - 1, symbolRect.y + symbolRect.h - std::max(2, symbolRect.h / 8), iconRed, iconGreen, iconBlue);
-    draw_line(renderer, symbolRect.x + (symbolRect.w / 2) - 1, symbolRect.y + symbolRect.h - std::max(2, symbolRect.h / 8), symbolRect.x + symbolRect.w - std::max(2, symbolRect.w / 10), symbolRect.y + std::max(2, symbolRect.h / 10), iconRed, iconGreen, iconBlue);
   }
 
   bool render_app_cover(
@@ -796,8 +707,7 @@ namespace {
     AssetTextureCache *assetCache
   ) {
     fill_rect(renderer, rect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xFF);
-    SDL_Texture *texture = tile.boxArtCached ? load_cover_art_texture(renderer, textureCache, tile.boxArtCacheKey) : nullptr;
-    if (texture != nullptr) {
+    if (SDL_Texture *texture = tile.boxArtCached ? load_cover_art_texture(renderer, textureCache, tile.boxArtCacheKey) : nullptr; texture != nullptr) {
       if (!render_texture_fill(renderer, texture, rect)) {
         return false;
       }
@@ -866,7 +776,7 @@ namespace {
     fill_rect(renderer, thumbRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xD0);
   }
 
-  bool render_log_viewer_modal(
+  bool render_log_viewer_modal(  // NOSONAR(cpp:S3776,cpp:S107) modal rendering stays centralized to keep layout behavior consistent
     SDL_Renderer *renderer,
     TTF_Font *bodyFont,
     TTF_Font *smallFont,
@@ -894,13 +804,13 @@ namespace {
 
     const int hintHeight = std::max(30, TTF_FontLineSkip(smallFont) + 10);
     const SDL_Rect hintRect {modalRect.x + 18, modalRect.y + 56 + pathHeight + 8, modalRect.w - 36, hintHeight};
-    const std::vector<ui::ShellFooterAction> logViewerActions = {
-      {"change-view", "Change View", "icons\\button-x.svg", "icons\\button-y.svg", false},
-      {"scroll", "Scroll", "icons\\button-lb.svg", "icons\\button-rb.svg", false},
-      {"fast-scroll", "Fast Scroll", "icons\\button-lt.svg", "icons\\button-rt.svg", false},
-      {"close", "Close", "icons\\button-a.svg", "icons\\button-b.svg", false},
-    };
-    if (!render_footer_actions(renderer, smallFont, assetCache, logViewerActions, hintRect)) {
+    if (const std::vector<ui::ShellFooterAction> logViewerActions = {
+          {"change-view", "Change View", "icons\\button-x.svg", "icons\\button-y.svg", false},
+          {"scroll", "Scroll", "icons\\button-lb.svg", "icons\\button-rb.svg", false},
+          {"fast-scroll", "Fast Scroll", "icons\\button-lt.svg", "icons\\button-rt.svg", false},
+          {"close", "Close", "icons\\button-a.svg", "icons\\button-b.svg", false},
+        };
+        !render_footer_actions(renderer, smallFont, assetCache, logViewerActions, hintRect)) {
       return false;
     }
 
@@ -922,7 +832,7 @@ namespace {
 
     const std::size_t maxOffset = viewModel.logViewerLines.size() > 1U ? viewModel.logViewerLines.size() - 1U : 0U;
     const std::size_t clampedOffset = std::min(viewModel.logViewerScrollOffset, maxOffset);
-    auto build_log_viewer_layout = [&](int availableWidth) {
+    auto build_log_viewer_layout = [&](int availableWidth) {  // NOSONAR(cpp:S1188) kept adjacent to modal layout state for readability
       LogViewerLayout layout {};
       if (viewModel.logViewerLines.empty()) {
         layout.visibleLines.push_back(nullptr);
@@ -962,8 +872,7 @@ namespace {
       contentRect.h,
     };
     int contentCursorY = textRect.y + 6;
-    const bool olderLinesAvailable = logViewerLayout.firstVisibleIndex > 0U;
-    if (olderLinesAvailable) {
+    if (const bool olderLinesAvailable = logViewerLayout.firstVisibleIndex > 0U; olderLinesAvailable) {
       if (!render_text_line_simple(renderer, smallFont, "Earlier lines above", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
         return false;
       }
@@ -984,10 +893,8 @@ namespace {
       }
     }
 
-    if (viewModel.logViewerScrollOffset > 0U) {
-      if (!render_text_line_simple(renderer, smallFont, "Newer lines below", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, textRect.x + 6, std::max(textRect.y + 6, textRect.y + textRect.h - TTF_FontLineSkip(smallFont) - 6), std::max(1, textRect.w - 12))) {
-        return false;
-      }
+    if (viewModel.logViewerScrollOffset > 0U && !render_text_line_simple(renderer, smallFont, "Newer lines below", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, textRect.x + 6, std::max(textRect.y + 6, textRect.y + textRect.h - TTF_FontLineSkip(smallFont) - 6), std::max(1, textRect.w - 12))) {
+      return false;
     }
 
     if (overflow) {
@@ -1016,7 +923,7 @@ namespace {
 
     const int rowSpacing = 6;
     const int rowStep = rowHeight + rowSpacing;
-    const std::size_t visibleRowCount = static_cast<std::size_t>(std::max(1, (rect.h + rowSpacing) / std::max(1, rowStep)));
+    const auto visibleRowCount = static_cast<std::size_t>(std::max(1, (rect.h + rowSpacing) / std::max(1, rowStep)));
     std::size_t selectedIndex = 0U;
     bool selectedIndexFound = false;
     for (std::size_t index = 0; index < rows.size(); ++index) {
@@ -1051,8 +958,7 @@ namespace {
       }
 
       const std::string label = row.checked ? "[x] " + row.label : row.label;
-      const SDL_Color color = row.enabled ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
-      if (!render_text_line_simple(renderer, font, label, color, rowRect.x + 12, rowRect.y + 8, rowRect.w - 24)) {
+      if (const SDL_Color color = row.enabled ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}; !render_text_line_simple(renderer, font, label, color, rowRect.x + 12, rowRect.y + 8, rowRect.w - 24)) {
         return false;
       }
 
@@ -1090,17 +996,14 @@ namespace {
 
     const int iconSize = std::max(18, buttonRect.h - 16);
     const SDL_Rect iconRect {buttonRect.x + 10, buttonRect.y + (buttonRect.h - iconSize) / 2, iconSize, iconSize};
-    const bool renderedIcon = !button.iconAssetPath.empty() && render_asset_icon(renderer, assetCache, button.iconAssetPath, iconRect);
-    if (!renderedIcon) {
-      if (!render_text_centered(renderer, font, button.glyph, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, iconRect)) {
-        return false;
-      }
+    if (const bool renderedIcon = !button.iconAssetPath.empty() && render_asset_icon(renderer, assetCache, button.iconAssetPath, iconRect); !renderedIcon && !render_text_centered(renderer, font, button.glyph, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, iconRect)) {
+      return false;
     }
 
     return render_text_line(renderer, smallFont, button.label, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, iconRect.x + iconRect.w + 8, buttonRect.y + std::max(6, (buttonRect.h - TTF_FontLineSkip(smallFont)) / 2), buttonRect.w - (iconRect.w + 26));
   }
 
-  bool render_footer_actions(
+  bool render_footer_actions(  // NOSONAR(cpp:S3776) footer chip layout is intentionally centralized for all shell surfaces
     SDL_Renderer *renderer,
     TTF_Font *font,
     AssetTextureCache *assetCache,
@@ -1114,8 +1017,7 @@ namespace {
 
     for (const ui::ShellFooterAction &action : actions) {
       int labelWidth = 0;
-      int labelHeight = 0;
-      if (TTF_SizeUTF8(font, action.label.c_str(), &labelWidth, &labelHeight) != 0) {
+      if (int labelHeight = 0; TTF_SizeUTF8(font, action.label.c_str(), &labelWidth, &labelHeight) != 0) {
         labelWidth = static_cast<int>(action.label.size()) * 8;
       }
 
@@ -1154,7 +1056,7 @@ namespace {
     return true;
   }
 
-  bool render_notification(
+  bool render_notification(  // NOSONAR(cpp:S107) notification layout helper keeps the render inputs explicit
     SDL_Renderer *renderer,
     TTF_Font *titleFont,
     TTF_Font *bodyFont,
@@ -1225,7 +1127,7 @@ namespace {
     viewport.totalRowCount = static_cast<int>((itemCount + columnCount - 1U) / columnCount);
     viewport.visibleRowCount = std::max(1, (availableHeight + tileGap) / std::max(1, preferredRowHeight + tileGap));
     viewport.visibleRowCount = std::min(viewport.visibleRowCount, viewport.totalRowCount);
-    const int selectedRow = static_cast<int>(std::min(selectedIndex, itemCount - 1U) / columnCount);
+    const auto selectedRow = static_cast<int>(std::min(selectedIndex, itemCount - 1U) / columnCount);
     viewport.startRow = std::clamp(selectedRow + 1 - viewport.visibleRowCount, 0, viewport.totalRowCount - viewport.visibleRowCount);
     viewport.scrollbarWidth = viewport.totalRowCount > viewport.visibleRowCount ? 10 : 0;
     return viewport;
@@ -1394,9 +1296,9 @@ namespace {
     persist_hosts(logger, state);
   }
 
-  void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {
+  void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {  // NOSONAR(cpp:S3776) host metadata updates intentionally stay grouped with pairing-state transitions
     for (app::HostRecord &host : state.hosts) {
-      if (!host_matches_endpoint(host, address, port)) {
+      if (!app::host_matches_endpoint(host, address, port)) {
         continue;
       }
 
@@ -1425,11 +1327,11 @@ namespace {
         if (!clientIsEffectivelyPaired) {
           host.apps.clear();
           host.appListState = hostRequiresManualPairing ? app::HostAppListState::idle : app::HostAppListState::failed;
-          host.appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
+          host.appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again.";
           host.appListContentHash = 0;
           host.lastAppListRefreshTick = 0;
           state.selectedAppIndex = 0U;
-          if (state.activeScreen == app::ScreenId::apps && state.selectedHostIndex < state.hosts.size() && &host == &state.hosts[state.selectedHostIndex]) {
+          if (state.activeScreen == app::ScreenId::apps && state.selectedHostIndex < state.hosts.size() && &host == &state.hosts[state.selectedHostIndex]) {  // NOSONAR(cpp:S134) selected-host UI update stays inline with pairing-state demotion
             state.statusMessage = host.appListStatusMessage;
           }
         }
@@ -1449,8 +1351,7 @@ namespace {
   }
 
   std::string cover_art_cache_key_from_path(const std::string &path) {
-    const std::string coverArtRoot = startup::default_cover_art_cache_root();
-    if (coverArtRoot.empty() || path.size() <= coverArtRoot.size() || path.rfind(coverArtRoot, 0U) != 0U) {
+    if (const std::string coverArtRoot = startup::default_cover_art_cache_root(); coverArtRoot.empty() || path.size() <= coverArtRoot.size() || path.rfind(coverArtRoot, 0U) != 0U) {
       return {};
     }
 
@@ -1466,7 +1367,7 @@ namespace {
     return fileName.substr(0, fileName.size() - 4U);
   }
 
-  void clear_deleted_cover_art_flag(app::ClientState &state, const std::string &cacheKey) {
+  void clear_deleted_cover_art_flag(app::ClientState &state, std::string_view cacheKey) {
     if (cacheKey.empty()) {
       return;
     }
@@ -1497,8 +1398,7 @@ namespace {
       return;
     }
 
-    std::string errorMessage;
-    if (!startup::delete_saved_file(update.savedFileDeletePath, &errorMessage)) {
+    if (std::string errorMessage; !startup::delete_saved_file(update.savedFileDeletePath, &errorMessage)) {
       state.statusMessage = errorMessage;
       logger.log(logging::LogLevel::warning, "storage", errorMessage);
       return;
@@ -1520,8 +1420,7 @@ namespace {
 
     std::size_t deletedCoverArtCount = 0U;
     for (const std::string &cacheKey : update.deletedHostCoverArtCacheKeys) {
-      std::string errorMessage;
-      if (!startup::delete_cover_art(cacheKey, &errorMessage)) {
+      if (std::string errorMessage; !startup::delete_cover_art(cacheKey, &errorMessage)) {
         logger.log(logging::LogLevel::warning, "storage", errorMessage);
       } else {
         ++deletedCoverArtCount;
@@ -1561,8 +1460,7 @@ namespace {
       return;
     }
 
-    std::string errorMessage;
-    if (!startup::delete_all_saved_files(&errorMessage)) {
+    if (std::string errorMessage; !startup::delete_all_saved_files(&errorMessage)) {
       state.statusMessage = errorMessage;
       logger.log(logging::LogLevel::warning, "storage", errorMessage);
       return;
@@ -1617,8 +1515,7 @@ namespace {
     }
 
     network::HostPairingServerInfo serverInfo {};
-    std::string errorMessage;
-    if (!network::query_server_info(address, port, clientIdentity, &serverInfo, &errorMessage)) {
+    if (std::string errorMessage; !network::query_server_info(address, port, clientIdentity, &serverInfo, &errorMessage)) {
       if (message != nullptr) {
         *message = std::move(errorMessage);
       }
@@ -1725,11 +1622,14 @@ namespace {
   }
 
   bool pairing_task_is_active(const PairingTaskState &task) {
-    return task.activeAttempt != nullptr && task.activeAttempt->thread != nullptr && !task.activeAttempt->completed.load();
+    if (task.activeAttempt == nullptr) {
+      return false;
+    }
+    return task.activeAttempt->thread != nullptr && !task.activeAttempt->completed.load();
   }
 
   bool pairing_attempt_is_ready(const PairingAttemptState *attempt) {
-    return attempt != nullptr && attempt->thread != nullptr && attempt->completed.load(std::memory_order_acquire);
+    return attempt != nullptr && attempt->thread != nullptr && attempt->completed.load();
   }
 
   void finalize_pairing_attempt(logging::Logger &logger, app::ClientState *state, std::unique_ptr<PairingAttemptState> attempt) {
@@ -1778,7 +1678,7 @@ namespace {
     if (discardResult) {
       task->activeAttempt->discardResult.store(true);
     }
-    task->activeAttempt->cancelRequested.store(true, std::memory_order_release);
+    task->activeAttempt->cancelRequested.store(true);
     task->retiredAttempts.push_back(std::move(task->activeAttempt));
   }
 
@@ -1853,8 +1753,8 @@ namespace {
     return task.thread != nullptr && !task.completed.load();
   }
 
-  int run_pairing_task(void *context) {
-    PairingAttemptState *task = static_cast<PairingAttemptState *>(context);
+  int run_pairing_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
+    auto *task = static_cast<PairingAttemptState *>(context);
     if (task == nullptr) {
       return -1;
     }
@@ -1878,14 +1778,13 @@ namespace {
           false,
           identityError.empty() ? "Failed to generate a valid client pairing identity" : "Failed to generate a valid client pairing identity: " + identityError,
         };
-        task->completed.store(true, std::memory_order_release);
+        task->completed.store(true);
         return 0;
       }
 
-      const startup::SaveClientIdentityResult saveResult = startup::save_client_identity(identity);
-      if (!saveResult.success) {
+      if (const startup::SaveClientIdentityResult saveResult = startup::save_client_identity(identity); !saveResult.success) {
         task->result = {false, false, saveResult.errorMessage};
-        task->completed.store(true, std::memory_order_release);
+        task->completed.store(true);
         return 0;
       }
 
@@ -1917,7 +1816,7 @@ namespace {
     }
 
     task->activeAttempt->discardResult.store(true);
-    task->activeAttempt->cancelRequested.store(true, std::memory_order_release);
+    task->activeAttempt->cancelRequested.store(true);
     retire_active_pairing_attempt(task, true);
     state.statusMessage.clear();
     logger.log(logging::LogLevel::info, "pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
@@ -1998,7 +1897,7 @@ namespace {
 
     host = app::selected_host(state);
     if (host == nullptr || host->pairingState != app::PairingState::paired) {
-      state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again from Sunshine before opening apps.";
+      state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again before opening apps.";
       logger.log(logging::LogLevel::warning, "apps", state.statusMessage);
       return;
     }
@@ -2011,8 +1910,8 @@ namespace {
     logger.log(logging::LogLevel::warning, "apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
   }
 
-  int run_host_probe_task(void *context) {
-    HostProbeTaskState *task = static_cast<HostProbeTaskState *>(context);
+  int run_host_probe_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
+    auto *task = static_cast<HostProbeTaskState *>(context);
     if (task == nullptr) {
       return -1;
     }
@@ -2030,12 +1929,12 @@ namespace {
       task->results.push_back(std::move(result));
     }
 
-    task->completed.store(true, std::memory_order_release);
+    task->completed.store(true);
     return 0;
   }
 
   void finish_host_probe_task_if_ready(logging::Logger &logger, app::ClientState &state, HostProbeTaskState *task) {
-    if (task == nullptr || task->thread == nullptr || !task->completed.load(std::memory_order_acquire)) {
+    if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
       return;
     }
 
@@ -2118,8 +2017,7 @@ namespace {
     std::string reachabilityMessage;
     network::HostPairingServerInfo serverInfo {};
     network::PairingIdentity clientIdentity {};
-    const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr;
-    if (!test_tcp_host_connection(update.pairingAddress, update.pairingPort, clientIdentityPointer, &reachabilityMessage, &serverInfo)) {
+    if (const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr; !test_tcp_host_connection(update.pairingAddress, update.pairingPort, clientIdentityPointer, &reachabilityMessage, &serverInfo)) {
       for (app::HostRecord &host : state.hosts) {
         if (host.address == update.pairingAddress && app::effective_host_port(host.port) == app::effective_host_port(update.pairingPort)) {
           host.reachability = app::HostReachability::offline;
@@ -2140,7 +2038,7 @@ namespace {
       persist_hosts(logger, state);
     }
 
-    std::unique_ptr<PairingAttemptState> attempt = std::make_unique<PairingAttemptState>();
+    auto attempt = std::make_unique<PairingAttemptState>();
     reset_pairing_attempt(attempt.get());
     attempt->request = {
       update.pairingAddress,
@@ -2163,13 +2061,13 @@ namespace {
     task->activeAttempt = std::move(attempt);
 
     state.pairingDraft.stage = app::PairingStage::in_progress;
-    state.pairingDraft.statusMessage = "The host is reachable. If Sunshine prompts for a PIN, enter the code shown below and keep this screen open for the result.";
+    state.pairingDraft.statusMessage = "The host is reachable. Enter the code shown below on the host and keep this screen open for the result.";
     state.statusMessage.clear();
     logger.log(logging::LogLevel::info, "pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
   }
 
-  int run_app_list_task(void *context) {
-    AppListTaskState *task = static_cast<AppListTaskState *>(context);
+  int run_app_list_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
+    auto *task = static_cast<AppListTaskState *>(context);
     if (task == nullptr) {
       return -1;
     }
@@ -2179,7 +2077,7 @@ namespace {
     if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &errorMessage)) {
       task->success = false;
       task->message = errorMessage;
-      task->completed.store(true, std::memory_order_release);
+      task->completed.store(true);
       return 0;
     }
 
@@ -2188,8 +2086,8 @@ namespace {
     task->success = network::query_app_list(task->address, task->port, &clientIdentity, &fetchedApps, &task->serverInfo, &errorMessage);
     task->serverInfoAvailable = task->serverInfo.httpPort != 0 || task->serverInfo.httpsPort != 0 || !task->serverInfo.hostName.empty() || !task->serverInfo.uuid.empty();
     if (!task->success) {
-      task->message = errorMessage.empty() ? "Failed to fetch the Sunshine app list" : errorMessage;
-      task->completed.store(true, std::memory_order_release);
+      task->message = errorMessage.empty() ? "Failed to fetch the host app list" : errorMessage;
+      task->completed.store(true);
       return 0;
     }
 
@@ -2212,13 +2110,13 @@ namespace {
       });
     }
 
-    task->message = task->apps.empty() ? "Sunshine returned no launchable apps for this host" : "Loaded " + std::to_string(task->apps.size()) + " Sunshine app(s)";
-    task->completed.store(true, std::memory_order_release);
+    task->message = task->apps.empty() ? "Host returned no launchable apps for this host" : "Loaded " + std::to_string(task->apps.size()) + " Host app(s)";
+    task->completed.store(true);
     return 0;
   }
 
   void finish_app_list_task_if_ready(logging::Logger &logger, app::ClientState &state, AppListTaskState *task) {
-    if (task == nullptr || task->thread == nullptr || !task->completed.load(std::memory_order_acquire)) {
+    if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
       return;
     }
 
@@ -2244,7 +2142,7 @@ namespace {
 
     if (success) {
       app::apply_app_list_result(state, address, port, std::move(apps), appListContentHash, true, message);
-      logger.log(logging::LogLevel::info, "apps", "Fetched Sunshine app list from " + address + ":" + std::to_string(serverInfo.httpPort));
+      logger.log(logging::LogLevel::info, "apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
       if (state.hostsDirty) {
         persist_hosts(logger, state);
       }
@@ -2299,17 +2197,16 @@ namespace {
     }
   }
 
-  int run_app_art_task(void *context) {
-    AppArtTaskState *task = static_cast<AppArtTaskState *>(context);
+  int run_app_art_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
+    auto *task = static_cast<AppArtTaskState *>(context);
     if (task == nullptr) {
       return -1;
     }
 
     network::PairingIdentity clientIdentity {};
-    std::string identityError;
-    if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
+    if (std::string identityError; !load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
       task->failureCount = task->apps.size();
-      task->completed.store(true, std::memory_order_release);
+      task->completed.store(true);
       return 0;
     }
 
@@ -2319,14 +2216,12 @@ namespace {
       }
 
       std::vector<unsigned char> assetBytes;
-      std::string errorMessage;
-      if (!network::query_app_asset(task->address, task->port, &clientIdentity, appRecord.id, &assetBytes, &errorMessage)) {
+      if (std::string errorMessage; !network::query_app_asset(task->address, task->port, &clientIdentity, appRecord.id, &assetBytes, &errorMessage)) {
         ++task->failureCount;
         continue;
       }
 
-      const startup::SaveCoverArtResult saveResult = startup::save_cover_art(appRecord.boxArtCacheKey, assetBytes);
-      if (!saveResult.success) {
+      if (const startup::SaveCoverArtResult saveResult = startup::save_cover_art(appRecord.boxArtCacheKey, assetBytes); !saveResult.success) {
         ++task->failureCount;
         continue;
       }
@@ -2334,12 +2229,12 @@ namespace {
       task->cachedAppIds.push_back(appRecord.id);
     }
 
-    task->completed.store(true, std::memory_order_release);
+    task->completed.store(true);
     return 0;
   }
 
   void finish_app_art_task_if_ready(logging::Logger &logger, app::ClientState &state, AppArtTaskState *task, CoverArtTextureCache *textureCache) {
-    if (task == nullptr || task->thread == nullptr || !task->completed.load(std::memory_order_acquire)) {
+    if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
       return;
     }
 
@@ -2381,10 +2276,10 @@ namespace {
       return;
     }
 
-    const bool missingArt = std::any_of(host->apps.begin(), host->apps.end(), [](const app::HostAppRecord &appRecord) {
-      return !appRecord.boxArtCached && !appRecord.boxArtCacheKey.empty();
-    });
-    if (!missingArt) {
+    if (const bool missingArt = std::any_of(host->apps.begin(), host->apps.end(), [](const app::HostAppRecord &appRecord) {
+          return !appRecord.boxArtCached && !appRecord.boxArtCacheKey.empty();
+        });
+        !missingArt) {
       return;
     }
 
@@ -2425,7 +2320,7 @@ namespace {
     logger.log(logging::LogLevel::info, "logging", statusMessage + ": " + loadedLog.filePath);
   }
 
-  bool draw_shell(
+  bool draw_shell(  // NOSONAR(cpp:S3776,cpp:S107) one-frame shell rendering is intentionally centralized to keep layout and failure handling consistent
     SDL_Renderer *renderer,
     const VIDEO_MODE &videoMode,
     unsigned long encoderSettings,
@@ -2503,8 +2398,7 @@ namespace {
 
     const int pageTitleX = headerRect.x + (headerRect.w / 3);
     const int pageTitleY = headerRect.y + 18;
-    const bool renderedPageTitle = viewModel.screen == app::ScreenId::apps ? render_text_line_simple(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3) : render_text_line(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3);
-    if (!viewModel.pageTitle.empty() && !renderedPageTitle) {
+    if (const bool renderedPageTitle = viewModel.screen == app::ScreenId::apps ? render_text_line_simple(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3) : render_text_line(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3); !viewModel.pageTitle.empty() && !renderedPageTitle) {
       return false;
     }
 
@@ -2513,8 +2407,7 @@ namespace {
       const int buttonHeight = std::max(40, headerRect.h / 2);
       int buttonX = headerRect.x + headerRect.w - 16 - ((buttonWidth + 12) * static_cast<int>(viewModel.toolbarButtons.size()));
       for (const ui::ShellToolbarButton &button : viewModel.toolbarButtons) {
-        const SDL_Rect buttonRect {buttonX, headerRect.y + 18, buttonWidth, buttonHeight};
-        if (!render_toolbar_button(renderer, bodyFont, smallFont, assetCache, button, buttonRect)) {
+        if (const SDL_Rect buttonRect {buttonX, headerRect.y + 18, buttonWidth, buttonHeight}; !render_toolbar_button(renderer, bodyFont, smallFont, assetCache, button, buttonRect)) {
           return false;
         }
         buttonX += buttonWidth + 12;
@@ -2547,7 +2440,7 @@ namespace {
       const std::size_t endIndex = std::min(viewModel.hostTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.hostColumnCount);
       for (std::size_t index = startIndex; index < endIndex; ++index) {
         const int row = static_cast<int>(index / viewModel.hostColumnCount) - viewport.startRow;
-        const int column = static_cast<int>(index % viewModel.hostColumnCount);
+        const auto column = static_cast<int>(index % viewModel.hostColumnCount);
         const SDL_Rect tileRect {
           gridRect.x + (column * (tileWidth + tileGap)),
           gridRect.y + (row * (tileHeight + tileGap)),
@@ -2570,13 +2463,13 @@ namespace {
         if (!tile.iconAssetPath.empty()) {
           render_asset_icon(renderer, assetCache, tile.iconAssetPath, hostIconRect);
         }
-        const SDL_Rect nameRect {
-          tileRect.x + 8,
-          tileRect.y + tileRect.h - statusHeight - nameHeight - 10,
-          tileRect.w - 16,
-          nameHeight,
-        };
-        if (!render_text_centered_simple(renderer, bodyFont, tile.displayName, online ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, nameRect)) {
+        if (const SDL_Rect nameRect {
+              tileRect.x + 8,
+              tileRect.y + tileRect.h - statusHeight - nameHeight - 10,
+              tileRect.w - 16,
+              nameHeight,
+            };
+            !render_text_centered_simple(renderer, bodyFont, tile.displayName, online ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, nameRect)) {
           return false;
         }
         const SDL_Rect statusRect {
@@ -2616,7 +2509,7 @@ namespace {
         const std::size_t endIndex = std::min(viewModel.appTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.appColumnCount);
         for (std::size_t index = startIndex; index < endIndex; ++index) {
           const int row = static_cast<int>(index / viewModel.appColumnCount) - viewport.startRow;
-          const int column = static_cast<int>(index % viewModel.appColumnCount);
+          const auto column = static_cast<int>(index % viewModel.appColumnCount);
           const SDL_Rect tileRect {
             gridRect.x + gridPadding + (column * (cellWidth + tileGap)) + std::max(0, (cellWidth - tileWidth) / 2),
             gridRect.y + gridPadding + (row * (cellHeight + tileGap)) + std::max(0, (cellHeight - tileHeight) / 2),
@@ -2624,7 +2517,7 @@ namespace {
             tileHeight,
           };
           const ui::ShellAppTile &tile = viewModel.appTiles[index];
-          if (!render_app_cover(renderer, smallFont, tile, tileRect, textureCache, assetCache)) {
+          if (!render_app_cover(renderer, smallFont, tile, tileRect, textureCache, assetCache)) {  // NOSONAR(cpp:S134) app-grid rendering keeps per-tile failure handling inline with layout
             return false;
           }
         }
@@ -2641,7 +2534,7 @@ namespace {
         int textHeight = 0;
         for (std::size_t index = 0; index < viewModel.bodyLines.size(); ++index) {
           textHeight += measure_wrapped_text_height(smallFont, viewModel.bodyLines[index], gridRect.w - 48);
-          if (index + 1U < viewModel.bodyLines.size()) {
+          if (index + 1U < viewModel.bodyLines.size()) {  // NOSONAR(cpp:S134) empty-state text height is accumulated inline with layout calculation
             textHeight += lineGap;
           }
         }
@@ -2712,7 +2605,7 @@ namespace {
         int bodyY = contentCard.y + bodyCardPadding;
         for (const std::string &line : viewModel.bodyLines) {
           int drawnHeight = 0;
-          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentCard.x + bodyCardPadding, bodyY, contentCard.w - (bodyCardPadding * 2), &drawnHeight)) {
+          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentCard.x + bodyCardPadding, bodyY, contentCard.w - (bodyCardPadding * 2), &drawnHeight)) {  // NOSONAR(cpp:S134) settings-body rendering keeps layout failure handling local
             return false;
           }
           bodyY += drawnHeight + 8;
@@ -2724,10 +2617,8 @@ namespace {
       return false;
     }
 
-    if (viewModel.notificationVisible && !viewModel.notification.message.empty()) {
-      if (!render_notification(renderer, bodyFont, smallFont, assetCache, viewModel.notification, screenWidth, footerRect.y, outerMargin)) {
-        return false;
-      }
+    if (viewModel.notificationVisible && !viewModel.notification.message.empty() && !render_notification(renderer, bodyFont, smallFont, assetCache, viewModel.notification, screenWidth, footerRect.y, outerMargin)) {
+      return false;
     }
 
     if (viewModel.overlayVisible) {
@@ -2855,8 +2746,8 @@ namespace {
       const int buttonHeight = std::max(34, (buttonAreaHeight - (buttonGap * std::max(0, buttonRowCount - 1))) / buttonRowCount);
 
       for (std::size_t index = 0; index < viewModel.keypadModalButtons.size(); ++index) {
-        const int row = static_cast<int>(index / viewModel.keypadModalColumnCount);
-        const int column = static_cast<int>(index % viewModel.keypadModalColumnCount);
+        const auto row = static_cast<int>(index / viewModel.keypadModalColumnCount);
+        const auto column = static_cast<int>(index % viewModel.keypadModalColumnCount);
         const SDL_Rect buttonRect {
           modalRect.x + 16 + (column * (buttonWidth + buttonGap)),
           buttonAreaTop + (row * (buttonHeight + buttonGap)),
@@ -2894,7 +2785,7 @@ namespace {
 
 namespace ui {
 
-  int run_shell(SDL_Window *window, const VIDEO_MODE &videoMode, app::ClientState &state, logging::Logger &logger) {
+  int run_shell(SDL_Window *window, const VIDEO_MODE &videoMode, app::ClientState &state, logging::Logger &logger) {  // NOSONAR(cpp:S3776) shell loop owns all frame/update orchestration in one place by design
     if (window == nullptr) {
       return report_shell_failure(logger, "sdl", "Shell requires a valid SDL window");
     }
@@ -2985,8 +2876,7 @@ namespace ui {
     logger.log(logging::LogLevel::info, "app", "Entered interactive shell");
 
     const auto draw_current_shell = [&]() {
-      const ui::ShellViewModel viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info));
-      if (draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
+      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
         return true;
       }
 
@@ -2996,7 +2886,7 @@ namespace ui {
       return false;
     };
 
-    const auto process_command = [&](input::UiCommand command) {
+    const auto process_command = [&](input::UiCommand command) {  // NOSONAR(cpp:S1188) inline command pipeline keeps one-frame side effects adjacent to the shell loop
       if (command == input::UiCommand::none) {
         return;
       }
@@ -3075,7 +2965,7 @@ namespace ui {
             state.shouldExit = true;
             break;
           case SDL_CONTROLLERDEVICEADDED:
-            if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {
+            if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
               controller = SDL_GameControllerOpen(event.cdevice.which);
               if (controller != nullptr) {
                 logger.log(logging::LogLevel::info, "input", "Controller connected");
@@ -3083,7 +2973,7 @@ namespace ui {
             }
             break;
           case SDL_CONTROLLERDEVICEREMOVED:
-            if (controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.cdevice.which)) {
+            if (controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
               close_controller(controller);
               controller = nullptr;
               leftTriggerPressed = false;
@@ -3100,7 +2990,7 @@ namespace ui {
             }
             break;
           case SDL_CONTROLLERBUTTONDOWN:
-            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {
+            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {  // NOSONAR(cpp:S134) button state transitions stay explicit for controller input parity
               if (!controllerAPressed) {
                 controllerAPressed = true;
                 controllerAContextTriggered = false;
@@ -3126,14 +3016,14 @@ namespace ui {
               }
               command = translate_controller_button(event.cbutton.button);
             }
-            if (
+            if (  // NOSONAR(cpp:S134) exit-combo arming stays inline with the button state machine
               controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
             ) {
               controllerExitComboArmed = true;
             }
             break;
           case SDL_CONTROLLERBUTTONUP:
-            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A && controllerAPressed) {
+            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A && controllerAPressed) {  // NOSONAR(cpp:S134) button release handling stays explicit for controller input parity
               controllerAPressed = false;
               if (!controllerAContextTriggered) {
                 command = input::UiCommand::activate;
@@ -3165,14 +3055,14 @@ namespace ui {
             break;
           case SDL_CONTROLLERAXISMOTION:
             command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
-            if (command == input::UiCommand::fast_previous_page) {
+            if (command == input::UiCommand::fast_previous_page) {  // NOSONAR(cpp:S134) trigger repeat bookkeeping stays inline with translated command handling
               leftTriggerRepeatTick = SDL_GetTicks();
             } else if (command == input::UiCommand::fast_next_page) {
               rightTriggerRepeatTick = SDL_GetTicks();
             }
             break;
           case SDL_KEYDOWN:
-            if (event.key.repeat == 0) {
+            if (event.key.repeat == 0) {  // NOSONAR(cpp:S134) keyboard translation stays inline with SDL event routing
               command = translate_keyboard_key(event.key.keysym.sym, event.key.keysym.mod);
             }
             break;
@@ -3192,8 +3082,7 @@ namespace ui {
       start_app_list_task_if_needed(logger, state, &appListTask, backgroundTaskTick);
       start_app_art_task_if_needed(logger, state, &appArtTask);
 
-      const ui::ShellViewModel viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info));
-      if (!draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
+      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); !draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
         report_shell_failure(logger, "render", std::string("Shell render failed: ") + SDL_GetError());
         running = false;
         break;

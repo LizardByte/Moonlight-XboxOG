@@ -2,13 +2,14 @@
 #include "src/logging/logger.h"
 
 // standard includes
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <utility>
 
 #if defined(_WIN32)
-  #include <windows.h>
+  #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 #endif
 
 namespace {
@@ -78,11 +79,11 @@ namespace logging {
   }
 
   std::string format_timestamp(const LogTimestamp &timestamp) {
-    char buffer[32] = {};
+    std::array<char, 32> buffer {};
     const bool validTimestamp = is_valid_timestamp(timestamp);
     std::snprintf(
-      buffer,
-      sizeof(buffer),
+      buffer.data(),
+      buffer.size(),
       "%04d-%02d-%02d %02d:%02d:%02d.%03d",
       validTimestamp ? timestamp.year : 0,
       validTimestamp ? timestamp.month : 0,
@@ -92,7 +93,7 @@ namespace logging {
       validTimestamp ? timestamp.second : 0,
       validTimestamp ? timestamp.millisecond : 0
     );
-    return buffer;
+    return {buffer.data()};
   }
 
   std::string format_entry(const LogEntry &entry) {
@@ -105,8 +106,6 @@ namespace logging {
 
   Logger::Logger(std::size_t capacity, TimestampProvider timestampProvider):
       capacity_(capacity == 0 ? 1 : capacity),
-      minimumLevel_(LogLevel::info),
-      nextSequence_(1),
       timestampProvider_(timestampProvider ? std::move(timestampProvider) : TimestampProvider(current_local_timestamp)) {}
 
   std::size_t Logger::capacity() const {

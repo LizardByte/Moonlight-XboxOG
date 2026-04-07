@@ -3,6 +3,10 @@
 
 // lib includes
 #include <gtest/gtest.h>
+#include <string>
+
+// test includes
+#include "tests/support/network_test_constants.h"
 
 namespace {
 
@@ -22,8 +26,8 @@ namespace {
     app::ClientState state = app::create_initial_state();
 
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired},
                               },
                        "Loaded 2 saved host(s)");
 
@@ -115,7 +119,7 @@ namespace {
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
 
     ASSERT_EQ(state.activeScreen, app::ScreenId::add_host);
-    state.addHostDraft.addressInput = "193.168.1.10";
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpManualCustomPort];
     state.addHostDraft.portInput = "48000";
     state.menu.select_item_by_id("save-host");
     update = app::handle_command(state, input::UiCommand::activate);
@@ -123,9 +127,9 @@ namespace {
     EXPECT_TRUE(update.screenChanged);
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
     ASSERT_EQ(state.hosts.size(), 1U);
-    EXPECT_EQ(state.hosts.front().address, "193.168.1.10");
-    EXPECT_EQ(state.hosts.front().port, 48000);
-    EXPECT_EQ(state.hosts.front().displayName, "Host 193.168.1.10");
+    EXPECT_EQ(state.hosts.front().address, test_support::kTestIpv4Addresses[test_support::kIpManualCustomPort]);
+    EXPECT_EQ(state.hosts.front().port, test_support::kTestPorts[test_support::kPortDefaultHost]);
+    EXPECT_EQ(state.hosts.front().displayName, "Host " + std::string(test_support::kTestIpv4Addresses[test_support::kIpManualCustomPort]));
     EXPECT_EQ(state.selectedHostIndex, 0U);
   }
 
@@ -135,7 +139,7 @@ namespace {
     state.hostsFocusArea = app::HostsFocusArea::toolbar;
     state.selectedToolbarButtonIndex = 2U;
     app::handle_command(state, input::UiCommand::activate);
-    state.addHostDraft.addressInput = "192.168.0.10";
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
     state.menu.select_item_by_id("save-host");
     app::handle_command(state, input::UiCommand::activate);
 
@@ -148,7 +152,7 @@ namespace {
     EXPECT_TRUE(update.screenChanged);
     ASSERT_EQ(state.activeScreen, app::ScreenId::add_host);
 
-    state.addHostDraft.addressInput = "192.168.0.10";
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
     state.menu.select_item_by_id("save-host");
     update = app::handle_command(state, input::UiCommand::activate);
 
@@ -164,7 +168,7 @@ namespace {
   TEST(ClientStateTest, SelectingAnUnpairedHostStartsPairing) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -172,7 +176,7 @@ namespace {
 
     EXPECT_TRUE(update.screenChanged);
     EXPECT_TRUE(update.pairingRequested);
-    EXPECT_EQ(update.pairingAddress, "192.168.1.20");
+    EXPECT_EQ(update.pairingAddress, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
     EXPECT_EQ(update.pairingPort, app::DEFAULT_HOST_PORT);
     EXPECT_TRUE(app::is_valid_pairing_pin(update.pairingPin));
     EXPECT_EQ(state.activeScreen, app::ScreenId::pair_host);
@@ -181,7 +185,7 @@ namespace {
   TEST(ClientStateTest, SelectingAnOfflineUnpairedHostDoesNotOpenThePairingScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::offline},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired, app::HostReachability::offline},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -196,7 +200,7 @@ namespace {
   TEST(ClientStateTest, BackingOutOfThePairingScreenRequestsPairingCancellation) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -214,10 +218,10 @@ namespace {
   TEST(ClientStateTest, HostGridNavigationMatchesTheRenderedThreeColumnLayout) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host A", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", test_support::kTestIpv4Addresses[test_support::kIpHostGridB], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", test_support::kTestIpv4Addresses[test_support::kIpHostGridC], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", test_support::kTestIpv4Addresses[test_support::kIpHostGridD], 0, app::PairingState::paired, app::HostReachability::online},
                               });
 
     EXPECT_EQ(state.selectedHostIndex, 0U);
@@ -232,10 +236,10 @@ namespace {
   TEST(ClientStateTest, HostGridCanMoveDownIntoAPartialNextRowFromAnyColumn) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host A", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", test_support::kTestIpv4Addresses[test_support::kIpHostGridB], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", test_support::kTestIpv4Addresses[test_support::kIpHostGridC], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", test_support::kTestIpv4Addresses[test_support::kIpHostGridD], 0, app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_right);
@@ -251,11 +255,11 @@ namespace {
   TEST(ClientStateTest, HostGridWrapsRightToTheNextRowAndLeftToThePreviousRow) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Host A", "192.168.0.10", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host B", "192.168.0.11", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host C", "192.168.0.12", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host D", "192.168.0.13", 0, app::PairingState::paired, app::HostReachability::online},
-                                {"Host E", "192.168.0.14", 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host A", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host B", test_support::kTestIpv4Addresses[test_support::kIpHostGridB], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host C", test_support::kTestIpv4Addresses[test_support::kIpHostGridC], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host D", test_support::kTestIpv4Addresses[test_support::kIpHostGridD], 0, app::PairingState::paired, app::HostReachability::online},
+                                {"Host E", test_support::kTestIpv4Addresses[test_support::kIpHostGridE], 0, app::PairingState::paired, app::HostReachability::online},
                               });
 
     state.selectedHostIndex = 2U;
@@ -269,7 +273,7 @@ namespace {
   TEST(ClientStateTest, SelectingAPairedHostOpensTheAppsScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -284,7 +288,7 @@ namespace {
   TEST(ClientStateTest, SelectingAnOfflinePairedHostDoesNotOpenTheAppsScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::offline},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::offline},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -299,7 +303,7 @@ namespace {
   TEST(ClientStateTest, AppliesFetchedAppListsAndPreservesPerAppFlags) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -309,13 +313,13 @@ namespace {
       {"Steam", 101, false, true, true, "cached-steam", true, false},
     };
 
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {
-                                                            {"Steam", 101, true, false, false, "cached-steam", false, false},
-                                                            {"Desktop", 102, false, false, false, "cached-desktop", true, false},
-                                                          },
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
+                                                                                                                                                             {"Steam", 101, true, false, false, "cached-steam", false, false},
+                                                                                                                                                             {"Desktop", 102, false, false, false, "cached-desktop", true, false},
+                                                                                                                                                           },
                                0x55AAU,
                                true,
-                               "Loaded 2 Sunshine app(s)");
+                               "Loaded 2 app(s)");
 
     ASSERT_EQ(state.hosts.front().apps.size(), 2U);
     EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
@@ -330,19 +334,19 @@ namespace {
   TEST(ClientStateTest, AppliesFetchedAppListsWhenBackgroundTasksReportTheResolvedHttpPort) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
-    state.hosts.front().resolvedHttpPort = 47989;
+    state.hosts.front().resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
 
-    app::apply_app_list_result(state, "10.0.0.25", 47989, {
-                                                            {"Steam", 101, true, false, false, "steam-cover", true, false},
-                                                          },
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttp], {
+                                                                                                                                                              {"Steam", 101, true, false, false, "steam-cover", true, false},
+                                                                                                                                                            },
                                0xBEEFU,
                                true,
-                               "Loaded 1 Sunshine app(s)");
+                               "Loaded 1 app(s)");
 
     ASSERT_EQ(state.hosts.front().apps.size(), 1U);
     EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
@@ -353,15 +357,15 @@ namespace {
   TEST(ClientStateTest, MarksCoverArtCachedWhenBackgroundTasksReportTheResolvedHttpsPort) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
-    state.hosts.front().httpsPort = 47990;
+    state.hosts.front().httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
     state.hosts.front().apps = {
       {"Steam", 101, true, false, false, "steam-cover", false, false},
     };
 
-    app::mark_cover_art_cached(state, "10.0.0.25", 47990, 101);
+    app::mark_cover_art_cached(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttps], 101);
 
     ASSERT_EQ(state.hosts.front().apps.size(), 1U);
     EXPECT_TRUE(state.hosts.front().apps.front().boxArtCached);
@@ -370,7 +374,7 @@ namespace {
   TEST(ClientStateTest, FailedRefreshKeepsCachedAppsAvailable) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
@@ -379,7 +383,7 @@ namespace {
     };
     state.hosts.front().appListContentHash = 0x1234U;
 
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {}, 0, false, "Timed out while refreshing apps");
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {}, 0, false, "Timed out while refreshing apps");
 
     EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
     ASSERT_EQ(state.hosts.front().apps.size(), 1U);
@@ -390,7 +394,7 @@ namespace {
   TEST(ClientStateTest, ExplicitUnpairedAppListFailureMarksTheHostAsNotPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -398,12 +402,12 @@ namespace {
 
     app::apply_app_list_result(
       state,
-      "10.0.0.25",
-      48000,
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
       {},
       0,
       false,
-      "The host reports that this client is no longer paired. Pair the host again from Sunshine."
+      "The host reports that this client is no longer paired. Pair the host again."
     );
 
     EXPECT_EQ(state.hosts.front().pairingState, app::PairingState::not_paired);
@@ -413,7 +417,7 @@ namespace {
   TEST(ClientStateTest, ExplicitUnpairedAppListFailureClearsCachedApps) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -425,8 +429,8 @@ namespace {
 
     app::apply_app_list_result(
       state,
-      "10.0.0.25",
-      48000,
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
       {},
       0,
       false,
@@ -441,13 +445,13 @@ namespace {
   TEST(ClientStateTest, TransientAppListFailuresDoNotMarkTheHostAsNotPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::activate);
 
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {}, 0, false, "Timed out while refreshing apps");
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {}, 0, false, "Timed out while refreshing apps");
 
     EXPECT_EQ(state.hosts.front().pairingState, app::PairingState::paired);
   }
@@ -455,20 +459,20 @@ namespace {
   TEST(ClientStateTest, AppGridWrapsHorizontallyAndFindsTheClosestItemInPartialRows) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {
-                                                            {"App 1", 1, false, false, false, "app-1", false, false},
-                                                            {"App 2", 2, false, false, false, "app-2", false, false},
-                                                            {"App 3", 3, false, false, false, "app-3", false, false},
-                                                            {"App 4", 4, false, false, false, "app-4", false, false},
-                                                            {"App 5", 5, false, false, false, "app-5", false, false},
-                                                          },
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
+                                                                                                                                                             {"App 1", 1, false, false, false, "app-1", false, false},
+                                                                                                                                                             {"App 2", 2, false, false, false, "app-2", false, false},
+                                                                                                                                                             {"App 3", 3, false, false, false, "app-3", false, false},
+                                                                                                                                                             {"App 4", 4, false, false, false, "app-4", false, false},
+                                                                                                                                                             {"App 5", 5, false, false, false, "app-5", false, false},
+                                                                                                                                                           },
                                0x99U,
                                true,
-                               "Loaded 5 Sunshine app(s)");
+                               "Loaded 5 app(s)");
 
     state.selectedAppIndex = 3U;
     app::handle_command(state, input::UiCommand::move_right);
@@ -514,7 +518,7 @@ namespace {
   TEST(ClientStateTest, LeavingTheAppsScreenClearsTransientAppStatusAndIgnoresLaterRefreshText) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
@@ -526,9 +530,9 @@ namespace {
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
     EXPECT_TRUE(state.statusMessage.empty());
 
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {
-                                                            {"Steam", 101, false, false, false, "steam-cover", false, false},
-                                                          },
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
+                                                                                                                                                             {"Steam", 101, false, false, false, "steam-cover", false, false},
+                                                                                                                                                           },
                                0,
                                false,
                                "The host applist response did not contain any app entries");
@@ -593,8 +597,8 @@ namespace {
   TEST(ClientStateTest, HostContextMenuCanDeleteTheSelectedHost) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired},
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -611,7 +615,7 @@ namespace {
   TEST(ClientStateTest, DeletingAPairedHostRequestsPersistentCleanupAndMarksItForManualRePairing) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     state.hosts.front().apps = {
       {"Steam", 101, false, false, false, "steam-cover", true, false},
@@ -629,19 +633,19 @@ namespace {
     EXPECT_TRUE(update.hostsChanged);
     EXPECT_TRUE(update.hostDeleteCleanupRequested);
     EXPECT_TRUE(update.deletedHostWasPaired);
-    EXPECT_EQ(update.deletedHostAddress, "10.0.0.25");
-    EXPECT_EQ(update.deletedHostPort, 48000);
+    EXPECT_EQ(update.deletedHostAddress, test_support::kTestIpv4Addresses[test_support::kIpOffice]);
+    EXPECT_EQ(update.deletedHostPort, test_support::kTestPorts[test_support::kPortDefaultHost]);
     ASSERT_EQ(update.deletedHostCoverArtCacheKeys.size(), 2U);
     EXPECT_EQ(update.deletedHostCoverArtCacheKeys[0], "steam-cover");
     EXPECT_EQ(update.deletedHostCoverArtCacheKeys[1], "desktop-cover");
     EXPECT_TRUE(state.hosts.empty());
-    EXPECT_TRUE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+    EXPECT_TRUE(app::host_requires_manual_pairing(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
   }
 
   TEST(ClientStateTest, SuccessfulRePairingClearsTheManualRePairRequirementAfterHostDeletion) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     app::handle_command(state, input::UiCommand::move_down);
@@ -651,14 +655,14 @@ namespace {
     const app::AppUpdate deleteUpdate = app::handle_command(state, input::UiCommand::activate);
 
     ASSERT_TRUE(deleteUpdate.hostDeleteCleanupRequested);
-    ASSERT_TRUE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+    ASSERT_TRUE(app::host_requires_manual_pairing(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
 
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired, app::HostReachability::online},
                               });
 
-    EXPECT_TRUE(app::apply_pairing_result(state, "10.0.0.25", 48000, true, "Paired successfully"));
-    EXPECT_FALSE(app::host_requires_manual_pairing(state, "10.0.0.25", 48000));
+    EXPECT_TRUE(app::apply_pairing_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], true, "Paired successfully"));
+    EXPECT_FALSE(app::host_requires_manual_pairing(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
     EXPECT_EQ(state.hosts.front().pairingState, app::PairingState::paired);
   }
 
@@ -666,58 +670,58 @@ namespace {
     app::ClientState state = app::create_initial_state();
 
     app::handle_command(state, input::UiCommand::activate);
-    state.addHostDraft.addressInput = "192.168.0.10";
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
     state.addHostDraft.portInput = "48000";
     state.menu.select_item_by_id("test-connection");
 
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
 
     EXPECT_TRUE(update.connectionTestRequested);
-    EXPECT_EQ(update.connectionTestAddress, "192.168.0.10");
-    EXPECT_EQ(update.connectionTestPort, 48000);
-    EXPECT_EQ(state.statusMessage, "Testing connection to 192.168.0.10:48000...");
+    EXPECT_EQ(update.connectionTestAddress, test_support::kTestIpv4Addresses[test_support::kIpHostGridA]);
+    EXPECT_EQ(update.connectionTestPort, test_support::kTestPorts[test_support::kPortDefaultHost]);
+    EXPECT_EQ(state.statusMessage, "Testing connection to " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + ":48000...");
   }
 
   TEST(ClientStateTest, StagesCancelsDeletesAndAcceptsAddHostKeypadEdits) {
     app::ClientState state = app::create_initial_state();
 
     app::handle_command(state, input::UiCommand::activate);
-    state.addHostDraft.addressInput = "192.168.0.10";
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
 
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_FALSE(update.screenChanged);
     EXPECT_TRUE(state.addHostDraft.keypad.visible);
     EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 0U);
-    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, "192.168.0.10");
+    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, test_support::kTestIpv4Addresses[test_support::kIpHostGridA]);
 
     app::handle_command(state, input::UiCommand::activate);
-    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, "192.168.0.101");
+    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + "1");
 
     app::handle_command(state, input::UiCommand::delete_character);
-    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, "192.168.0.10");
+    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, test_support::kTestIpv4Addresses[test_support::kIpHostGridA]);
 
     app::handle_command(state, input::UiCommand::back);
     EXPECT_FALSE(state.addHostDraft.keypad.visible);
-    EXPECT_EQ(state.addHostDraft.addressInput, "192.168.0.10");
+    EXPECT_EQ(state.addHostDraft.addressInput, test_support::kTestIpv4Addresses[test_support::kIpHostGridA]);
 
     app::handle_command(state, input::UiCommand::activate);
     EXPECT_TRUE(state.addHostDraft.keypad.visible);
     app::handle_command(state, input::UiCommand::activate);
-    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, "192.168.0.101");
+    EXPECT_EQ(state.addHostDraft.keypad.stagedInput, std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + "1");
     app::handle_command(state, input::UiCommand::confirm);
     EXPECT_FALSE(state.addHostDraft.keypad.visible);
-    EXPECT_EQ(state.addHostDraft.addressInput, "192.168.0.101");
+    EXPECT_EQ(state.addHostDraft.addressInput, std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + "1");
   }
 
   TEST(ClientStateTest, SuccessfulPairingReturnsToHostsAndKeepsTheHostSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.1.20", 0, app::PairingState::not_paired, app::HostReachability::online},
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
     state.selectedHostIndex = 1U;
-    EXPECT_TRUE(app::apply_pairing_result(state, "192.168.1.20", app::DEFAULT_HOST_PORT, true, "Paired successfully"));
+    EXPECT_TRUE(app::apply_pairing_result(state, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], app::DEFAULT_HOST_PORT, true, "Paired successfully"));
 
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
     EXPECT_EQ(state.selectedHostIndex, 0U);

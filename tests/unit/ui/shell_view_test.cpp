@@ -1,7 +1,15 @@
+// test header include
 #include "src/ui/shell_view.h"
 
-#include <gtest/gtest.h>
+// standard includes
+#include <string>
 #include <vector>
+
+// lib inclues
+#include <gtest/gtest.h>
+
+// test includes
+#include "tests/support/network_test_constants.h"
 
 namespace {
 
@@ -30,8 +38,8 @@ namespace {
   TEST(ShellViewTest, ShowsSavedHostsAsTiles) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::not_paired, app::HostReachability::offline},
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired, app::HostReachability::offline},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               },
                        "Loaded 2 saved host(s)");
     app::handle_command(state, input::UiCommand::move_right);
@@ -53,7 +61,7 @@ namespace {
   TEST(ShellViewTest, HidesHostMenuFooterActionWhenToolbarIsSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     state.hostsFocusArea = app::HostsFocusArea::toolbar;
 
@@ -68,16 +76,18 @@ namespace {
     app::ClientState state = app::create_initial_state();
     app::handle_command(state, input::UiCommand::activate);
     state.addHostDraft.activeField = app::AddHostField::port;
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
     state.addHostDraft.portInput = "48000";
     state.addHostDraft.validationMessage = "That host is already saved";
-    state.addHostDraft.connectionMessage = "Connected to 192.168.0.10:48000";
+    state.addHostDraft.connectionMessage =
+      "Connected to " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + ":48000";
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
     EXPECT_EQ(viewModel.pageTitle, "Add Host");
     ASSERT_GE(viewModel.bodyLines.size(), 4U);
     EXPECT_EQ(viewModel.bodyLines[0], "Manual host entry with a keypad modal.");
-    EXPECT_EQ(viewModel.bodyLines[1], "Address: 192.168.0.10");
+    EXPECT_EQ(viewModel.bodyLines[1], "Address: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
     EXPECT_EQ(viewModel.bodyLines[2], "Port: 48000");
     EXPECT_EQ(viewModel.bodyLines[3], "Press A to edit either field with the keypad modal.");
     ASSERT_EQ(viewModel.footerActions.size(), 2U);
@@ -151,17 +161,17 @@ namespace {
   TEST(ShellViewTest, BuildsTheAppsPageForASelectedPairedHost) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     state.hosts.front().runningGameId = 101;
-    app::apply_app_list_result(state, "10.0.0.25", 48000, {
-                                                            {"Steam", 101, true, false, false, "steam-cover", true, false},
-                                                            {"Desktop", 102, false, false, false, "desktop-cover", false, false},
-                                                          },
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
+                                                                                                                                                             {"Steam", 101, true, false, false, "steam-cover", true, false},
+                                                                                                                                                             {"Desktop", 102, false, false, false, "desktop-cover", false, false},
+                                                                                                                                                           },
                                0x4242U,
                                true,
-                               "Loaded 2 Sunshine app(s)");
+                               "Loaded 2 app(s)");
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
@@ -184,14 +194,14 @@ namespace {
   TEST(ShellViewTest, HidesCachedAppTilesWhenTheSelectedHostIsNoLongerPaired) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired, app::HostReachability::online},
                               });
     state.activeScreen = app::ScreenId::apps;
     state.hosts.front().apps = {
       {"Steam", 101, false, false, false, "steam-cover", true, false},
     };
     state.hosts.front().appListState = app::HostAppListState::failed;
-    state.hosts.front().appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again from Sunshine.";
+    state.hosts.front().appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again.";
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
@@ -203,7 +213,7 @@ namespace {
   TEST(ShellViewTest, SuppressesTransientAppsLoadingTextAndNotifications) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
     state.statusMessage = "Loading apps for Office PC...";
@@ -217,7 +227,7 @@ namespace {
   TEST(ShellViewTest, ShowsOnlyBackOnAppsScreenWhenNoVisibleAppIsSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Office PC", "10.0.0.25", 48000, app::PairingState::paired, app::HostReachability::online},
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
 
@@ -230,7 +240,7 @@ namespace {
   TEST(ShellViewTest, BuildsHostDetailsModalContent) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
-                                {"Living Room PC", "192.168.0.10", 48000, app::PairingState::paired, app::HostReachability::online, "192.168.0.10", "uuid-123", "192.168.0.10", "203.0.113.7", {}, "192.168.0.10", "00:11:22:33:44:55", 47990, 0},
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online, test_support::kTestIpv4Addresses[test_support::kIpHostGridA], "uuid-123", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], test_support::kTestIpv4Addresses[test_support::kIpServerExternal], {}, test_support::kTestIpv4Addresses[test_support::kIpHostGridA], "00:11:22:33:44:55", test_support::kTestPorts[test_support::kPortResolvedHttps], 0},
                               });
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::open_context_menu);
@@ -246,7 +256,7 @@ namespace {
     ASSERT_GE(viewModel.modalLines.size(), 5U);
     EXPECT_EQ(viewModel.modalLines[0], "Name: Living Room PC");
     EXPECT_EQ(viewModel.modalLines[1], "State: ONLINE");
-    EXPECT_EQ(viewModel.modalLines[2], "Active Address: 192.168.0.10");
+    EXPECT_EQ(viewModel.modalLines[2], "Active Address: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
   }
 
   TEST(ShellViewTest, BuildsDedicatedLogViewerModalState) {
@@ -308,12 +318,18 @@ namespace {
   TEST(ShellViewTest, HidesThePairingPinUntilReachabilityHasBeenConfirmed) {
     app::ClientState state = app::create_initial_state();
     state.activeScreen = app::ScreenId::pair_host;
-    state.pairingDraft = {"192.168.0.10", 47984, "1234", app::PairingStage::idle, "Checking whether the host is reachable before pairing begins."};
+    state.pairingDraft = {
+      test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
+      test_support::kTestPorts[test_support::kPortPairing],
+      "1234",
+      app::PairingStage::idle,
+      "Checking whether the host is reachable before pairing begins."
+    };
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
     ASSERT_GE(viewModel.bodyLines.size(), 2U);
-    EXPECT_EQ(viewModel.bodyLines[0], "Target host: 192.168.0.10");
+    EXPECT_EQ(viewModel.bodyLines[0], "Target host: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
     EXPECT_EQ(viewModel.bodyLines[1], "Checking whether the host is reachable before showing a PIN.");
     for (const std::string &line : viewModel.bodyLines) {
       EXPECT_EQ(line.find("PIN:"), std::string::npos);

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // local includes
@@ -62,21 +63,21 @@ namespace ui {
      *
      * @return Immutable view of the menu items in display order.
      */
-    const std::vector<MenuItem> &items() const;
+    [[nodiscard]] const std::vector<MenuItem> &items() const;
 
     /**
      * @brief Return the selected item index or npos when none is selectable.
      *
      * @return Selected item index or npos.
      */
-    std::size_t selected_index() const;
+    [[nodiscard]] std::size_t selected_index() const;
 
     /**
      * @brief Return the selected item or nullptr when none is selectable.
      *
      * @return Pointer to the selected item, or nullptr when unavailable.
      */
-    const MenuItem *selected_item() const;
+    [[nodiscard]] const MenuItem *selected_item() const;
 
     /**
      * @brief Select a specific enabled item by its stable identifier.
@@ -84,7 +85,7 @@ namespace ui {
      * @param itemId Identifier to select.
      * @return true when the selection changed.
      */
-    bool select_item_by_id(const std::string &itemId);
+    bool select_item_by_id(std::string_view itemId);
 
     /**
      * @brief Apply a UI command to the menu.
@@ -96,10 +97,10 @@ namespace ui {
 
   private:
     bool move_selection(int direction);
-    std::size_t find_first_enabled_index() const;
+    [[nodiscard]] std::size_t find_first_enabled_index() const;
 
     std::vector<MenuItem> items_;
-    std::size_t selectedIndex_;
+    std::size_t selectedIndex_ = npos;
   };
 
 }  // namespace ui

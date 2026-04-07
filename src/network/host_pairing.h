@@ -85,6 +85,15 @@ namespace network {
   PairingIdentity create_pairing_identity(std::string *errorMessage = nullptr);
 
   /**
+   * @brief Generate a secure four-digit PIN for host pairing.
+   *
+   * @param pin Output buffer populated with exactly four decimal digits.
+   * @param errorMessage Optional output for entropy or random-byte failures.
+   * @return true when a secure PIN was generated successfully.
+   */
+  bool generate_pairing_pin(std::string *pin, std::string *errorMessage = nullptr);
+
+  /**
    * @brief Parse the XML response returned by the host server-info endpoint.
    *
    * @param xml Raw XML response body.

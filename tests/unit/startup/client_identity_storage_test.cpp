@@ -12,7 +12,7 @@
 
 namespace {
 
-  class ClientIdentityStorageTest: public ::testing::Test {
+  class ClientIdentityStorageTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     void TearDown() override {
       test_support::remove_if_present(test_support::join_path(nestedIdentityDirectory, "uniqueid.dat"));

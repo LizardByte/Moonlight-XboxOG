@@ -5,7 +5,7 @@
 
 extern "C" {
 
-  int stat(const char *path, struct stat *status) {
+  int stat(const char *path, struct stat *status) {  // NOSONAR(cpp:S833) extern "C" linkage requires external visibility
     (void) path;
 
     if (status != nullptr) {
@@ -15,7 +15,7 @@ extern "C" {
     return -1;
   }
 
-  int fstat(int fd, struct stat *status) {
+  int fstat(int fd, struct stat *status) {  // NOSONAR(cpp:S833) extern "C" linkage requires external visibility
     (void) fd;
 
     if (status != nullptr) {

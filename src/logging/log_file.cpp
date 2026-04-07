@@ -2,6 +2,7 @@
 #include "src/logging/log_file.h"
 
 // standard includes
+#include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -69,8 +70,7 @@ namespace logging {
     }
 
     const std::string line = persisted_log_line(entry) + "\r\n";
-    const std::size_t bytesWritten = std::fwrite(line.data(), 1, line.size(), file);
-    if (bytesWritten != line.size()) {
+    if (const std::size_t bytesWritten = std::fwrite(line.data(), 1, line.size(), file); bytesWritten != line.size()) {
       if (errorMessage != nullptr) {
         *errorMessage = "Failed to append to log file '" + filePath + "': " + std::strerror(errno);
       }
@@ -113,12 +113,11 @@ namespace logging {
       bufferedLines.push_back(std::move(line));
     };
 
-    char buffer[1024] = {};
+    std::array<char, 1024> buffer {};
     std::string pendingLine;
-    while (std::fgets(buffer, static_cast<int>(sizeof(buffer)), file) != nullptr) {
-      pendingLine += buffer;
-      const std::size_t pendingLength = pendingLine.size();
-      if (pendingLength == 0U) {
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), file) != nullptr) {
+      pendingLine += buffer.data();
+      if (const std::size_t pendingLength = pendingLine.size(); pendingLength == 0U) {
         continue;
       }
 

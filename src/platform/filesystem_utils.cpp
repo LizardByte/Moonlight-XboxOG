@@ -5,10 +5,11 @@
 #include <cctype>
 #include <cerrno>
 #include <cstring>
+#include <string_view>
 
 // platform includes
 #if defined(_WIN32) || defined(NXDK)
-  #include <windows.h>
+  #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 extern "C" {
   #include <direct.h>
 }
@@ -19,18 +20,9 @@ extern "C" {
 
 namespace {
 
-  bool is_drive_root_path(const std::string &path) {
+  bool is_root_path(std::string_view path) {
 #if defined(_WIN32) || defined(NXDK)
-    return path.size() <= 3 && path.size() >= 2 && path[1] == ':';
-#else
-    (void) path;
-    return false;
-#endif
-  }
-
-  bool is_root_path(const std::string &path) {
-#if defined(_WIN32) || defined(NXDK)
-    return is_drive_root_path(path);
+    return path.size() >= 2 && path.size() <= 3 && path[1] == ':';
 #else
     return path == "/";
 #endif
@@ -52,7 +44,7 @@ namespace {
       return true;
     }
 #else
-    if (mkdir(path.c_str(), 0777) == 0 || errno == EEXIST) {
+    if (mkdir(path.c_str(), 0750) == 0 || errno == EEXIST) {
       return true;
     }
 #endif
@@ -100,12 +92,12 @@ namespace platform {
     return left + preferred_path_separator() + right;
   }
 
-  std::string parent_directory(const std::string &filePath) {
+  std::string parent_directory(std::string_view filePath) {
     const std::size_t separatorIndex = filePath.find_last_of("\\/");
     if (separatorIndex == std::string::npos) {
       return {};
     }
-    return filePath.substr(0, separatorIndex);
+    return std::string(filePath.substr(0, separatorIndex));
   }
 
   bool ensure_directory_exists(const std::string &directoryPath, std::string *errorMessage) {
@@ -130,8 +122,7 @@ namespace platform {
     for (std::size_t index = startIndex; index < directoryPath.size(); ++index) {
       partialPath.push_back(directoryPath[index]);
       const bool atSeparator = is_path_separator(directoryPath[index]);
-      const bool atPathEnd = index + 1 == directoryPath.size();
-      if (!atSeparator && !atPathEnd) {
+      if (const bool atPathEnd = index + 1 == directoryPath.size(); !atSeparator && !atPathEnd) {
         continue;
       }
 
@@ -148,10 +139,10 @@ namespace platform {
     return true;
   }
 
-  bool try_get_file_size(const std::string &path, std::uint64_t *sizeBytes) {
+  bool try_get_file_size(std::string_view path, std::uint64_t *sizeBytes) {
 #if defined(_WIN32) || defined(NXDK)
     WIN32_FILE_ATTRIBUTE_DATA fileData {};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fileData)) {
+    if (const std::string ownedPath(path); !GetFileAttributesExA(ownedPath.c_str(), GetFileExInfoStandard, &fileData)) {
       return false;
     }
     if ((fileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0U) {
@@ -159,15 +150,13 @@ namespace platform {
     }
 
     if (sizeBytes != nullptr) {
-      ULARGE_INTEGER sizeValue {};
-      sizeValue.HighPart = fileData.nFileSizeHigh;
-      sizeValue.LowPart = fileData.nFileSizeLow;
-      *sizeBytes = sizeValue.QuadPart;
+      *sizeBytes = (static_cast<std::uint64_t>(fileData.nFileSizeHigh) << 32U) |
+                   static_cast<std::uint64_t>(fileData.nFileSizeLow);
     }
     return true;
 #else
     struct stat status {};
-    if (stat(path.c_str(), &status) != 0 || !S_ISREG(status.st_mode)) {
+    if (const std::string ownedPath(path); stat(ownedPath.c_str(), &status) != 0 || !S_ISREG(status.st_mode)) {
       return false;
     }
 

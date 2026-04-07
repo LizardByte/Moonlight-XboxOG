@@ -6,8 +6,7 @@
 
 namespace ui {
 
-  MenuModel::MenuModel(std::vector<MenuItem> items):
-      selectedIndex_(npos) {
+  MenuModel::MenuModel(std::vector<MenuItem> items) {
     set_items(std::move(items));
   }
 
@@ -32,7 +31,7 @@ namespace ui {
     return &items_[selectedIndex_];
   }
 
-  bool MenuModel::select_item_by_id(const std::string &itemId) {
+  bool MenuModel::select_item_by_id(std::string_view itemId) {
     for (std::size_t index = 0; index < items_.size(); ++index) {
       if (items_[index].enabled && items_[index].id == itemId) {
         const bool changed = index != selectedIndex_;
@@ -65,9 +64,11 @@ namespace ui {
         update.backRequested = true;
         break;
       case input::UiCommand::previous_page:
+      case input::UiCommand::fast_previous_page:
         update.previousPageRequested = true;
         break;
       case input::UiCommand::next_page:
+      case input::UiCommand::fast_next_page:
         update.nextPageRequested = true;
         break;
       case input::UiCommand::toggle_overlay:

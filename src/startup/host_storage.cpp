@@ -2,6 +2,7 @@
 #include "src/startup/host_storage.h"
 
 // standard includes
+#include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -13,11 +14,11 @@
   #if __has_include(<nxdk/xbe.h>)
     #include <nxdk/xbe.h>
     #include <winnt.h>
-    #define MOONLIGHT_HAS_NXDK_XBE 1
+    #define MOONLIGHT_HAS_NXDK_XBE 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
   #endif
   #if __has_include(<nxdk/mount.h>)
     #include <nxdk/mount.h>
-    #define MOONLIGHT_HAS_NXDK_MOUNT 1
+    #define MOONLIGHT_HAS_NXDK_MOUNT 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
   #endif
 #endif
 
@@ -52,9 +53,9 @@ namespace {
     }
   #endif
 
-    char titleIdBuffer[9] = {};
-    std::snprintf(titleIdBuffer, sizeof(titleIdBuffer), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
-    return std::string("E:\\UDATA\\") + titleIdBuffer + "\\";
+    std::array<char, 9> titleIdBuffer {};
+    std::snprintf(titleIdBuffer.data(), titleIdBuffer.size(), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
+    return std::string("E:\\UDATA\\") + titleIdBuffer.data() + "\\";
 #else
     return {};
 #endif
@@ -65,8 +66,7 @@ namespace {
 namespace startup {
 
   std::string default_host_storage_path() {
-    const std::string titleScopedRoot = title_scoped_storage_root();
-    if (!titleScopedRoot.empty()) {
+    if (const std::string titleScopedRoot = title_scoped_storage_root(); !titleScopedRoot.empty()) {
       return titleScopedRoot + "moonlight-hosts.tsv";
     }
 
@@ -98,8 +98,7 @@ namespace startup {
   }
 
   SaveSavedHostsResult save_saved_hosts(const std::vector<app::HostRecord> &hosts, const std::string &filePath) {
-    std::string errorMessage;
-    if (!platform::ensure_directory_exists(platform::parent_directory(filePath), &errorMessage)) {
+    if (std::string errorMessage; !platform::ensure_directory_exists(platform::parent_directory(filePath), &errorMessage)) {
       return {false, errorMessage};
     }
 
@@ -109,8 +108,7 @@ namespace startup {
     }
 
     const std::string serializedHosts = app::serialize_host_records(hosts);
-    const std::size_t bytesWritten = std::fwrite(serializedHosts.data(), 1, serializedHosts.size(), file);
-    if (bytesWritten != serializedHosts.size()) {
+    if (const std::size_t bytesWritten = std::fwrite(serializedHosts.data(), 1, serializedHosts.size(), file); bytesWritten != serializedHosts.size()) {
       const std::string writeErrorMessage = "Failed to write saved hosts file '" + filePath + "': " + std::strerror(errno);
       std::fclose(file);
       return {false, writeErrorMessage};

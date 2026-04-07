@@ -25,7 +25,7 @@ namespace test_support {
     std::filesystem::remove_all(path, error);
   }
 
-  inline bool create_directory(const std::string &path) {
+  inline bool create_directory(const std::filesystem::path &path) {
     std::error_code error;
     return std::filesystem::create_directory(path, error) || std::filesystem::is_directory(path, error);
   }

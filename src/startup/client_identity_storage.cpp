@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // local includes
@@ -61,7 +62,7 @@ namespace {
     return {std::move(content), 0};
   }
 
-  bool write_file_text(const std::string &filePath, const std::string &content, std::string *errorMessage) {
+  bool write_file_text(const std::string &filePath, std::string_view content, std::string *errorMessage) {
     FILE *file = std::fopen(filePath.c_str(), "wb");
     if (file == nullptr) {
       if (errorMessage != nullptr) {
@@ -70,8 +71,7 @@ namespace {
       return false;
     }
 
-    const std::size_t bytesWritten = std::fwrite(content.data(), 1, content.size(), file);
-    if (bytesWritten != content.size()) {
+    if (const std::size_t bytesWritten = std::fwrite(content.data(), 1, content.size(), file); bytesWritten != content.size()) {
       if (errorMessage != nullptr) {
         *errorMessage = std::strerror(errno);
       }
@@ -157,8 +157,7 @@ namespace startup {
     const std::string certificatePath = join_path(directoryPath, CERTIFICATE_FILE_NAME);
     const std::string privateKeyPath = join_path(directoryPath, PRIVATE_KEY_FILE_NAME);
 
-    std::string deleteError;
-    if (!delete_file_if_present(uniqueIdPath, &deleteError) || !delete_file_if_present(certificatePath, &deleteError) || !delete_file_if_present(privateKeyPath, &deleteError)) {
+    if (std::string deleteError; !delete_file_if_present(uniqueIdPath, &deleteError) || !delete_file_if_present(certificatePath, &deleteError) || !delete_file_if_present(privateKeyPath, &deleteError)) {
       return append_error(errorMessage, deleteError);
     }
 
@@ -171,18 +170,15 @@ namespace startup {
       return {false, errorMessage};
     }
 
-    const std::string uniqueIdPath = join_path(directoryPath, UNIQUE_ID_FILE_NAME);
-    if (!write_file_text(uniqueIdPath, identity.uniqueId, &errorMessage)) {
+    if (const std::string uniqueIdPath = join_path(directoryPath, UNIQUE_ID_FILE_NAME); !write_file_text(uniqueIdPath, identity.uniqueId, &errorMessage)) {
       return {false, "Failed to save pairing unique ID to '" + uniqueIdPath + "': " + errorMessage};
     }
 
-    const std::string certificatePath = join_path(directoryPath, CERTIFICATE_FILE_NAME);
-    if (!write_file_text(certificatePath, identity.certificatePem, &errorMessage)) {
+    if (const std::string certificatePath = join_path(directoryPath, CERTIFICATE_FILE_NAME); !write_file_text(certificatePath, identity.certificatePem, &errorMessage)) {
       return {false, "Failed to save pairing certificate to '" + certificatePath + "': " + errorMessage};
     }
 
-    const std::string privateKeyPath = join_path(directoryPath, PRIVATE_KEY_FILE_NAME);
-    if (!write_file_text(privateKeyPath, identity.privateKeyPem, &errorMessage)) {
+    if (const std::string privateKeyPath = join_path(directoryPath, PRIVATE_KEY_FILE_NAME); !write_file_text(privateKeyPath, identity.privateKeyPem, &errorMessage)) {
       return {false, "Failed to save pairing private key to '" + privateKeyPath + "': " + errorMessage};
     }
 

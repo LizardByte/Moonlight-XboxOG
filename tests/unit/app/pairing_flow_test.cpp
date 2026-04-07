@@ -4,13 +4,20 @@
 // lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/network_test_constants.h"
+
 namespace {
 
   TEST(PairingFlowTest, CreatesAFreshPairingDraftWithTheDefaultPin) {
-    const app::PairingDraft draft = app::create_pairing_draft("192.168.1.20", 47984, "4821");
+    const app::PairingDraft draft = app::create_pairing_draft(
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      test_support::kTestPorts[test_support::kPortPairing],
+      "4821"
+    );
 
-    EXPECT_EQ(draft.targetAddress, "192.168.1.20");
-    EXPECT_EQ(draft.targetPort, 47984);
+    EXPECT_EQ(draft.targetAddress, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
+    EXPECT_EQ(draft.targetPort, test_support::kTestPorts[test_support::kPortPairing]);
     EXPECT_EQ(draft.stage, app::PairingStage::idle);
     EXPECT_EQ(draft.generatedPin, "4821");
     EXPECT_EQ(draft.statusMessage, "Checking whether the host is reachable before pairing begins.");

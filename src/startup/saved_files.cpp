@@ -14,7 +14,7 @@
 
 // platform includes
 #if defined(_WIN32) || defined(NXDK)
-  #include <windows.h>
+  #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 #else
   #include <dirent.h>
   #include <sys/stat.h>
@@ -162,7 +162,7 @@ namespace {
     }
 
     errno = 0;
-    while (dirent *entry = readdir(directory)) {
+    while (const dirent *entry = readdir(directory)) {
       const std::string entryName = entry->d_name;
       if (entryName == "." || entryName == "..") {
         continue;
@@ -203,12 +203,12 @@ namespace {
       return true;
     }
 
-    const std::vector<std::string> pairingFiles = {
-      join_path(config.pairingDirectory, PAIRING_UNIQUE_ID_FILE_NAME),
-      join_path(config.pairingDirectory, PAIRING_CERTIFICATE_FILE_NAME),
-      join_path(config.pairingDirectory, PAIRING_PRIVATE_KEY_FILE_NAME),
-    };
-    if (std::find(pairingFiles.begin(), pairingFiles.end(), path) != pairingFiles.end()) {
+    if (const std::vector<std::string> pairingFiles = {
+          join_path(config.pairingDirectory, PAIRING_UNIQUE_ID_FILE_NAME),
+          join_path(config.pairingDirectory, PAIRING_CERTIFICATE_FILE_NAME),
+          join_path(config.pairingDirectory, PAIRING_PRIVATE_KEY_FILE_NAME),
+        };
+        std::find(pairingFiles.begin(), pairingFiles.end(), path) != pairingFiles.end()) {
       return true;
     }
 

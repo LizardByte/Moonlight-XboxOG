@@ -4,6 +4,7 @@
 // standard includes
 #include <algorithm>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -101,7 +102,7 @@ namespace {
     tiles.reserve(state.hosts.size());
     for (std::size_t index = 0; index < state.hosts.size(); ++index) {
       const app::HostRecord &host = state.hosts[index];
-      tiles.push_back({
+      tiles.emplace_back(ui::ShellHostTile {
         host.address,
         host.displayName,
         host_tile_status(host),
@@ -138,7 +139,7 @@ namespace {
         badgeLabel = "Hidden";
       }
 
-      tiles.push_back({
+      tiles.emplace_back(ui::ShellAppTile {
         std::to_string(appRecord.id),
         appRecord.name,
         detail,
@@ -165,7 +166,28 @@ namespace {
       return state.addHostDraft.keypad.stagedInput.empty() && state.addHostDraft.activeField == app::AddHostField::port ? "default (47989)" : state.addHostDraft.keypad.stagedInput;
     }
 
-    return state.addHostDraft.activeField == app::AddHostField::address ? state.addHostDraft.addressInput : (state.addHostDraft.portInput.empty() ? "default (47989)" : state.addHostDraft.portInput);
+    if (state.addHostDraft.activeField == app::AddHostField::address) {
+      return state.addHostDraft.addressInput;
+    }
+    if (state.addHostDraft.portInput.empty()) {
+      return "default (47989)";
+    }
+    return state.addHostDraft.portInput;
+  }
+
+  const char *settings_category_label(app::SettingsCategory category) {
+    switch (category) {
+      case app::SettingsCategory::logging:
+        return "Logging";
+      case app::SettingsCategory::display:
+        return "Display";
+      case app::SettingsCategory::input:
+        return "Input";
+      case app::SettingsCategory::reset:
+        return "Reset";
+    }
+
+    return "Logging";
   }
 
   std::vector<ui::ShellModalButton> keypad_buttons(const app::ClientState &state) {
@@ -174,7 +196,7 @@ namespace {
     std::vector<ui::ShellModalButton> buttons;
     buttons.reserve(labels.size());
     for (std::size_t index = 0; index < labels.size(); ++index) {
-      buttons.push_back({
+      buttons.emplace_back(ui::ShellModalButton {
         labels[index],
         true,
         state.addHostDraft.keypad.visible && index == state.addHostDraft.keypad.selectedButtonIndex,
@@ -200,14 +222,14 @@ namespace {
     return lines;
   }
 
-  std::vector<std::string> body_lines(const app::ClientState &state) {
+  std::vector<std::string> body_lines(const app::ClientState &state) {  // NOSONAR(cpp:S3776) screen-specific copy is kept local for render-model assembly
     switch (state.activeScreen) {
       case app::ScreenId::home:
       case app::ScreenId::hosts:
         if (state.hosts.empty()) {
           return {
             "No PCs have been added yet.",
-            "Use Add Host to save a Sunshine host manually.",
+            "Use Add Host to save a host manually.",
             "A Moonlight-style discovery grid now owns the home screen.",
           };
         }
@@ -249,10 +271,10 @@ namespace {
           };
 
           if (!state.addHostDraft.validationMessage.empty()) {
-            lines.push_back("Validation: " + state.addHostDraft.validationMessage);
+            lines.emplace_back("Validation: " + state.addHostDraft.validationMessage);
           }
           if (!state.addHostDraft.connectionMessage.empty()) {
-            lines.push_back("Connection: " + state.addHostDraft.connectionMessage);
+            lines.emplace_back("Connection: " + state.addHostDraft.connectionMessage);
           }
           return lines;
         }
@@ -262,43 +284,41 @@ namespace {
             std::string("Target host: ") + state.pairingDraft.targetAddress,
           };
           if (state.pairingDraft.stage == app::PairingStage::idle) {
-            lines.push_back("Checking whether the host is reachable before showing a PIN.");
+            lines.emplace_back("Checking whether the host is reachable before showing a PIN.");
           } else {
-            lines.push_back(std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort));
+            lines.emplace_back(std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort));
             if (!state.pairingDraft.generatedPin.empty()) {
-              lines.push_back(std::string("PIN: ") + app::current_pairing_pin(state));
-              lines.push_back("Enter the PIN on the host only if Sunshine prompts for it.");
+              lines.emplace_back(std::string("PIN: ") + app::current_pairing_pin(state));
+              lines.emplace_back("Enter the PIN on the host.");
             }
           }
           if (!state.pairingDraft.statusMessage.empty()) {
-            lines.push_back("Status: " + state.pairingDraft.statusMessage);
+            lines.emplace_back("Status: " + state.pairingDraft.statusMessage);
           }
           return lines;
         }
       case app::ScreenId::settings:
         {
           std::vector<std::string> lines = {
-            std::string("Category: ") + (state.selectedSettingsCategory == app::SettingsCategory::logging ? "Logging" : state.selectedSettingsCategory == app::SettingsCategory::display ? "Display" :
-                                                                                                                      state.selectedSettingsCategory == app::SettingsCategory::input     ? "Input" :
-                                                                                                                                                                                           "Reset"),
+            std::string("Category: ") + settings_category_label(state.selectedSettingsCategory),
           };
           if (state.selectedSettingsCategory == app::SettingsCategory::logging) {
             lines.push_back(std::string("Log file: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
             lines.push_back(std::string("Current logging level: ") + logging::to_string(state.loggingLevel));
-            lines.push_back("Use View Log File to inspect persisted startup and applist diagnostics.");
+            lines.emplace_back("Use View Log File to inspect persisted startup and applist diagnostics.");
           } else if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
             if (state.savedFiles.empty()) {
-              lines.push_back("Saved files: none found.");
+              lines.emplace_back("Saved files: none found.");
               return lines;
             }
-            lines.push_back("Saved files on disk:");
+            lines.emplace_back("Saved files on disk:");
             for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
               lines.push_back("- " + savedFile.displayName + " (" + format_file_size(savedFile.sizeBytes) + ")");
             }
           } else if (state.selectedSettingsCategory == app::SettingsCategory::display) {
-            lines.push_back("Display options will be added here.");
+            lines.emplace_back("Display options will be added here.");
           } else {
-            lines.push_back("Input options will be added here.");
+            lines.emplace_back("Input options will be added here.");
           }
           return lines;
         }
@@ -311,7 +331,7 @@ namespace {
     std::vector<ui::ShellActionRow> rows;
     const ui::MenuItem *selectedItem = state.menu.selected_item();
     for (const ui::MenuItem &item : state.menu.items()) {
-      rows.push_back({
+      rows.emplace_back(ui::ShellActionRow {
         item.id,
         item.label,
         item.enabled,
@@ -326,7 +346,7 @@ namespace {
     std::vector<ui::ShellActionRow> rows;
     const ui::MenuItem *selectedItem = state.detailMenu.selected_item();
     for (const ui::MenuItem &item : state.detailMenu.items()) {
-      rows.push_back({
+      rows.emplace_back(ui::ShellActionRow {
         item.id,
         item.label,
         item.enabled,
@@ -347,7 +367,7 @@ namespace {
     };
   }
 
-  void fill_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+  void fill_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {  // NOSONAR(cpp:S3776) modal rendering data stays centralized to keep state/view mapping explicit
     if (!state.modal.active()) {
       return;
     }
@@ -376,10 +396,16 @@ namespace {
         {
           viewModel->modalTitle = "Host Details";
           if (const app::HostRecord *host = app::selected_host(state); host != nullptr) {
+            const char *reachabilityLabel = "UNKNOWN";
+            if (host->reachability == app::HostReachability::online) {
+              reachabilityLabel = "ONLINE";
+            } else if (host->reachability == app::HostReachability::offline) {
+              reachabilityLabel = "OFFLINE";
+            }
+
             viewModel->modalLines = {
               "Name: " + host->displayName,
-              std::string("State: ") + (host->reachability == app::HostReachability::online ? "ONLINE" : host->reachability == app::HostReachability::offline ? "OFFLINE" :
-                                                                                                                                                                "UNKNOWN"),
+              std::string("State: ") + reachabilityLabel,
               std::string("Active Address: ") + (host->activeAddress.empty() ? "NULL" : host->activeAddress),
               std::string("UUID: ") + (host->uuid.empty() ? "NULL" : host->uuid),
               std::string("Local Address: ") + (host->localAddress.empty() ? "NULL" : host->localAddress),
@@ -440,23 +466,29 @@ namespace {
       case app::ScreenId::home:
       case app::ScreenId::hosts:
         {
+          std::string openLabel = "Pair";
+          if (state.hostsFocusArea == app::HostsFocusArea::toolbar) {
+            openLabel = "Select";
+          } else if (const app::HostRecord *selectedHost = app::selected_host(state); selectedHost != nullptr && selectedHost->pairingState == app::PairingState::paired) {
+            openLabel = "Open";
+          }
           std::vector<ui::ShellFooterAction> actions = {
-            {"open", state.hostsFocusArea == app::HostsFocusArea::toolbar ? "Select" : (app::selected_host(state) != nullptr && app::selected_host(state)->pairingState == app::PairingState::paired ? "Open" : "Pair"), "icons\\button-a.svg", {}, true},
+            {"open", std::move(openLabel), "icons\\button-a.svg", {}, true},
           };
           if (state.hostsFocusArea == app::HostsFocusArea::grid && app::selected_host(state) != nullptr) {
-            actions.push_back({"host-menu", "Host Menu", "icons\\button-y.svg", {}, false});
+            actions.emplace_back(ui::ShellFooterAction {"host-menu", "Host Menu", "icons\\button-y.svg", {}, false});
           }
-          actions.push_back({"exit", "Exit", "icons\\button-select.svg", "icons\\button-start.svg", false});
+          actions.emplace_back(ui::ShellFooterAction {"exit", "Exit", "icons\\button-select.svg", "icons\\button-start.svg", false});
           return actions;
         }
       case app::ScreenId::apps:
         {
           std::vector<ui::ShellFooterAction> actions;
           if (app::selected_app(state) != nullptr) {
-            actions.push_back({"launch", "Launch", "icons\\button-a.svg", {}, true});
-            actions.push_back({"app-menu", "App Menu", "icons\\button-y.svg", {}, false});
+            actions.emplace_back(ui::ShellFooterAction {"launch", "Launch", "icons\\button-a.svg", {}, true});
+            actions.emplace_back(ui::ShellFooterAction {"app-menu", "App Menu", "icons\\button-y.svg", {}, false});
           }
-          actions.push_back({"back", "Back", "icons\\button-b.svg", {}, false});
+          actions.emplace_back(ui::ShellFooterAction {"back", "Back", "icons\\button-b.svg", {}, false});
           return actions;
         }
       case app::ScreenId::add_host:
@@ -490,7 +522,7 @@ namespace {
 
 namespace ui {
 
-  ShellViewModel build_shell_view_model(
+  ShellViewModel build_shell_view_model(  // NOSONAR(cpp:S3776) this function intentionally assembles the complete render snapshot in one place
     const app::ClientState &state,
     const std::vector<logging::LogEntry> &logEntries,
     const std::vector<std::string> &statsLines
@@ -551,7 +583,7 @@ namespace ui {
       }
 
       if (clampedOffset > 0) {
-        viewModel.overlayLines.insert(viewModel.overlayLines.begin(), "Showing earlier log entries");
+        viewModel.overlayLines.emplace(viewModel.overlayLines.begin(), "Showing earlier log entries");
       }
     }
 

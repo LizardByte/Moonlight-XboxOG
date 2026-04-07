@@ -1,6 +1,14 @@
+// test header include
 #include "src/network/runtime_network.h"
 
+// standard includes
+#include <string>
+
+// lib includes
 #include <gtest/gtest.h>
+
+// test includes
+#include "tests/support/network_test_constants.h"
 
 namespace {
 
@@ -17,18 +25,18 @@ namespace {
       true,
       0,
       "nxdk networking initialized successfully",
-      "192.168.0.42",
-      "255.255.255.0",
-      "192.168.0.1",
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeAddress],
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeSubnetMask],
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeGateway],
     };
 
     const std::vector<std::string> lines = network::format_runtime_network_status_lines(status);
 
     ASSERT_EQ(lines.size(), 5U);
     EXPECT_EQ(lines[0], "nxdk networking initialized successfully");
-    EXPECT_EQ(lines[1], "IPv4 address: 192.168.0.42");
-    EXPECT_EQ(lines[2], "Subnet mask: 255.255.255.0");
-    EXPECT_EQ(lines[3], "Gateway: 192.168.0.1");
+    EXPECT_EQ(lines[1], "IPv4 address: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpRuntimeAddress]));
+    EXPECT_EQ(lines[2], "Subnet mask: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpRuntimeSubnetMask]));
+    EXPECT_EQ(lines[3], "Gateway: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpRuntimeGateway]));
     EXPECT_EQ(lines[4], "Initialization code: 0");
   }
 
@@ -56,15 +64,15 @@ namespace {
       true,
       0,
       "nxdk networking initialized successfully",
-      "10.0.2.15",
-      "255.255.255.0",
-      "10.0.2.2",
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeDhcpAddress],
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeSubnetMask],
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeDhcpGateway],
     };
 
     const std::vector<std::string> lines = network::format_runtime_network_status_lines(status);
 
     ASSERT_EQ(lines.size(), 5U);
-    EXPECT_EQ(lines[3], "Gateway: 10.0.2.2");
+    EXPECT_EQ(lines[3], "Gateway: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpRuntimeDhcpGateway]));
     EXPECT_EQ(lines[4], "Initialization code: 0");
   }
 

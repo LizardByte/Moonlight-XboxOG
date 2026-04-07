@@ -81,4 +81,18 @@ namespace {
     EXPECT_EQ(menu.selected_item()->id, "hosts");
   }
 
+  TEST(MenuModelTest, SurfacesFastPageActionsWithoutChangingSelection) {
+    ui::MenuModel menu({
+      {"hosts", "Hosts", true},
+    });
+
+    const ui::MenuUpdate previousUpdate = menu.handle_command(input::UiCommand::fast_previous_page);
+    const ui::MenuUpdate nextUpdate = menu.handle_command(input::UiCommand::fast_next_page);
+
+    EXPECT_TRUE(previousUpdate.previousPageRequested);
+    EXPECT_TRUE(nextUpdate.nextPageRequested);
+    ASSERT_NE(menu.selected_item(), nullptr);
+    EXPECT_EQ(menu.selected_item()->id, "hosts");
+  }
+
 }  // namespace

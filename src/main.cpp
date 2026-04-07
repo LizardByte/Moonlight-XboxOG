@@ -1,7 +1,7 @@
 // nxdk includes
 #include <hal/debug.h>
 #include <SDL.h>
-#include <windows.h>
+#include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // standard includes
 #include <atomic>
@@ -53,7 +53,7 @@ namespace {
   void debug_print_encoder_settings(DWORD encoderSettings) {
     debugPrint(
       "[startup] Encoder settings: 0x%08lX (widescreen=%s, 480p=%s, 720p=%s, 1080i=%s)\n",
-      static_cast<unsigned long>(encoderSettings),
+      encoderSettings,
       (encoderSettings & VIDEO_WIDESCREEN) != 0 ? "on" : "off",
       (encoderSettings & VIDEO_MODE_480P) != 0 ? "on" : "off",
       (encoderSettings & VIDEO_MODE_720P) != 0 ? "on" : "off",
@@ -62,14 +62,14 @@ namespace {
   }
 
   int run_startup_task(void *context) {
-    StartupTaskState *task = static_cast<StartupTaskState *>(context);
+    auto *task = static_cast<StartupTaskState *>(context);
     if (task == nullptr) {
       return -1;
     }
 
     task->loadedHosts = startup::load_saved_hosts();
     task->runtimeNetworkStatus = network::initialize_runtime_networking();
-    task->completed.store(true, std::memory_order_release);
+    task->completed.store(true);
     return 0;
   }
 
@@ -108,8 +108,7 @@ int main() {
   app::ClientState clientState = app::create_initial_state();
   const std::string logFilePath = logging::default_log_file_path();
   app::set_log_file_path(clientState, logFilePath);
-  std::string logResetError;
-  if (!logging::reset_log_file(logFilePath, &logResetError)) {
+  if (std::string logResetError; !logging::reset_log_file(logFilePath, &logResetError)) {
     debugPrint("Failed to reset runtime log file %s: %s\n", logFilePath.c_str(), logResetError.c_str());
   }
   logger.add_sink([logFilePath](const logging::LogEntry &entry) {
@@ -168,7 +167,7 @@ int main() {
   logger.log(logging::LogLevel::info, "app", "Showing splash screen");
   debug_print_startup_checkpoint("About to show splash screen");
   splash::show_splash_screen(window, bestVideoMode, [&startupTask]() {
-    return !startupTask.completed.load(std::memory_order_acquire);
+    return !startupTask.completed.load();
   });
   debug_print_startup_checkpoint("Returned from splash screen");
 

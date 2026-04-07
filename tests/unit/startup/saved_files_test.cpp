@@ -20,7 +20,7 @@ namespace {
     ASSERT_EQ(std::fclose(file), 0);
   }
 
-  class SavedFilesTest: public ::testing::Test {
+  class SavedFilesTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     std::string testDirectory = "saved-files-test";
     std::string hostStoragePath = test_support::join_path(testDirectory, "moonlight-hosts.tsv");

@@ -29,9 +29,7 @@ namespace splash {
 
   float get_display_aspect_ratio(const VIDEO_MODE &videoMode, unsigned long encoderSettings) {
     const float framebufferAspectRatio = get_framebuffer_aspect_ratio(videoMode);
-    const float preferredDisplayAspectRatio = ((encoderSettings & VIDEO_WIDESCREEN) != 0UL) ? (16.0f / 9.0f) : (4.0f / 3.0f);
-
-    if (std::fabs(framebufferAspectRatio - preferredDisplayAspectRatio) > SPLASH_ASPECT_RATIO_EPSILON) {
+    if (const float preferredDisplayAspectRatio = ((encoderSettings & VIDEO_WIDESCREEN) != 0UL) ? (16.0f / 9.0f) : (4.0f / 3.0f); std::fabs(framebufferAspectRatio - preferredDisplayAspectRatio) > SPLASH_ASPECT_RATIO_EPSILON) {
       return preferredDisplayAspectRatio;
     }
 

@@ -7,12 +7,12 @@
   #include <lwip/netif.h>
   #include <nxdk/net.h>
 
-extern "C" struct netif *g_pnetif;
+extern "C" struct netif *g_pnetif;  // NOSONAR(cpp:S5421) external symbol declared by nxdk; cannot be const
 #endif
 
 namespace {
 
-  network::RuntimeNetworkStatus g_runtimeNetworkStatus {};
+  network::RuntimeNetworkStatus g_runtimeNetworkStatus {};  // NOSONAR(cpp:S5421) mutable state updated at runtime
 
 #ifdef NXDK
   std::string copy_ipv4_string(const ip4_addr_t *address) {
@@ -25,7 +25,7 @@ namespace {
   }
 #endif
 
-  network::RuntimeNetworkStatus make_host_network_status() {
+  [[maybe_unused]] network::RuntimeNetworkStatus make_host_network_status() {
     return {
       true,
       true,

@@ -155,8 +155,8 @@ namespace logging {
 
   private:
     std::size_t capacity_;
-    LogLevel minimumLevel_;
-    uint64_t nextSequence_;
+    LogLevel minimumLevel_ = LogLevel::info;
+    uint64_t nextSequence_ = 1;
     TimestampProvider timestampProvider_;
     std::deque<LogEntry> entries_;
     std::vector<LogSink> sinks_;

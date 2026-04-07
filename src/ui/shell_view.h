@@ -94,7 +94,7 @@ namespace ui {
   /**
    * @brief Render-ready shell state derived from the app model.
    */
-  struct ShellViewModel {
+  struct ShellViewModel {  ///< NOSONAR(cpp:S1820) single-frame render snapshot intentionally groups all shell sections
     app::ScreenId screen = app::ScreenId::hosts;  ///< Active screen being rendered.
     std::string title;  ///< Shell-wide title.
     std::string pageTitle;  ///< Primary page heading.

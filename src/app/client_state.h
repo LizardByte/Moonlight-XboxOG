@@ -146,7 +146,7 @@ namespace app {
   /**
    * @brief Serializable app state for the menu-driven client shell.
    */
-  struct ClientState {
+  struct ClientState {  ///< NOSONAR(cpp:S1820) app shell state intentionally keeps the full workflow snapshot together
     ScreenId activeScreen;  ///< Screen currently shown by the shell.
     bool overlayVisible;  ///< True when the diagnostics overlay is visible.
     bool shouldExit;  ///< True when the application should terminate.
@@ -181,7 +181,7 @@ namespace app {
   /**
    * @brief Result of updating the client shell with a UI command.
    */
-  struct AppUpdate {
+  struct AppUpdate {  ///< NOSONAR(cpp:S1820) command results intentionally bundle all one-frame side effects
     bool screenChanged;  ///< True when the active screen changed.
     bool overlayChanged;  ///< True when overlay content changed.
     bool overlayVisibilityChanged;  ///< True when overlay visibility toggled.
@@ -289,7 +289,7 @@ namespace app {
   bool apply_pairing_result(ClientState &state, const std::string &address, uint16_t port, bool success, std::string message);
 
   /**
-   * @brief Apply a fetched Sunshine app list to a saved host.
+   * @brief Apply a fetched app list to a saved host.
    *
    * @param state Mutable app state.
    * @param address Host address used for the fetch.

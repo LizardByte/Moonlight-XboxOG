@@ -3,6 +3,7 @@
 
 // standard includes
 #include <cstdio>
+#include <string>
 #include <vector>
 
 // lib includes
@@ -10,10 +11,11 @@
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
+#include "tests/support/network_test_constants.h"
 
 namespace {
 
-  class HostStorageTest: public ::testing::Test {
+  class HostStorageTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     void TearDown() override {
       test_support::remove_if_present(nestedFilePath);
@@ -37,8 +39,8 @@ namespace {
 
   TEST_F(HostStorageTest, SavesAndReloadsHostRecords) {
     const std::vector<app::HostRecord> hosts = {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::paired},
-      {"Office PC", "10.0.0.25", 48000, app::PairingState::not_paired},
+      {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired},
+      {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired},
     };
 
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hosts, testFilePath);
@@ -49,13 +51,13 @@ namespace {
     EXPECT_TRUE(loadResult.warnings.empty());
     ASSERT_EQ(loadResult.hosts.size(), 2U);
     EXPECT_EQ(loadResult.hosts[0].displayName, "Living Room PC");
-    EXPECT_EQ(loadResult.hosts[1].address, "10.0.0.25");
-    EXPECT_EQ(loadResult.hosts[1].port, 48000);
+    EXPECT_EQ(loadResult.hosts[1].address, test_support::kTestIpv4Addresses[test_support::kIpOffice]);
+    EXPECT_EQ(loadResult.hosts[1].port, test_support::kTestPorts[test_support::kPortDefaultHost]);
   }
 
   TEST_F(HostStorageTest, CreatesNestedDirectoriesWhenSavingHosts) {
     const std::vector<app::HostRecord> hosts = {
-      {"Living Room PC", "192.168.1.20", 0, app::PairingState::paired},
+      {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired},
     };
 
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hosts, nestedFilePath);
@@ -70,16 +72,17 @@ namespace {
   TEST_F(HostStorageTest, SurfacesParseWarningsButKeepsValidHosts) {
     FILE *file = std::fopen(testFilePath.c_str(), "wb");
     ASSERT_NE(file, nullptr);
-    const char fileContent[] =
-      "Living Room PC\t192.168.1.20\t\tpaired\n"
+    const std::string fileContent =
+      "Living Room PC\t" + std::string(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]) +
+      "\t\tpaired\n"
       "Broken Host\tnot-an-ip\t\tnot_paired\n";
-    ASSERT_EQ(std::fwrite(fileContent, 1, sizeof(fileContent) - 1, file), sizeof(fileContent) - 1);
+    ASSERT_EQ(std::fwrite(fileContent.data(), 1, fileContent.size(), file), fileContent.size());
     ASSERT_EQ(std::fclose(file), 0);
 
     const startup::LoadSavedHostsResult loadResult = startup::load_saved_hosts(testFilePath);
     EXPECT_TRUE(loadResult.fileFound);
     ASSERT_EQ(loadResult.hosts.size(), 1U);
-    EXPECT_EQ(loadResult.hosts[0].address, "192.168.1.20");
+    EXPECT_EQ(loadResult.hosts[0].address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
     ASSERT_EQ(loadResult.warnings.size(), 1U);
     EXPECT_NE(loadResult.warnings[0].find("Line 2"), std::string::npos);
   }

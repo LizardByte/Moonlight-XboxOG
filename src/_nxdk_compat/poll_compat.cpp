@@ -50,8 +50,7 @@ extern "C" int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
     timeoutPointer = &timeoutValue;
   }
 
-  const int selectResult = select(maxFd + 1, &readSet, &writeSet, &errorSet, timeoutPointer);
-  if (selectResult <= 0) {
+  if (const int selectResult = select(maxFd + 1, &readSet, &writeSet, &errorSet, timeoutPointer); selectResult <= 0) {
     return selectResult;
   }
 

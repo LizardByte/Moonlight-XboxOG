@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <random>
 #include <utility>
 #include <vector>
 
@@ -26,21 +25,6 @@ namespace {
   struct AddHostKeypadButton {
     char character;
   };
-
-  std::string generate_pairing_pin() {
-    static std::mt19937 generator(std::random_device {}());
-    std::uniform_int_distribution<int> distribution(0, 9999);
-
-    std::string pin = std::to_string(distribution(generator));
-    while (pin.size() < 4U) {
-      pin.insert(pin.begin(), '0');
-    }
-    return pin;
-  }
-
-  std::string default_add_host_address() {
-    return "192.168.0.10";
-  }
 
   std::vector<AddHostKeypadButton> build_add_host_keypad_buttons(const app::ClientState &state) {
     if (state.addHostDraft.activeField == app::AddHostField::address) {
@@ -69,7 +53,7 @@ namespace {
     return std::string(SETTINGS_CATEGORY_PREFIX) + "logging";
   }
 
-  app::SettingsCategory settings_category_from_menu_id(const std::string &itemId) {
+  app::SettingsCategory settings_category_from_menu_id(std::string_view itemId) {
     if (itemId == settings_category_menu_id(app::SettingsCategory::display)) {
       return app::SettingsCategory::display;
     }
@@ -82,7 +66,7 @@ namespace {
     return app::SettingsCategory::logging;
   }
 
-  std::string pairing_reset_endpoint_key(const std::string &address, uint16_t port) {
+  std::string pairing_reset_endpoint_key(std::string_view address, uint16_t port) {
     return app::normalize_ipv4_address(address) + ":" + std::to_string(app::effective_host_port(port));
   }
 
@@ -123,27 +107,9 @@ namespace {
     return value.rfind(prefix, 0U) == 0U;
   }
 
-  bool host_matches_endpoint(const app::HostRecord &host, const std::string &address, uint16_t port) {
-    if (host.address != address) {
-      return false;
-    }
-
-    const uint16_t effectivePort = app::effective_host_port(port);
-    if (app::effective_host_port(host.port) == effectivePort) {
-      return true;
-    }
-    if (host.resolvedHttpPort != 0 && host.resolvedHttpPort == effectivePort) {
-      return true;
-    }
-    if (host.httpsPort != 0 && host.httpsPort == effectivePort) {
-      return true;
-    }
-    return false;
-  }
-
   void reset_add_host_draft(app::ClientState &state, app::ScreenId returnScreen) {
     state.addHostDraft = {
-      default_add_host_address(),
+      {},
       {},
       app::AddHostField::address,
       {false, 0U, {}},
@@ -173,16 +139,16 @@ namespace {
     state.modal.selectedActionIndex = 0U;
   }
 
-  const app::HostRecord *find_host_by_endpoint(const std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {
+  const app::HostRecord *find_host_by_endpoint(const std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {  // NOSONAR(cpp:S1144) used by endpoint-aware selection and background update flows
     const auto iterator = std::find_if(hosts.begin(), hosts.end(), [&address, port](const app::HostRecord &host) {
-      return host_matches_endpoint(host, address, port);
+      return app::host_matches_endpoint(host, address, port);
     });
     return iterator == hosts.end() ? nullptr : &(*iterator);
   }
 
   app::HostRecord *find_host_by_endpoint(std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {
     const auto iterator = std::find_if(hosts.begin(), hosts.end(), [&address, port](const app::HostRecord &host) {
-      return host_matches_endpoint(host, address, port);
+      return app::host_matches_endpoint(host, address, port);
     });
     return iterator == hosts.end() ? nullptr : &(*iterator);
   }
@@ -491,15 +457,15 @@ namespace {
       return false;
     }
 
-    const int rowCount = static_cast<int>((buttons.size() + ADD_HOST_KEYPAD_COLUMN_COUNT - 1U) / ADD_HOST_KEYPAD_COLUMN_COUNT);
+    const auto rowCount = static_cast<int>((buttons.size() + ADD_HOST_KEYPAD_COLUMN_COUNT - 1U) / ADD_HOST_KEYPAD_COLUMN_COUNT);
     const std::size_t currentIndex = state.addHostDraft.keypad.selectedButtonIndex % buttons.size();
-    int currentRow = static_cast<int>(currentIndex / ADD_HOST_KEYPAD_COLUMN_COUNT);
-    int currentColumn = static_cast<int>(currentIndex % ADD_HOST_KEYPAD_COLUMN_COUNT);
+    auto currentRow = static_cast<int>(currentIndex / ADD_HOST_KEYPAD_COLUMN_COUNT);
+    auto currentColumn = static_cast<int>(currentIndex % ADD_HOST_KEYPAD_COLUMN_COUNT);
 
     currentRow = std::clamp(currentRow + rowDelta, 0, rowCount - 1);
     currentColumn = std::clamp(currentColumn + columnDelta, 0, static_cast<int>(ADD_HOST_KEYPAD_COLUMN_COUNT) - 1);
 
-    std::size_t nextIndex = static_cast<std::size_t>((currentRow * static_cast<int>(ADD_HOST_KEYPAD_COLUMN_COUNT)) + currentColumn);
+    auto nextIndex = (static_cast<std::size_t>(currentRow) * ADD_HOST_KEYPAD_COLUMN_COUNT) + static_cast<std::size_t>(currentColumn);
     if (nextIndex >= buttons.size()) {
       nextIndex = buttons.size() - 1U;
     }
@@ -610,8 +576,7 @@ namespace {
 
     if (columnDelta > 0) {
       for (int step = 0; step < columnDelta; ++step) {
-        const std::size_t rowEnd = grid_row_end(itemCount, currentRow, columnCount);
-        if (currentIndex + 1U < rowEnd) {
+        if (const std::size_t rowEnd = grid_row_end(itemCount, currentRow, columnCount); currentIndex + 1U < rowEnd) {
           ++currentIndex;
           continue;
         }
@@ -698,13 +663,18 @@ namespace {
   }
 
   bool enter_pair_host_screen(app::ClientState &state, const std::string &address, uint16_t port) {
-    const app::HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
-    if (host != nullptr && host->reachability == app::HostReachability::offline) {
+    if (const app::HostRecord *host = find_host_by_endpoint(state.hosts, address, port); host != nullptr && host->reachability == app::HostReachability::offline) {
       state.statusMessage = "Host is offline. Bring it online before pairing.";
       return false;
     }
 
-    state.pairingDraft = app::create_pairing_draft(address, app::effective_host_port(port), generate_pairing_pin());
+    std::string pairingPin;
+    if (std::string pinError; !network::generate_pairing_pin(&pairingPin, &pinError)) {
+      state.statusMessage = pinError.empty() ? "Failed to generate a secure pairing PIN." : std::move(pinError);
+      return false;
+    }
+
+    state.pairingDraft = app::create_pairing_draft(address, app::effective_host_port(port), pairingPin);
     set_screen(state, app::ScreenId::pair_host, "cancel-pairing");
     return true;
   }
@@ -719,7 +689,7 @@ namespace {
       return false;
     }
     if (host->pairingState != app::PairingState::paired) {
-      state.statusMessage = "This host is no longer paired. Pair it again from Sunshine before opening apps.";
+      state.statusMessage = "This host is no longer paired. Pair it again before opening apps.";
       return false;
     }
 
@@ -735,7 +705,7 @@ namespace {
 
   void select_host_by_endpoint(app::ClientState &state, const std::string &address, uint16_t port) {
     for (std::size_t index = 0; index < state.hosts.size(); ++index) {
-      if (host_matches_endpoint(state.hosts[index], address, port)) {
+      if (app::host_matches_endpoint(state.hosts[index], address, port)) {
         state.selectedHostIndex = index;
         state.hostsFocusArea = app::HostsFocusArea::grid;
         return;
@@ -759,7 +729,7 @@ namespace {
     return logging::LogLevel::info;
   }
 
-  bool handle_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {
+  bool handle_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {  // NOSONAR(cpp:S3776) modal command routing stays centralized for predictable UI behavior
     if (!state.modal.active()) {
       return false;
     }
@@ -865,7 +835,7 @@ namespace {
                 update->appsBrowseRequested = true;
                 update->appsBrowseShowHidden = true;
               } else {
-                if (enter_pair_host_screen(state, host->address, host->port)) {
+                if (enter_pair_host_screen(state, host->address, host->port)) {  // NOSONAR(cpp:S134) host action flow is intentionally kept inline with its UI side effects
                   update->screenChanged = true;
                   update->pairingRequested = true;
                   update->pairingAddress = state.pairingDraft.targetAddress;
@@ -906,14 +876,15 @@ namespace {
             case 3:
               open_modal(state, app::ModalId::host_details);
               return true;
+            default:
+              return true;
           }
           return true;
         }
       case app::ModalId::app_actions:
         {
           const app::HostRecord *host = app::apps_host(state);
-          const app::HostAppRecord *selectedApp = app::selected_app(state);
-          if (host == nullptr || selectedApp == nullptr) {
+          if (const app::HostAppRecord *selectedApp = app::selected_app(state); host == nullptr || selectedApp == nullptr) {
             close_modal(state);
             update->modalClosed = true;
             return true;
@@ -942,6 +913,8 @@ namespace {
               appRecord.favorite = !appRecord.favorite;
               close_modal(state);
               update->modalClosed = true;
+              return true;
+            default:
               return true;
           }
           return true;
@@ -973,7 +946,7 @@ namespace app {
       ui::MenuModel(),
       ui::MenuModel(),
       {},
-      {default_add_host_address(), {}, AddHostField::address, {false, 0U, {}}, ScreenId::hosts, {}, {}, false},
+      {{}, {}, AddHostField::address, {false, 0U, {}}, ScreenId::hosts, {}, {}, false},
       {{}, DEFAULT_HOST_PORT, {}, PairingStage::idle, {}},
       {},
       SettingsFocusArea::categories,
@@ -1087,7 +1060,7 @@ namespace app {
     return false;
   }
 
-  void apply_app_list_result(
+  void apply_app_list_result(  // NOSONAR(cpp:S3776) app-list merge logic is intentionally centralized to preserve host selection state
     ClientState &state,
     const std::string &address,
     uint16_t port,
@@ -1106,8 +1079,7 @@ namespace app {
     const int selectedAppId = currentSelection == nullptr ? 0 : currentSelection->id;
 
     if (!success) {
-      const bool hostIsUnpaired = network::error_indicates_unpaired_client(message);
-      if (hostIsUnpaired) {
+      if (const bool hostIsUnpaired = network::error_indicates_unpaired_client(message); hostIsUnpaired) {
         host->pairingState = PairingState::not_paired;
         host->apps.clear();
         host->appListContentHash = 0;
@@ -1131,9 +1103,7 @@ namespace app {
       return;
     }
 
-    const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash;
-
-    if (appListChanged) {
+    if (const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash; appListChanged) {
       std::vector<HostAppRecord> mergedApps;
       mergedApps.reserve(apps.size());
       for (HostAppRecord &appRecord : apps) {
@@ -1141,7 +1111,7 @@ namespace app {
           appRecord.hidden = appRecord.hidden || savedApp->hidden;
           appRecord.favorite = savedApp->favorite;
           appRecord.boxArtCached = appRecord.boxArtCached || savedApp->boxArtCached;
-          if (appRecord.boxArtCacheKey.empty()) {
+          if (appRecord.boxArtCacheKey.empty()) {  // NOSONAR(cpp:S134) merge path keeps persisted app metadata updates together
             appRecord.boxArtCacheKey = savedApp->boxArtCacheKey;
           }
         }
@@ -1223,7 +1193,7 @@ namespace app {
     return selected_host(state);
   }
 
-  AppUpdate handle_command(ClientState &state, input::UiCommand command) {
+  AppUpdate handle_command(ClientState &state, input::UiCommand command) {  // NOSONAR(cpp:S3776) top-level UI command routing intentionally remains in one place
     AppUpdate update {};
 
     if (command == input::UiCommand::toggle_overlay) {
@@ -1285,8 +1255,7 @@ namespace app {
           return update;
         case input::UiCommand::activate:
           {
-            const std::vector<AddHostKeypadButton> buttons = build_add_host_keypad_buttons(state);
-            if (!buttons.empty()) {
+            if (const std::vector<AddHostKeypadButton> buttons = build_add_host_keypad_buttons(state); !buttons.empty()) {
               append_to_active_add_host_field(state, buttons[state.addHostDraft.keypad.selectedButtonIndex % buttons.size()].character);
             }
             return update;
@@ -1416,7 +1385,7 @@ namespace app {
           return update;
         case input::UiCommand::move_down:
           if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            if (!state.hosts.empty()) {
+            if (!state.hosts.empty()) {  // NOSONAR(cpp:S134) hosts-screen focus transition stays inline with navigation handling
               state.hostsFocusArea = HostsFocusArea::grid;
             }
           } else {
@@ -1437,13 +1406,13 @@ namespace app {
         case input::UiCommand::activate:
         case input::UiCommand::confirm:
           if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 0U) {
+            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 0U) {  // NOSONAR(cpp:S134) toolbar actions stay explicit for controller navigation parity
               set_screen(state, ScreenId::settings, settings_category_menu_id(SettingsCategory::logging));
               update.screenChanged = true;
               update.activatedItemId = "settings-button";
               return update;
             }
-            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 1U) {
+            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 1U) {  // NOSONAR(cpp:S134) toolbar actions stay explicit for controller navigation parity
               open_modal(state, ModalId::support);
               update.modalOpened = true;
               update.activatedItemId = "support-button";
@@ -1457,7 +1426,7 @@ namespace app {
 
           if (const HostRecord *host = selected_host(state); host != nullptr) {
             update.activatedItemId = "select-host";
-            if (host->pairingState == PairingState::paired) {
+            if (host->pairingState == PairingState::paired) {  // NOSONAR(cpp:S134) host activation keeps browse-vs-pair branching with its update flags
               update.appsBrowseRequested = true;
               update.appsBrowseShowHidden = false;
             } else {
@@ -1626,7 +1595,7 @@ namespace app {
         return update;
       }
 
-      HostRecord *host = find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort);
+      const HostRecord *host = find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort);
       if (host == nullptr) {
         state.hosts.push_back(make_host_record(normalizedAddress, parsedPort));
         state.selectedHostIndex = state.hosts.size() - 1U;
