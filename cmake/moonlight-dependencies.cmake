@@ -35,8 +35,10 @@ macro(moonlight_prepare_common_dependencies)
         unset(BUILD_SHARED_LIBS)
     endif()
 
-    if(TARGET moonlight-common-c AND TARGET openssl_external)
-        add_dependencies(moonlight-common-c openssl_external)
+    if(TARGET moonlight-common-c AND DEFINED MOONLIGHT_OPENSSL_EXTERNAL_TARGET)
+        if(TARGET ${MOONLIGHT_OPENSSL_EXTERNAL_TARGET})
+            add_dependencies(moonlight-common-c ${MOONLIGHT_OPENSSL_EXTERNAL_TARGET})
+        endif()
     endif()
 
     if(TARGET moonlight-common-c

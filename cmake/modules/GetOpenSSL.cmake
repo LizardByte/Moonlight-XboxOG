@@ -19,6 +19,8 @@ if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")
 else()
     set(MOONLIGHT_OPENSSL_PLATFORM "HOST")
 endif()
+string(TOLOWER "${MOONLIGHT_OPENSSL_PLATFORM}" MOONLIGHT_OPENSSL_PLATFORM_LOWER)
+set(MOONLIGHT_OPENSSL_EXTERNAL_TARGET "openssl_external_${MOONLIGHT_OPENSSL_PLATFORM_LOWER}")
 
 set(MOONLIGHT_OPENSSL_PROVIDER "BUNDLED")
 
@@ -74,7 +76,12 @@ set(OPENSSL_CONFIGURE_OPTIONS
         no-async
         no-dso)
 
-set(OPENSSL_ENV ${CMAKE_COMMAND} -E env)
+set(OPENSSL_ENV
+        ${CMAKE_COMMAND} -E env
+        "MAKEFLAGS="
+        "MFLAGS="
+        "GNUMAKEFLAGS="
+        "MAKELEVEL=")
 set(MOONLIGHT_OPENSSL_WINDOWS_HOST FALSE)
 if(CMAKE_HOST_WIN32)
     set(MOONLIGHT_OPENSSL_WINDOWS_HOST TRUE)
@@ -84,6 +91,10 @@ if(MOONLIGHT_OPENSSL_WINDOWS_HOST
         AND DEFINED ENV{MSYSTEM_PREFIX}
         AND NOT "$ENV{MSYSTEM_PREFIX}" STREQUAL "")
     set(MOONLIGHT_OPENSSL_IN_ACTIVE_MSYS TRUE)
+endif()
+set(OPENSSL_MAKE_ARGS)
+if(MOONLIGHT_OPENSSL_WINDOWS_HOST)
+    list(APPEND OPENSSL_MAKE_ARGS -j1)
 endif()
 
 if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
@@ -131,10 +142,12 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
     set(OPENSSL_BUILD_COMMAND
             ${OPENSSL_ENV}
             ${OPENSSL_MAKE_EXECUTABLE}
+            ${OPENSSL_MAKE_ARGS}
             build_libs)
     set(OPENSSL_INSTALL_COMMAND
             ${OPENSSL_ENV}
             ${OPENSSL_MAKE_EXECUTABLE}
+            ${OPENSSL_MAKE_ARGS}
             install_dev)
 else()
     if(MOONLIGHT_OPENSSL_WINDOWS_HOST)
@@ -144,73 +157,52 @@ else()
             set(OPENSSL_CONFIGURE_TARGET mingw)
         endif()
 
-        set(_openssl_windows_env
-                "CC=${CMAKE_C_COMPILER}"
-                "CXX=${CMAKE_CXX_COMPILER}"
+        moonlight_get_windows_msys2_shell(OPENSSL_MSYS2_SHELL)
+
+        _moonlight_to_msys_path(_openssl_source_dir_msys "${OPENSSL_SOURCE_DIR}")
+        _moonlight_to_msys_path(_openssl_build_dir_msys "${OPENSSL_BUILD_DIR}")
+        _moonlight_to_msys_path(_openssl_install_dir_msys "${OPENSSL_INSTALL_DIR}")
+        _moonlight_to_msys_path(_perl_executable_msys "${PERL_EXECUTABLE}")
+        get_filename_component(_openssl_c_compiler_name "${CMAKE_C_COMPILER}" NAME)
+        get_filename_component(_openssl_cxx_compiler_name "${CMAKE_CXX_COMPILER}" NAME)
+        set(_openssl_tool_assignments
+                "MAKEFLAGS="
+                "MFLAGS="
+                "GNUMAKEFLAGS="
+                "MAKELEVEL="
+                "CC=${_openssl_c_compiler_name}"
+                "CXX=${_openssl_cxx_compiler_name}"
                 "CFLAGS=-DNOCRYPT"
                 "CPPFLAGS=-DWIN32_LEAN_AND_MEAN")
         if(DEFINED CMAKE_AR AND NOT CMAKE_AR STREQUAL "")
-            list(APPEND _openssl_windows_env "AR=${CMAKE_AR}")
+            get_filename_component(_openssl_ar_name "${CMAKE_AR}" NAME)
+            list(APPEND _openssl_tool_assignments "AR=${_openssl_ar_name}")
         endif()
         if(DEFINED CMAKE_RANLIB AND NOT CMAKE_RANLIB STREQUAL "")
-            list(APPEND _openssl_windows_env "RANLIB=${CMAKE_RANLIB}")
+            get_filename_component(_openssl_ranlib_name "${CMAKE_RANLIB}" NAME)
+            list(APPEND _openssl_tool_assignments "RANLIB=${_openssl_ranlib_name}")
         endif()
-
-        if(MOONLIGHT_OPENSSL_IN_ACTIVE_MSYS)
-            find_program(OPENSSL_MAKE_EXECUTABLE NAMES make REQUIRED)
-            list(APPEND OPENSSL_ENV ${_openssl_windows_env})
-            set(OPENSSL_BUILD_COMMAND
-                    ${OPENSSL_ENV}
-                    ${OPENSSL_MAKE_EXECUTABLE}
-                    build_libs)
-            set(OPENSSL_INSTALL_COMMAND
-                    ${OPENSSL_ENV}
-                    ${OPENSSL_MAKE_EXECUTABLE}
-                    install_dev)
-        else()
-            moonlight_get_windows_msys2_shell(OPENSSL_MSYS2_SHELL)
-
-            _moonlight_to_msys_path(_openssl_source_dir_msys "${OPENSSL_SOURCE_DIR}")
-            _moonlight_to_msys_path(_openssl_build_dir_msys "${OPENSSL_BUILD_DIR}")
-            _moonlight_to_msys_path(_openssl_install_dir_msys "${OPENSSL_INSTALL_DIR}")
-            _moonlight_to_msys_path(_perl_executable_msys "${PERL_EXECUTABLE}")
-            get_filename_component(_openssl_c_compiler_name "${CMAKE_C_COMPILER}" NAME)
-            get_filename_component(_openssl_cxx_compiler_name "${CMAKE_CXX_COMPILER}" NAME)
-            set(_openssl_tool_assignments
-                    "CC=${_openssl_c_compiler_name}"
-                    "CXX=${_openssl_cxx_compiler_name}"
-                    "CFLAGS=-DNOCRYPT"
-                    "CPPFLAGS=-DWIN32_LEAN_AND_MEAN")
-            if(DEFINED CMAKE_AR AND NOT CMAKE_AR STREQUAL "")
-                get_filename_component(_openssl_ar_name "${CMAKE_AR}" NAME)
-                list(APPEND _openssl_tool_assignments "AR=${_openssl_ar_name}")
-            endif()
-            if(DEFINED CMAKE_RANLIB AND NOT CMAKE_RANLIB STREQUAL "")
-                get_filename_component(_openssl_ranlib_name "${CMAKE_RANLIB}" NAME)
-                list(APPEND _openssl_tool_assignments "RANLIB=${_openssl_ranlib_name}")
-            endif()
-            list(JOIN _openssl_tool_assignments " " _openssl_tool_prefix)
-            _moonlight_join_shell_command(_openssl_configure_command
-                    "${_perl_executable_msys}"
-                    "${_openssl_source_dir_msys}/Configure"
-                    "${OPENSSL_CONFIGURE_TARGET}"
-                    ${OPENSSL_CONFIGURE_OPTIONS}
-                    "--prefix=${_openssl_install_dir_msys}"
-                    "--openssldir=${_openssl_install_dir_msys}/ssl")
-            _moonlight_shell_quote(_openssl_build_dir_msys_quoted "${_openssl_build_dir_msys}")
-            set(OPENSSL_CONFIGURE_COMMAND
-                    "${OPENSSL_MSYS2_SHELL}"
-                    -defterm -here -no-start -mingw64
-                    -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec ${_openssl_configure_command}")
-            set(OPENSSL_BUILD_COMMAND
-                    "${OPENSSL_MSYS2_SHELL}"
-                    -defterm -here -no-start -mingw64
-                    -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec make build_libs")
-            set(OPENSSL_INSTALL_COMMAND
-                    "${OPENSSL_MSYS2_SHELL}"
-                    -defterm -here -no-start -mingw64
-                    -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec make install_dev")
-        endif()
+        list(JOIN _openssl_tool_assignments " " _openssl_tool_prefix)
+        _moonlight_join_shell_command(_openssl_configure_command
+                "${_perl_executable_msys}"
+                "${_openssl_source_dir_msys}/Configure"
+                "${OPENSSL_CONFIGURE_TARGET}"
+                ${OPENSSL_CONFIGURE_OPTIONS}
+                "--prefix=${_openssl_install_dir_msys}"
+                "--openssldir=${_openssl_install_dir_msys}/ssl")
+        _moonlight_shell_quote(_openssl_build_dir_msys_quoted "${_openssl_build_dir_msys}")
+        set(OPENSSL_CONFIGURE_COMMAND
+                "${OPENSSL_MSYS2_SHELL}"
+                -defterm -here -no-start -mingw64
+                -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec ${_openssl_configure_command}")
+        set(OPENSSL_BUILD_COMMAND
+                "${OPENSSL_MSYS2_SHELL}"
+                -defterm -here -no-start -mingw64
+                -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec make -j1 build_libs")
+        set(OPENSSL_INSTALL_COMMAND
+                "${OPENSSL_MSYS2_SHELL}"
+                -defterm -here -no-start -mingw64
+                -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec make -j1 install_dev")
     elseif(APPLE)
         find_program(OPENSSL_MAKE_EXECUTABLE NAMES gmake make REQUIRED)
 
@@ -252,10 +244,12 @@ else()
         set(OPENSSL_BUILD_COMMAND
                 ${OPENSSL_ENV}
                 ${OPENSSL_MAKE_EXECUTABLE}
+                ${OPENSSL_MAKE_ARGS}
                 build_libs)
         set(OPENSSL_INSTALL_COMMAND
                 ${OPENSSL_ENV}
                 ${OPENSSL_MAKE_EXECUTABLE}
+                ${OPENSSL_MAKE_ARGS}
                 install_dev)
     endif()
 endif()
@@ -270,7 +264,7 @@ if(NOT DEFINED OPENSSL_CONFIGURE_COMMAND)
             "--openssldir=${OPENSSL_INSTALL_DIR}/ssl")
 endif()
 
-ExternalProject_Add(openssl_external
+ExternalProject_Add(${MOONLIGHT_OPENSSL_EXTERNAL_TARGET}
         SOURCE_DIR "${OPENSSL_SOURCE_DIR}"
         BINARY_DIR "${OPENSSL_BUILD_DIR}"
         CONFIGURE_COMMAND
@@ -306,7 +300,7 @@ if(NOT TARGET OpenSSL::Crypto)
     if(WIN32 AND MOONLIGHT_OPENSSL_PLATFORM STREQUAL "HOST")
         target_link_libraries(OpenSSL::Crypto INTERFACE ws2_32)
     endif()
-    add_dependencies(OpenSSL::Crypto openssl_external)
+    add_dependencies(OpenSSL::Crypto ${MOONLIGHT_OPENSSL_EXTERNAL_TARGET})
 endif()
 
 if(NOT TARGET OpenSSL::SSL)
@@ -315,11 +309,12 @@ if(NOT TARGET OpenSSL::SSL)
             IMPORTED_LOCATION "${OPENSSL_SSL_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${OPENSSL_INCLUDE_DIR}")
     target_link_libraries(OpenSSL::SSL INTERFACE OpenSSL::Crypto)
-    add_dependencies(OpenSSL::SSL openssl_external)
+    add_dependencies(OpenSSL::SSL ${MOONLIGHT_OPENSSL_EXTERNAL_TARGET})
 endif()
 
 message(STATUS "OpenSSL version: ${OPENSSL_VERSION}")
 message(STATUS "OpenSSL platform: ${MOONLIGHT_OPENSSL_PLATFORM}")
+message(STATUS "OpenSSL external target: ${MOONLIGHT_OPENSSL_EXTERNAL_TARGET}")
 message(STATUS "OpenSSL provider: ${MOONLIGHT_OPENSSL_PROVIDER}")
 message(STATUS "OpenSSL source dir: ${OPENSSL_SOURCE_DIR}")
 message(STATUS "OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")

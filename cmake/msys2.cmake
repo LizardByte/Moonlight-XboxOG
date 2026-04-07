@@ -66,9 +66,51 @@ function(moonlight_detect_windows_msys2_root out_var)
     if(DEFINED MOONLIGHT_MSYS2_ROOT AND NOT MOONLIGHT_MSYS2_ROOT STREQUAL "")
         list(APPEND candidate_roots "${MOONLIGHT_MSYS2_ROOT}")
     endif()
+    if(DEFINED ENV{MOONLIGHT_MSYS2_ROOT} AND NOT "$ENV{MOONLIGHT_MSYS2_ROOT}" STREQUAL "")
+        list(APPEND candidate_roots "$ENV{MOONLIGHT_MSYS2_ROOT}")
+    endif()
     if(DEFINED ENV{MSYS2_ROOT} AND NOT "$ENV{MSYS2_ROOT}" STREQUAL "")
         list(APPEND candidate_roots "$ENV{MSYS2_ROOT}")
     endif()
+
+    foreach(candidate_root IN LISTS candidate_roots)
+        _moonlight_set_msys2_root_if_valid(_resolved_root "${candidate_root}")
+        if(NOT _resolved_root STREQUAL "")
+            set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
+            set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    foreach(tool_path IN ITEMS "${CMAKE_COMMAND}" "${CMAKE_MAKE_PROGRAM}")
+        _moonlight_try_msys2_root_from_tool(_resolved_root "${tool_path}")
+        if(NOT _resolved_root STREQUAL "")
+            set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
+            set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    foreach(tool_name
+            msys2_shell.cmd
+            bash.exe
+            make.exe
+            mingw32-make.exe
+            clang++.exe
+            clang.exe
+            g++.exe
+            gcc.exe
+            c++.exe
+            cc.exe)
+        find_program(_tool_path NAMES ${tool_name})
+        _moonlight_try_msys2_root_from_tool(_resolved_root "${_tool_path}")
+        if(NOT _resolved_root STREQUAL "")
+            set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
+            set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
     if(DEFINED ENV{SystemDrive} AND NOT "$ENV{SystemDrive}" STREQUAL "")
         list(APPEND candidate_roots "$ENV{SystemDrive}/msys64")
     endif()
@@ -100,7 +142,7 @@ function(moonlight_detect_windows_msys2_root out_var)
         return()
     endif()
 
-    foreach(tool_name bash.exe mingw32-make.exe clang++.exe clang.exe)
+    foreach(tool_name bash.exe make.exe mingw32-make.exe clang++.exe clang.exe g++.exe gcc.exe c++.exe cc.exe)
         find_program(_tool_path
                 NAMES ${tool_name}
                 HINTS ${program_hints}
