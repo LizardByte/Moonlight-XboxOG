@@ -20,15 +20,28 @@
   #include <errno.h>
   #include <lwip/inet.h>
   #include <lwip/sockets.h>
-#else
-  #include <windows.h>
+#elif defined(_WIN32)
+// clang-format off
+  // winsock2 must be included before windows.h
   #include <winsock2.h>
+  #include <windows.h>
+// clang-format on
+#else
+  #include <arpa/inet.h>
+  #include <cerrno>
+  #include <fcntl.h>
+  #include <netinet/in.h>
+  #include <sys/socket.h>
+  #include <sys/time.h>
+  #include <unistd.h>
 #endif
 
 // nxdk includes
 #ifdef NXDK
   #include <hal/debug.h>
+#endif
 
+#if defined(NXDK) || !defined(_WIN32)
 using SOCKET = int;
 
   #ifndef INVALID_SOCKET
@@ -87,7 +100,7 @@ namespace {
   struct WsaGuard {
     WsaGuard():
         initialized(false) {
-#ifdef NXDK
+#if defined(NXDK) || !defined(_WIN32)
       initialized = true;
 #else
       WSADATA wsaData {};
@@ -96,7 +109,7 @@ namespace {
     }
 
     ~WsaGuard() {
-#ifndef NXDK
+#if defined(_WIN32) && !defined(NXDK)
       if (initialized) {
         WSACleanup();
       }
@@ -113,7 +126,11 @@ namespace {
 
     ~SocketGuard() {
       if (handle != INVALID_SOCKET) {
+#if defined(_WIN32) && !defined(NXDK)
         closesocket(handle);
+#else
+        close(handle);
+#endif
       }
     }
 
@@ -149,7 +166,7 @@ namespace {
   }
 
   int last_socket_error() {
-#ifdef NXDK
+#if defined(NXDK) || !defined(_WIN32)
     return errno;
 #else
     return WSAGetLastError();
@@ -157,7 +174,7 @@ namespace {
   }
 
   bool is_connect_in_progress_error(int errorCode) {
-#ifdef NXDK
+#if defined(NXDK) || !defined(_WIN32)
     return errorCode == EWOULDBLOCK || errorCode == EINPROGRESS || errorCode == EALREADY;
 #else
     return errorCode == WSAEWOULDBLOCK || errorCode == WSAEINPROGRESS || errorCode == WSAEALREADY;
@@ -165,7 +182,7 @@ namespace {
   }
 
   bool is_timeout_error(int errorCode) {
-#ifdef NXDK
+#if defined(NXDK) || !defined(_WIN32)
     return errorCode == ETIMEDOUT;
 #else
     return errorCode == WSAETIMEDOUT;
@@ -175,19 +192,31 @@ namespace {
   bool set_socket_non_blocking(SOCKET socketHandle, bool enabled, std::string *errorMessage) {
 #ifdef NXDK
     int nonBlockingMode = enabled ? 1 : 0;
-#else
+#elif defined(_WIN32)
     u_long nonBlockingMode = enabled ? 1UL : 0UL;
 #endif
 
+#if defined(NXDK) || defined(_WIN32)
     if (ioctlsocket(socketHandle, FIONBIO, &nonBlockingMode) != 0) {
       return append_error(errorMessage, std::string("Failed to configure the host pairing socket mode (socket error ") + std::to_string(last_socket_error()) + ")");
     }
+#else
+    const int currentFlags = fcntl(socketHandle, F_GETFL, 0);
+    if (currentFlags < 0) {
+      return append_error(errorMessage, std::string("Failed to query the host pairing socket mode (socket error ") + std::to_string(last_socket_error()) + ")");
+    }
+
+    const int updatedFlags = enabled ? (currentFlags | O_NONBLOCK) : (currentFlags & ~O_NONBLOCK);
+    if (fcntl(socketHandle, F_SETFL, updatedFlags) != 0) {
+      return append_error(errorMessage, std::string("Failed to configure the host pairing socket mode (socket error ") + std::to_string(last_socket_error()) + ")");
+    }
+#endif
 
     return true;
   }
 
   void set_socket_timeouts(SOCKET socketHandle) {
-#ifdef NXDK
+#if defined(NXDK) || !defined(_WIN32)
     timeval timeout {
       SOCKET_TIMEOUT_MILLISECONDS / 1000,
       (SOCKET_TIMEOUT_MILLISECONDS % 1000) * 1000,
@@ -1669,12 +1698,16 @@ namespace {
       }
 
       int socketError = 0;
-#ifdef NXDK
-      socklen_t socketErrorLength = sizeof(socketError);
-#else
+#if defined(_WIN32) && !defined(NXDK)
       int socketErrorLength = sizeof(socketError);
+#else
+      socklen_t socketErrorLength = sizeof(socketError);
 #endif
+#if defined(_WIN32) && !defined(NXDK)
       if (getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
+#else
+      if (getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) != 0) {
+#endif
         return append_error(errorMessage, "Failed to query the host pairing socket status after connect (socket error " + std::to_string(last_socket_error()) + ")");
       }
       if (socketError != 0) {

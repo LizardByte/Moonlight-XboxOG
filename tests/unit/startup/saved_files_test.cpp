@@ -1,23 +1,17 @@
+// test header include
 #include "src/startup/saved_files.h"
 
+// standard includes
 #include <cstdio>
 #include <vector>
 
-extern "C" {
-#include <direct.h>
-}
-
+// lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/filesystem_test_utils.h"
+
 namespace {
-
-  void remove_if_present(const std::string &path) {
-    std::remove(path.c_str());
-  }
-
-  void remove_directory_if_present(const std::string &path) {
-    _rmdir(path.c_str());
-  }
 
   void write_file_bytes(const std::string &path, const std::vector<unsigned char> &bytes) {
     FILE *file = std::fopen(path.c_str(), "wb");
@@ -29,14 +23,14 @@ namespace {
   class SavedFilesTest: public ::testing::Test {
   protected:
     std::string testDirectory = "saved-files-test";
-    std::string hostStoragePath = testDirectory + "\\moonlight-hosts.tsv";
-    std::string logFilePath = testDirectory + "\\moonlight.log";
-    std::string pairingDirectory = testDirectory + "\\pairing";
-    std::string pairingUniqueIdPath = pairingDirectory + "\\uniqueid.dat";
-    std::string pairingCertificatePath = pairingDirectory + "\\client.pem";
-    std::string pairingKeyPath = pairingDirectory + "\\key.pem";
-    std::string coverArtDirectory = testDirectory + "\\cover-art-cache";
-    std::string coverArtFilePath = coverArtDirectory + "\\cover-101.bin";
+    std::string hostStoragePath = test_support::join_path(testDirectory, "moonlight-hosts.tsv");
+    std::string logFilePath = test_support::join_path(testDirectory, "moonlight.log");
+    std::string pairingDirectory = test_support::join_path(testDirectory, "pairing");
+    std::string pairingUniqueIdPath = test_support::join_path(pairingDirectory, "uniqueid.dat");
+    std::string pairingCertificatePath = test_support::join_path(pairingDirectory, "client.pem");
+    std::string pairingKeyPath = test_support::join_path(pairingDirectory, "key.pem");
+    std::string coverArtDirectory = test_support::join_path(testDirectory, "cover-art-cache");
+    std::string coverArtFilePath = test_support::join_path(coverArtDirectory, "cover-101.bin");
     startup::SavedFileCatalogConfig config {
       hostStoragePath,
       logFilePath,
@@ -45,21 +39,21 @@ namespace {
     };
 
     void SetUp() override {
-      ASSERT_EQ(_mkdir(testDirectory.c_str()), 0);
-      ASSERT_EQ(_mkdir(pairingDirectory.c_str()), 0);
-      ASSERT_EQ(_mkdir(coverArtDirectory.c_str()), 0);
+      ASSERT_TRUE(test_support::create_directory(testDirectory));
+      ASSERT_TRUE(test_support::create_directory(pairingDirectory));
+      ASSERT_TRUE(test_support::create_directory(coverArtDirectory));
     }
 
     void TearDown() override {
-      remove_if_present(coverArtFilePath);
-      remove_if_present(pairingKeyPath);
-      remove_if_present(pairingCertificatePath);
-      remove_if_present(pairingUniqueIdPath);
-      remove_if_present(logFilePath);
-      remove_if_present(hostStoragePath);
-      remove_directory_if_present(coverArtDirectory);
-      remove_directory_if_present(pairingDirectory);
-      remove_directory_if_present(testDirectory);
+      test_support::remove_if_present(coverArtFilePath);
+      test_support::remove_if_present(pairingKeyPath);
+      test_support::remove_if_present(pairingCertificatePath);
+      test_support::remove_if_present(pairingUniqueIdPath);
+      test_support::remove_if_present(logFilePath);
+      test_support::remove_if_present(hostStoragePath);
+      test_support::remove_directory_if_present(coverArtDirectory);
+      test_support::remove_directory_if_present(pairingDirectory);
+      test_support::remove_directory_if_present(testDirectory);
     }
   };
 
@@ -75,12 +69,12 @@ namespace {
 
     EXPECT_TRUE(result.warnings.empty());
     ASSERT_EQ(result.files.size(), 6U);
-    EXPECT_EQ(result.files[0].displayName, "cover-art-cache\\cover-101.bin");
+    EXPECT_EQ(result.files[0].displayName, test_support::join_path("cover-art-cache", "cover-101.bin"));
     EXPECT_EQ(result.files[1].displayName, "moonlight-hosts.tsv");
     EXPECT_EQ(result.files[2].displayName, "moonlight.log");
-    EXPECT_EQ(result.files[3].displayName, "pairing\\client.pem");
-    EXPECT_EQ(result.files[4].displayName, "pairing\\key.pem");
-    EXPECT_EQ(result.files[5].displayName, "pairing\\uniqueid.dat");
+    EXPECT_EQ(result.files[3].displayName, test_support::join_path("pairing", "client.pem"));
+    EXPECT_EQ(result.files[4].displayName, test_support::join_path("pairing", "key.pem"));
+    EXPECT_EQ(result.files[5].displayName, test_support::join_path("pairing", "uniqueid.dat"));
   }
 
   TEST_F(SavedFilesTest, DeletesManagedSavedFiles) {
@@ -101,7 +95,7 @@ namespace {
     EXPECT_FALSE(startup::delete_saved_file(outsidePath, &errorMessage, config));
     EXPECT_FALSE(errorMessage.empty());
 
-    remove_if_present(outsidePath);
+    test_support::remove_if_present(outsidePath);
   }
 
   TEST_F(SavedFilesTest, FactoryResetDeletesAllManagedSavedFiles) {

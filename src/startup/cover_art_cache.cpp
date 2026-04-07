@@ -9,10 +9,6 @@
 #include <string>
 #include <vector>
 
-extern "C" {
-#include <direct.h>
-}
-
 // nxdk includes
 #if defined(__has_include)
   #if __has_include(<nxdk/xbe.h>)
@@ -26,6 +22,9 @@ extern "C" {
   #endif
 #endif
 
+// local includes
+#include "src/platform/filesystem_utils.h"
+
 namespace {
 
   bool append_error(std::string *errorMessage, std::string message) {
@@ -33,66 +32,6 @@ namespace {
       *errorMessage = std::move(message);
     }
     return false;
-  }
-
-  std::string normalize_directory_component(std::string path) {
-    while (path.size() > 3 && (path.back() == '\\' || path.back() == '/')) {
-      path.pop_back();
-    }
-    return path;
-  }
-
-  bool is_drive_root_path(const std::string &path) {
-    return path.size() <= 3 && path.size() >= 2 && path[1] == ':';
-  }
-
-  bool ensure_directory_exists(const std::string &directoryPath, std::string *errorMessage) {
-    if (directoryPath.empty()) {
-      return true;
-    }
-
-    std::string partialPath;
-    std::size_t startIndex = 0;
-    if (directoryPath.size() >= 2 && directoryPath[1] == ':') {
-      partialPath = directoryPath.substr(0, 2);
-      startIndex = 2;
-    }
-
-    for (std::size_t index = startIndex; index < directoryPath.size(); ++index) {
-      partialPath.push_back(directoryPath[index]);
-      const bool atSeparator = directoryPath[index] == '\\' || directoryPath[index] == '/';
-      const bool atPathEnd = index + 1 == directoryPath.size();
-      if (!atSeparator && !atPathEnd) {
-        continue;
-      }
-
-      if (is_drive_root_path(partialPath)) {
-        continue;
-      }
-
-      const std::string normalizedPath = normalize_directory_component(partialPath);
-      if (normalizedPath.empty()) {
-        continue;
-      }
-
-      if (_mkdir(normalizedPath.c_str()) != 0 && errno != EEXIST) {
-        if (errorMessage != nullptr) {
-          *errorMessage = "Failed to create directory '" + normalizedPath + "': " + std::strerror(errno);
-        }
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  std::string parent_directory(const std::string &filePath) {
-    const std::size_t separatorIndex = filePath.find_last_of("\\/");
-    if (separatorIndex == std::string::npos) {
-      return {};
-    }
-
-    return filePath.substr(0, separatorIndex);
   }
 
   std::string title_scoped_storage_root() {
@@ -112,7 +51,7 @@ namespace {
   }
 
   std::string cover_art_cache_path(std::string_view cacheKey, const std::string &cacheRoot) {
-    return cacheRoot + "\\" + std::string(cacheKey) + ".bin";
+    return platform::join_path(cacheRoot, std::string(cacheKey) + ".bin");
   }
 
   uint64_t fnv1a_64(std::string_view text) {
@@ -215,10 +154,10 @@ namespace startup {
 
   SaveCoverArtResult save_cover_art(std::string_view cacheKey, const std::vector<unsigned char> &bytes, const std::string &cacheRoot) {
     std::string errorMessage;
-    if (!ensure_directory_exists(cacheRoot, &errorMessage)) {
+    if (!platform::ensure_directory_exists(cacheRoot, &errorMessage)) {
       return {false, errorMessage};
     }
-    if (!ensure_directory_exists(parent_directory(cover_art_cache_path(cacheKey, cacheRoot)), &errorMessage)) {
+    if (!platform::ensure_directory_exists(platform::parent_directory(cover_art_cache_path(cacheKey, cacheRoot)), &errorMessage)) {
       return {false, errorMessage};
     }
 

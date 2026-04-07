@@ -1,4 +1,4 @@
-// class header include
+// test header include
 #include "src/logging/log_file.h"
 
 // standard includes
@@ -8,10 +8,13 @@
 // lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/filesystem_test_utils.h"
+
 namespace {
 
   std::string test_log_file_path(const char *name) {
-    return std::string("test-output\\logging\\") + name;
+    return test_support::join_path(test_support::join_path("test-output", "logging"), name);
   }
 
   TEST(LogFileTest, AppendsEntriesAndLoadsRecentLines) {

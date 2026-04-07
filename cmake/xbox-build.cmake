@@ -3,6 +3,7 @@
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/moonlight-dependencies.cmake")
 
 #
 # metadata
@@ -45,35 +46,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
-# moonlight-common-c submodule
-include(GetOpenSSL REQUIRED)
-set(MOONLIGHT_NXDK_NET_INCLUDE_DIR
-        "${NXDK_DIR}/lib/net")
-set(MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR
-        "${NXDK_DIR}/lib/xboxrt/libc_extensions")
-set(MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR
-        "${NXDK_DIR}/lib/net/lwip/src/include/compat/posix")
-set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
-set(BUILD_SHARED_LIBS OFF)
-add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
-if(TARGET moonlight-common-c AND TARGET openssl_external)
-    add_dependencies(moonlight-common-c openssl_external)
-endif()
-target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net)
-target_include_directories(enet PRIVATE
-        "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
-        "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
-        "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}")
-target_compile_options(enet PRIVATE -Wno-unused-function -Wno-error=unused-function)
-if(TARGET moonlight-common-c)
-    target_include_directories(moonlight-common-c PRIVATE
-            "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
-            "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
-            "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}")
-    target_compile_options(moonlight-common-c PRIVATE
-            -Wno-unused-function
-            -Wno-error=unused-function)
-endif()
+moonlight_prepare_common_dependencies()
 
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}

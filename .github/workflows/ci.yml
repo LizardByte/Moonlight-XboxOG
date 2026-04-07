@@ -145,6 +145,10 @@ jobs:
           tar -czf ./artifacts/Moonlight.tar.gz ./${CMAKE_BUILD}/xbox/xbe
           cp ./${CMAKE_BUILD}/xbox/Moonlight.iso ./artifacts
 
+      - name: Debug logs
+        if: failure()
+        run: cat ./build/openssl_external-prefix/src/openssl_external-stamp/openssl_external-build.log || true
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:

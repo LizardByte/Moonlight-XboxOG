@@ -15,7 +15,9 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${GTEST_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
 
-include(GetOpenSSL REQUIRED)
+if(NOT TARGET moonlight-common-c OR NOT TARGET Moonlight::OpenSSL)
+    message(FATAL_ERROR "tests/CMakeLists.txt requires the shared Moonlight dependency targets from the top-level configure")
+endif()
 
 set(TEST_COVERAGE_COMPILE_OPTIONS)
 set(TEST_COVERAGE_LINK_OPTIONS)
@@ -38,17 +40,6 @@ add_executable(${PROJECT_NAME}
         ${MOONLIGHT_HOST_TESTABLE_SOURCES})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
-set(MOONLIGHT_TEST_OPENSSL_LIBRARIES OpenSSL::SSL OpenSSL::Crypto)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
-        OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(MOONLIGHT_TEST_OPENSSL_LIBRARIES
-            -Wl,--start-group
-            -Wl,--whole-archive
-            OpenSSL::SSL
-            OpenSSL::Crypto
-            -Wl,--no-whole-archive
-            -Wl,--end-group)
-endif()
 
 target_include_directories(${PROJECT_NAME}
         PRIVATE
@@ -59,7 +50,10 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
         gtest_main
-        ${MOONLIGHT_TEST_OPENSSL_LIBRARIES})
+        Moonlight::OpenSSL)
+if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
+endif()
 target_compile_options(${PROJECT_NAME}
         PRIVATE
         ${TEST_COVERAGE_COMPILE_OPTIONS})
@@ -67,7 +61,7 @@ target_link_options(${PROJECT_NAME}
         PRIVATE
         ${TEST_COVERAGE_LINK_OPTIONS})
 
-add_dependencies(${PROJECT_NAME} gtest gtest_main gmock gmock_main)
+add_dependencies(${PROJECT_NAME} gtest gtest_main gmock gmock_main moonlight-common-c)
 
 include(GoogleTest)
 set(TEST_RUNTIME_PROPERTIES)

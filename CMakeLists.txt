@@ -52,12 +52,14 @@ option(BUILD_XBOX "Build the Xbox target through an internal child configure" ON
 option(MOONLIGHT_FORCE_NXDK_DISTCLEAN "Force a fresh nxdk distclean during configure" OFF)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/moonlight-dependencies.cmake")
 
 if(BUILD_DOCS)
     add_subdirectory(third-party/doxyconfig docs)
 endif()
 
 if(BUILD_TESTS)
+    moonlight_prepare_common_dependencies()
     enable_testing()
     add_subdirectory(tests)
 endif()

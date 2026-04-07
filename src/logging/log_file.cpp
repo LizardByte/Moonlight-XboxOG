@@ -8,74 +8,11 @@
 #include <deque>
 #include <string>
 
-extern "C" {
-#include <direct.h>
-}
-
 // local includes
+#include "src/platform/filesystem_utils.h"
 #include "src/startup/host_storage.h"
 
 namespace {
-
-  std::string normalize_directory_component(std::string path) {
-    while (path.size() > 3 && (path.back() == '\\' || path.back() == '/')) {
-      path.pop_back();
-    }
-    return path;
-  }
-
-  bool is_drive_root_path(const std::string &path) {
-    return path.size() <= 3 && path.size() >= 2 && path[1] == ':';
-  }
-
-  bool ensure_directory_exists(const std::string &directoryPath, std::string *errorMessage) {
-    if (directoryPath.empty()) {
-      return true;
-    }
-
-    std::string partialPath;
-    std::size_t startIndex = 0;
-    if (directoryPath.size() >= 2 && directoryPath[1] == ':') {
-      partialPath = directoryPath.substr(0, 2);
-      startIndex = 2;
-    }
-
-    for (std::size_t index = startIndex; index < directoryPath.size(); ++index) {
-      partialPath.push_back(directoryPath[index]);
-      const bool atSeparator = directoryPath[index] == '\\' || directoryPath[index] == '/';
-      const bool atPathEnd = index + 1 == directoryPath.size();
-      if (!atSeparator && !atPathEnd) {
-        continue;
-      }
-
-      if (is_drive_root_path(partialPath)) {
-        continue;
-      }
-
-      const std::string normalizedPath = normalize_directory_component(partialPath);
-      if (normalizedPath.empty()) {
-        continue;
-      }
-
-      if (_mkdir(normalizedPath.c_str()) != 0 && errno != EEXIST) {
-        if (errorMessage != nullptr) {
-          *errorMessage = "Failed to create directory '" + normalizedPath + "': " + std::strerror(errno);
-        }
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  std::string parent_directory(const std::string &filePath) {
-    const std::size_t separatorIndex = filePath.find_last_of("\\/");
-    if (separatorIndex == std::string::npos) {
-      return {};
-    }
-
-    return filePath.substr(0, separatorIndex);
-  }
 
   std::string persisted_log_line(const logging::LogEntry &entry) {
     return std::string("[") + logging::format_timestamp(entry.timestamp) + "] " + logging::format_entry(entry);
@@ -87,16 +24,16 @@ namespace logging {
 
   std::string default_log_file_path() {
     const std::string hostStoragePath = startup::default_host_storage_path();
-    const std::string directoryPath = parent_directory(hostStoragePath);
+    const std::string directoryPath = platform::parent_directory(hostStoragePath);
     if (directoryPath.empty()) {
       return "moonlight.log";
     }
 
-    return directoryPath + "\\moonlight.log";
+    return platform::join_path(directoryPath, "moonlight.log");
   }
 
   bool reset_log_file(const std::string &filePath, std::string *errorMessage) {
-    if (!ensure_directory_exists(parent_directory(filePath), errorMessage)) {
+    if (!platform::ensure_directory_exists(platform::parent_directory(filePath), errorMessage)) {
       return false;
     }
 
@@ -119,7 +56,7 @@ namespace logging {
   }
 
   bool append_log_file_entry(const LogEntry &entry, const std::string &filePath, std::string *errorMessage) {
-    if (!ensure_directory_exists(parent_directory(filePath), errorMessage)) {
+    if (!platform::ensure_directory_exists(platform::parent_directory(filePath), errorMessage)) {
       return false;
     }
 

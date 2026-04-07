@@ -1,34 +1,28 @@
+// test header include
 #include "src/startup/cover_art_cache.h"
 
+// standard includes
 #include <cstdio>
 #include <vector>
 
-extern "C" {
-#include <direct.h>
-}
-
+// lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/filesystem_test_utils.h"
+
 namespace {
-
-  void remove_if_present(const std::string &path) {
-    std::remove(path.c_str());
-  }
-
-  void remove_directory_if_present(const std::string &path) {
-    _rmdir(path.c_str());
-  }
 
   class CoverArtCacheTest: public ::testing::Test {
   protected:
     void TearDown() override {
-      remove_if_present(testFilePath);
-      remove_directory_if_present(testDirectory);
+      test_support::remove_if_present(testFilePath);
+      test_support::remove_directory_if_present(testDirectory);
     }
 
     std::string testDirectory = "cover-art-cache-test";
     std::string cacheKey = startup::build_cover_art_cache_key("host-uuid-123", "192.168.0.10", 42);
-    std::string testFilePath = testDirectory + "\\" + cacheKey + ".bin";
+    std::string testFilePath = test_support::join_path(testDirectory, cacheKey + ".bin");
   };
 
   TEST_F(CoverArtCacheTest, SavesAndReloadsCachedCoverArtBytes) {

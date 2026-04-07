@@ -1,36 +1,30 @@
+// test header include
 #include "src/startup/host_storage.h"
 
+// standard includes
 #include <cstdio>
 #include <vector>
 
-extern "C" {
-#include <direct.h>
-}
-
+// lib includes
 #include <gtest/gtest.h>
 
+// test includes
+#include "tests/support/filesystem_test_utils.h"
+
 namespace {
-
-  void remove_if_present(const std::string &path) {
-    std::remove(path.c_str());
-  }
-
-  void remove_directory_if_present(const std::string &path) {
-    _rmdir(path.c_str());
-  }
 
   class HostStorageTest: public ::testing::Test {
   protected:
     void TearDown() override {
-      remove_if_present(nestedFilePath);
-      remove_directory_if_present(testDirectory + "\\nested");
-      remove_if_present(testFilePath);
-      remove_directory_if_present(testDirectory);
+      test_support::remove_if_present(nestedFilePath);
+      test_support::remove_directory_if_present(test_support::join_path(testDirectory, "nested"));
+      test_support::remove_if_present(testFilePath);
+      test_support::remove_directory_if_present(testDirectory);
     }
 
     std::string testDirectory = "host-storage-test";
     std::string testFilePath = "host-storage-test.tsv";
-    std::string nestedFilePath = testDirectory + "\\nested\\hosts.tsv";
+    std::string nestedFilePath = test_support::join_path(test_support::join_path(testDirectory, "nested"), "hosts.tsv");
   };
 
   TEST_F(HostStorageTest, LoadsMissingFilesWithoutWarnings) {

@@ -13,10 +13,17 @@
 #include <vector>
 
 // platform includes
-#include <windows.h>
+#if defined(_WIN32) || defined(NXDK)
+  #include <windows.h>
+#else
+  #include <dirent.h>
+  #include <sys/stat.h>
+  #include <sys/types.h>
+#endif
 
 // local includes
 #include "src/logging/log_file.h"
+#include "src/platform/filesystem_utils.h"
 #include "src/startup/client_identity_storage.h"
 #include "src/startup/cover_art_cache.h"
 #include "src/startup/host_storage.h"
@@ -42,13 +49,7 @@ namespace {
   }
 
   std::string join_path(const std::string &left, const std::string &right) {
-    if (left.empty()) {
-      return right;
-    }
-    if (left.back() == '\\' || left.back() == '/') {
-      return left + right;
-    }
-    return left + "\\" + right;
+    return platform::join_path(left, right);
   }
 
   std::string file_name_from_path(const std::string &path) {
@@ -57,16 +58,7 @@ namespace {
   }
 
   bool path_has_prefix(const std::string &path, const std::string &prefix) {
-    if (prefix.empty() || path.size() < prefix.size()) {
-      return false;
-    }
-
-    for (std::size_t index = 0; index < prefix.size(); ++index) {
-      if (std::tolower(static_cast<unsigned char>(path[index])) != std::tolower(static_cast<unsigned char>(prefix[index]))) {
-        return false;
-      }
-    }
-    return true;
+    return platform::path_has_prefix(path, prefix);
   }
 
   std::string relative_path_from_root(const std::string &rootPath, const std::string &path) {
@@ -82,21 +74,7 @@ namespace {
   }
 
   bool try_get_file_size(const std::string &path, std::uint64_t *sizeBytes) {
-    WIN32_FILE_ATTRIBUTE_DATA fileData {};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fileData)) {
-      return false;
-    }
-    if (fileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-      return false;
-    }
-
-    if (sizeBytes != nullptr) {
-      ULARGE_INTEGER sizeValue {};
-      sizeValue.HighPart = fileData.nFileSizeHigh;
-      sizeValue.LowPart = fileData.nFileSizeLow;
-      *sizeBytes = sizeValue.QuadPart;
-    }
-    return true;
+    return platform::try_get_file_size(path, sizeBytes);
   }
 
   ResolvedSavedFileCatalogConfig resolve_config(const startup::SavedFileCatalogConfig &config) {
@@ -138,6 +116,7 @@ namespace {
       return;
     }
 
+#if defined(_WIN32) || defined(NXDK)
     WIN32_FIND_DATAA findData {};
     const std::string searchPattern = join_path(rootPath, "*");
     HANDLE handle = FindFirstFileA(searchPattern.c_str(), &findData);
@@ -173,6 +152,50 @@ namespace {
     if (lastError != ERROR_NO_MORE_FILES && warnings != nullptr) {
       warnings->push_back("Stopped enumerating saved files in '" + rootPath + "' early: error " + std::to_string(static_cast<unsigned long>(lastError)));
     }
+#else
+    DIR *directory = opendir(rootPath.c_str());
+    if (directory == nullptr) {
+      if (errno != ENOENT && errno != ENOTDIR && warnings != nullptr) {
+        warnings->push_back("Failed to enumerate saved files in '" + rootPath + "': " + std::strerror(errno));
+      }
+      return;
+    }
+
+    errno = 0;
+    while (dirent *entry = readdir(directory)) {
+      const std::string entryName = entry->d_name;
+      if (entryName == "." || entryName == "..") {
+        continue;
+      }
+
+      const std::string entryPath = join_path(rootPath, entryName);
+      struct stat status {};
+      if (stat(entryPath.c_str(), &status) != 0) {
+        if (warnings != nullptr) {
+          warnings->push_back("Failed to inspect saved file entry '" + entryPath + "': " + std::strerror(errno));
+        }
+        continue;
+      }
+
+      if (S_ISDIR(status.st_mode)) {
+        append_directory_files(files, seenPaths, warnings, entryPath, displayPrefix);
+        continue;
+      }
+      if (!S_ISREG(status.st_mode)) {
+        continue;
+      }
+
+      const std::string relativePath = relative_path_from_root(rootPath, entryPath);
+      const std::string displayName = displayPrefix.empty() ? relativePath : join_path(displayPrefix, relativePath);
+      add_file_if_present(files, seenPaths, entryPath, displayName);
+    }
+
+    const int readError = errno;
+    closedir(directory);
+    if (readError != 0 && warnings != nullptr) {
+      warnings->push_back("Stopped enumerating saved files in '" + rootPath + "' early: " + std::strerror(readError));
+    }
+#endif
   }
 
   bool path_is_managed_saved_file(const std::string &path, const ResolvedSavedFileCatalogConfig &config) {
@@ -211,9 +234,9 @@ namespace startup {
 
     add_file_if_present(&result.files, &seenPaths, resolvedConfig.hostStoragePath, file_name_from_path(resolvedConfig.hostStoragePath));
     add_file_if_present(&result.files, &seenPaths, resolvedConfig.logFilePath, file_name_from_path(resolvedConfig.logFilePath));
-    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_UNIQUE_ID_FILE_NAME), "pairing\\uniqueid.dat");
-    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_CERTIFICATE_FILE_NAME), "pairing\\client.pem");
-    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_PRIVATE_KEY_FILE_NAME), "pairing\\key.pem");
+    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_UNIQUE_ID_FILE_NAME), join_path("pairing", PAIRING_UNIQUE_ID_FILE_NAME));
+    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_CERTIFICATE_FILE_NAME), join_path("pairing", PAIRING_CERTIFICATE_FILE_NAME));
+    add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_PRIVATE_KEY_FILE_NAME), join_path("pairing", PAIRING_PRIVATE_KEY_FILE_NAME));
     append_directory_files(&result.files, &seenPaths, &result.warnings, resolvedConfig.coverArtCacheRoot, "cover-art-cache");
 
     std::sort(result.files.begin(), result.files.end(), [](const SavedFileEntry &left, const SavedFileEntry &right) {
