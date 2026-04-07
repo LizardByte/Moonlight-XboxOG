@@ -29,8 +29,11 @@ extern "C" {
 #endif
 
 #ifndef FD_SET
+  /**
+   * @brief Minimal socket descriptor set used by the lwIP-backed select shim.
+   */
   typedef struct fd_set {
-    unsigned char fd_bits[(FD_SETSIZE + 7) / 8];
+    unsigned char fd_bits[(FD_SETSIZE + 7) / 8];  ///< Bitset storing tracked socket descriptors relative to LWIP_SOCKET_OFFSET.
   } fd_set;
 
   #define FD_SET(n, p) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] = (unsigned char) ((p)->fd_bits[((n) - LWIP_SOCKET_OFFSET) / 8] | (1u << (((n) - LWIP_SOCKET_OFFSET) & 7))))

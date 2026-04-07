@@ -25,24 +25,34 @@ namespace logging {
    * @brief Structured log entry stored by the in-memory logger.
    */
   struct LogTimestamp {
-    int year = 0;
-    int month = 0;
-    int day = 0;
-    int hour = 0;
-    int minute = 0;
-    int second = 0;
-    int millisecond = 0;
+    int year = 0;  ///< Full calendar year in local time.
+    int month = 0;  ///< One-based calendar month in local time.
+    int day = 0;  ///< One-based day of month in local time.
+    int hour = 0;  ///< Hour component in 24-hour local time.
+    int minute = 0;  ///< Minute component in local time.
+    int second = 0;  ///< Second component in local time.
+    int millisecond = 0;  ///< Millisecond component in local time.
   };
 
+  /**
+   * @brief Structured log entry stored by the in-memory logger.
+   */
   struct LogEntry {
-    uint64_t sequence;
-    LogLevel level;
-    std::string category;
-    std::string message;
-    LogTimestamp timestamp {};
+    uint64_t sequence;  ///< Monotonic sequence number assigned by the logger.
+    LogLevel level;  ///< Severity associated with the entry.
+    std::string category;  ///< Subsystem category such as ui or network.
+    std::string message;  ///< Human-readable log message.
+    LogTimestamp timestamp {};  ///< Local wall-clock timestamp captured for the entry.
   };
 
+  /**
+   * @brief Callback invoked for each accepted log entry.
+   */
   using LogSink = std::function<void(const LogEntry &entry)>;
+
+  /**
+   * @brief Callback that supplies timestamps for new log entries.
+   */
   using TimestampProvider = std::function<LogTimestamp()>;
 
   /**
@@ -78,11 +88,14 @@ namespace logging {
      * @brief Construct a logger with the provided entry capacity.
      *
      * @param capacity Maximum number of retained entries.
+     * @param timestampProvider Optional timestamp callback used for new entries.
      */
     explicit Logger(std::size_t capacity = 256, TimestampProvider timestampProvider = {});
 
     /**
      * @brief Return the maximum number of retained entries.
+     *
+     * @return Maximum number of retained entries.
      */
     std::size_t capacity() const;
 
@@ -95,6 +108,8 @@ namespace logging {
 
     /**
      * @brief Return the minimum accepted log level.
+     *
+     * @return Minimum accepted log level.
      */
     LogLevel minimum_level() const;
 
@@ -125,6 +140,8 @@ namespace logging {
 
     /**
      * @brief Return the retained entries.
+     *
+     * @return Immutable view of the retained ring-buffer contents.
      */
     const std::deque<LogEntry> &entries() const;
 

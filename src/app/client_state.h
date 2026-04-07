@@ -49,6 +49,9 @@ namespace app {
     log_viewer,
   };
 
+  /**
+   * @brief Layout options for the embedded log viewer.
+   */
   enum class LogViewerPlacement {
     full,
     left,
@@ -94,110 +97,118 @@ namespace app {
    * @brief Controller selection state for the add-host keypad modal.
    */
   struct AddHostKeypadState {
-    bool visible;
-    std::size_t selectedButtonIndex;
-    std::string stagedInput;
+    bool visible;  ///< True when the keypad modal is currently shown.
+    std::size_t selectedButtonIndex;  ///< Zero-based selection inside the keypad button grid.
+    std::string stagedInput;  ///< Draft text currently assembled inside the keypad modal.
   };
 
   /**
    * @brief Controller-friendly draft state for manual host entry.
    */
   struct AddHostDraft {
-    std::string addressInput;
-    std::string portInput;
-    AddHostField activeField;
-    AddHostKeypadState keypad;
-    ScreenId returnScreen;
-    std::string validationMessage;
-    std::string connectionMessage;
-    bool lastConnectionSucceeded;
+    std::string addressInput;  ///< Raw host address text entered by the user.
+    std::string portInput;  ///< Raw port override text entered by the user.
+    AddHostField activeField;  ///< Field currently targeted by directional input.
+    AddHostKeypadState keypad;  ///< Nested keypad-modal selection state.
+    ScreenId returnScreen;  ///< Screen to return to when add-host flow completes or cancels.
+    std::string validationMessage;  ///< Validation feedback for the current address or port text.
+    std::string connectionMessage;  ///< Result message from the latest host connection test.
+    bool lastConnectionSucceeded;  ///< True when the latest connection test succeeded.
   };
 
   /**
    * @brief Context modal state shared by the hosts and apps pages.
    */
   struct ModalState {
-    ModalId id = ModalId::none;
-    std::size_t selectedActionIndex = 0;
+    ModalId id = ModalId::none;  ///< Currently active modal identifier.
+    std::size_t selectedActionIndex = 0;  ///< Zero-based index of the highlighted modal action.
 
+    /**
+     * @brief Return whether a modal is currently active.
+     *
+     * @return true when the modal identifier is not ModalId::none.
+     */
     bool active() const {
       return id != ModalId::none;
     }
   };
 
+  /**
+   * @brief Content shown by the destructive-action confirmation dialog.
+   */
   struct ConfirmationDialogState {
-    ConfirmationAction action = ConfirmationAction::none;
-    std::string targetPath;
-    std::string title;
-    std::vector<std::string> lines;
+    ConfirmationAction action = ConfirmationAction::none;  ///< Requested confirmation action.
+    std::string targetPath;  ///< File or directory path targeted by the action, when applicable.
+    std::string title;  ///< Modal title presented to the user.
+    std::vector<std::string> lines;  ///< Body lines describing the consequence of the action.
   };
 
   /**
    * @brief Serializable app state for the menu-driven client shell.
    */
   struct ClientState {
-    ScreenId activeScreen;
-    bool overlayVisible;
-    bool shouldExit;
-    bool hostsDirty;
-    std::size_t overlayScrollOffset;
-    HostsFocusArea hostsFocusArea;
-    std::size_t selectedToolbarButtonIndex;
-    std::size_t selectedHostIndex;
-    std::size_t selectedAppIndex;
-    std::size_t appsScrollPage;
-    bool showHiddenApps;
-    ui::MenuModel menu;
-    ui::MenuModel detailMenu;
-    std::vector<HostRecord> hosts;
-    AddHostDraft addHostDraft;
-    PairingDraft pairingDraft;
-    ModalState modal;
-    SettingsFocusArea settingsFocusArea = SettingsFocusArea::categories;
-    SettingsCategory selectedSettingsCategory = SettingsCategory::logging;
-    ConfirmationDialogState confirmation;
-    std::string statusMessage;
-    std::string logFilePath;
-    std::vector<std::string> logViewerLines;
-    std::size_t logViewerScrollOffset = 0U;
-    LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;
-    logging::LogLevel loggingLevel = logging::LogLevel::info;
-    std::vector<startup::SavedFileEntry> savedFiles;
-    bool savedFilesDirty = true;
-    std::vector<std::string> pairingResetEndpoints;
+    ScreenId activeScreen;  ///< Screen currently shown by the shell.
+    bool overlayVisible;  ///< True when the diagnostics overlay is visible.
+    bool shouldExit;  ///< True when the application should terminate.
+    bool hostsDirty;  ///< True when the host list changed and should be saved.
+    std::size_t overlayScrollOffset;  ///< Scroll offset used by long overlay content.
+    HostsFocusArea hostsFocusArea;  ///< Focused region on the hosts page.
+    std::size_t selectedToolbarButtonIndex;  ///< Zero-based selection inside the hosts toolbar.
+    std::size_t selectedHostIndex;  ///< Zero-based selection inside the saved host list.
+    std::size_t selectedAppIndex;  ///< Zero-based selection inside the visible app list.
+    std::size_t appsScrollPage;  ///< Horizontal page offset for paged app browsing.
+    bool showHiddenApps;  ///< True when hidden apps should remain visible in the apps screen.
+    ui::MenuModel menu;  ///< Primary vertical menu model for the active screen.
+    ui::MenuModel detailMenu;  ///< Secondary detail or actions menu.
+    std::vector<HostRecord> hosts;  ///< Saved hosts currently tracked by the shell.
+    AddHostDraft addHostDraft;  ///< Draft state for the add-host workflow.
+    PairingDraft pairingDraft;  ///< Draft state for the active pairing workflow.
+    ModalState modal;  ///< Context modal currently stacked over the shell.
+    SettingsFocusArea settingsFocusArea = SettingsFocusArea::categories;  ///< Focused pane within the settings screen.
+    SettingsCategory selectedSettingsCategory = SettingsCategory::logging;  ///< Settings category selected in the left pane.
+    ConfirmationDialogState confirmation;  ///< Confirmation dialog content for destructive actions.
+    std::string statusMessage;  ///< Primary user-visible status line.
+    std::string logFilePath;  ///< Path currently loaded into the log viewer.
+    std::vector<std::string> logViewerLines;  ///< Loaded log file lines shown in the log viewer.
+    std::size_t logViewerScrollOffset = 0U;  ///< Zero-based vertical scroll offset inside the log viewer.
+    LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;  ///< Log viewer pane placement relative to the shell.
+    logging::LogLevel loggingLevel = logging::LogLevel::info;  ///< Minimum log level selected in settings.
+    std::vector<startup::SavedFileEntry> savedFiles;  ///< Saved-file catalog shown on the reset settings page.
+    bool savedFilesDirty = true;  ///< True when the saved-file catalog should be refreshed.
+    std::vector<std::string> pairingResetEndpoints;  ///< Endpoints whose pairing material should be cleared during reset.
   };
 
   /**
    * @brief Result of updating the client shell with a UI command.
    */
   struct AppUpdate {
-    bool screenChanged;
-    bool overlayChanged;
-    bool overlayVisibilityChanged;
-    bool exitRequested;
-    bool hostsChanged;
-    bool connectionTestRequested;
-    bool pairingRequested;
-    bool pairingCancelledRequested;
-    bool appsBrowseRequested;
-    bool appsBrowseShowHidden;
-    bool logViewRequested;
-    bool savedFileDeleteRequested;
-    bool factoryResetRequested;
-    bool hostDeleteCleanupRequested;
-    bool modalOpened;
-    bool modalClosed;
-    bool deletedHostWasPaired;
-    std::string activatedItemId;
-    std::string connectionTestAddress;
-    uint16_t connectionTestPort;
-    std::string pairingAddress;
-    uint16_t pairingPort;
-    std::string pairingPin;
-    std::string savedFileDeletePath;
-    std::string deletedHostAddress;
-    uint16_t deletedHostPort;
-    std::vector<std::string> deletedHostCoverArtCacheKeys;
+    bool screenChanged;  ///< True when the active screen changed.
+    bool overlayChanged;  ///< True when overlay content changed.
+    bool overlayVisibilityChanged;  ///< True when overlay visibility toggled.
+    bool exitRequested;  ///< True when the shell requested application exit.
+    bool hostsChanged;  ///< True when the host list changed and should be persisted.
+    bool connectionTestRequested;  ///< True when a manual host connection test should run.
+    bool pairingRequested;  ///< True when manual pairing should begin.
+    bool pairingCancelledRequested;  ///< True when an in-progress pairing request should be cancelled.
+    bool appsBrowseRequested;  ///< True when app browsing for the selected host should begin.
+    bool appsBrowseShowHidden;  ///< Hidden-app visibility requested for the app browse action.
+    bool logViewRequested;  ///< True when the log viewer should be refreshed from disk.
+    bool savedFileDeleteRequested;  ///< True when one managed file should be deleted.
+    bool factoryResetRequested;  ///< True when a full saved-data reset should run.
+    bool hostDeleteCleanupRequested;  ///< True when host deletion follow-up cleanup should run.
+    bool modalOpened;  ///< True when a modal became active during the update.
+    bool modalClosed;  ///< True when the active modal was dismissed during the update.
+    bool deletedHostWasPaired;  ///< True when the deleted host previously had pairing credentials.
+    std::string activatedItemId;  ///< Stable identifier for the activated menu item, when any.
+    std::string connectionTestAddress;  ///< Host address that should be tested.
+    uint16_t connectionTestPort;  ///< Host port that should be tested.
+    std::string pairingAddress;  ///< Host address targeted by pairing.
+    uint16_t pairingPort;  ///< Host port targeted by pairing.
+    std::string pairingPin;  ///< Generated client PIN that should be shown to the user.
+    std::string savedFileDeletePath;  ///< Managed file path requested for deletion.
+    std::string deletedHostAddress;  ///< Address of the host removed from storage.
+    uint16_t deletedHostPort;  ///< Port of the host removed from storage.
+    std::vector<std::string> deletedHostCoverArtCacheKeys;  ///< Cover-art cache keys to remove for the deleted host.
   };
 
   /**
@@ -284,6 +295,7 @@ namespace app {
    * @param address Host address used for the fetch.
    * @param port Host port used for the fetch.
    * @param apps Fresh app records returned by the host.
+   * @param appListContentHash Stable content hash for the returned app list.
    * @param success Whether the fetch succeeded.
    * @param message User-visible status message.
    */
@@ -307,10 +319,31 @@ namespace app {
    */
   void mark_cover_art_cached(ClientState &state, const std::string &address, uint16_t port, int appId);
 
+  /**
+   * @brief Update the log file path tracked by the shell.
+   *
+   * @param state Mutable app state.
+   * @param logFilePath Path to the log file that should be shown in the viewer.
+   */
   void set_log_file_path(ClientState &state, std::string logFilePath);
 
+  /**
+   * @brief Replace the loaded log viewer contents.
+   *
+   * @param state Mutable app state.
+   * @param lines Log file lines ready for display.
+   * @param statusMessage User-visible status line for the log viewer state.
+   */
   void apply_log_viewer_contents(ClientState &state, std::vector<std::string> lines, std::string statusMessage);
 
+  /**
+   * @brief Return whether a saved host still requires a manual pairing flow.
+   *
+   * @param state App state containing the saved host list.
+   * @param address Host address to inspect.
+   * @param port Host port to inspect.
+   * @return true when the matching host exists and is not paired.
+   */
   bool host_requires_manual_pairing(const ClientState &state, const std::string &address, uint16_t port);
 
   /**

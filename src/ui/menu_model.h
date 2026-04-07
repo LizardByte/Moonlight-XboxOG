@@ -15,22 +15,22 @@ namespace ui {
    * @brief Item shown in a focus-driven menu.
    */
   struct MenuItem {
-    std::string id;
-    std::string label;
-    bool enabled;
+    std::string id;  ///< Stable identifier used by reducers and view builders.
+    std::string label;  ///< User-facing label shown in the menu.
+    bool enabled;  ///< True when the item can be selected and activated.
   };
 
   /**
    * @brief Result of applying a UI command to a menu.
    */
   struct MenuUpdate {
-    bool selectionChanged;
-    bool activationRequested;
-    bool backRequested;
-    bool previousPageRequested;
-    bool nextPageRequested;
-    bool overlayToggleRequested;
-    std::string activatedItemId;
+    bool selectionChanged;  ///< True when the focused item changed.
+    bool activationRequested;  ///< True when the selected item should be activated.
+    bool backRequested;  ///< True when the caller should navigate back.
+    bool previousPageRequested;  ///< True when the caller should move to the previous page.
+    bool nextPageRequested;  ///< True when the caller should move to the next page.
+    bool overlayToggleRequested;  ///< True when the caller should toggle the diagnostics overlay.
+    std::string activatedItemId;  ///< Stable identifier for the activated item, when any.
   };
 
   /**
@@ -38,6 +38,9 @@ namespace ui {
    */
   class MenuModel {
   public:
+    /**
+     * @brief Sentinel index used when no menu item is selectable.
+     */
     static constexpr std::size_t npos = std::numeric_limits<std::size_t>::max();
 
     /**
@@ -56,16 +59,22 @@ namespace ui {
 
     /**
      * @brief Return the configured items.
+     *
+     * @return Immutable view of the menu items in display order.
      */
     const std::vector<MenuItem> &items() const;
 
     /**
      * @brief Return the selected item index or npos when none is selectable.
+     *
+     * @return Selected item index or npos.
      */
     std::size_t selected_index() const;
 
     /**
      * @brief Return the selected item or nullptr when none is selectable.
+     *
+     * @return Pointer to the selected item, or nullptr when unavailable.
      */
     const MenuItem *selected_item() const;
 

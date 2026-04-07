@@ -21,11 +21,11 @@ namespace app {
    * @brief Controller-friendly state for a client-generated pairing PIN.
    */
   struct PairingDraft {
-    std::string targetAddress;
-    uint16_t targetPort;
-    std::string generatedPin;
-    PairingStage stage;
-    std::string statusMessage;
+    std::string targetAddress;  ///< Host address currently targeted by pairing.
+    uint16_t targetPort;  ///< Effective HTTP port currently targeted by pairing.
+    std::string generatedPin;  ///< Client-generated PIN shown to the user.
+    PairingStage stage;  ///< Current stage of the reducer-driven pairing flow.
+    std::string statusMessage;  ///< User-visible progress or error message for the pairing flow.
   };
 
   /**

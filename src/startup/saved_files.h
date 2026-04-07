@@ -11,27 +11,27 @@ namespace startup {
    * @brief Describes one Moonlight-managed file that exists on disk.
    */
   struct SavedFileEntry {
-    std::string path;
-    std::string displayName;
-    std::uint64_t sizeBytes = 0;
+    std::string path;  ///< Absolute or managed-relative path to the file on disk.
+    std::string displayName;  ///< User-facing label shown in the settings UI.
+    std::uint64_t sizeBytes = 0;  ///< File size in bytes.
   };
 
   /**
    * @brief Optional path overrides used to inspect Moonlight-managed files.
    */
   struct SavedFileCatalogConfig {
-    std::string hostStoragePath;
-    std::string logFilePath;
-    std::string pairingDirectory;
-    std::string coverArtCacheRoot;
+    std::string hostStoragePath;  ///< Path to the saved-host storage file
+    std::string logFilePath;  ///< Path to the persisted log file
+    std::string pairingDirectory;  ///< Directory containing saved client pairing identity files
+    std::string coverArtCacheRoot;  ///< Root directory containing cached cover art artifacts
   };
 
   /**
    * @brief Result of enumerating Moonlight-managed files on disk.
    */
   struct ListSavedFilesResult {
-    std::vector<SavedFileEntry> files;
-    std::vector<std::string> warnings;
+    std::vector<SavedFileEntry> files;  ///< Managed files currently found on disk.
+    std::vector<std::string> warnings;  ///< Non-fatal warnings produced during enumeration.
   };
 
   /**

@@ -41,48 +41,48 @@ namespace app {
    * @brief App metadata shown on the per-host apps page.
    */
   struct HostAppRecord {
-    std::string name;
-    int id = 0;
-    bool hdrSupported = false;
-    bool hidden = false;
-    bool favorite = false;
-    std::string boxArtCacheKey;
-    bool boxArtCached = false;
-    bool running = false;
+    std::string name;  ///< Display name reported by the host.
+    int id = 0;  ///< Stable host-defined application identifier.
+    bool hdrSupported = false;  ///< True when the app advertises HDR streaming support.
+    bool hidden = false;  ///< True when the app should be hidden from the default browse view.
+    bool favorite = false;  ///< True when the app is pinned as a favorite locally.
+    std::string boxArtCacheKey;  ///< Cache key used to load box art from local storage.
+    bool boxArtCached = false;  ///< True when the referenced box art is already cached on disk.
+    bool running = false;  ///< True when the app is currently running on the host.
   };
 
   /**
    * @brief Manual host record shown in the shell.
    */
   struct HostRecord {
-    std::string displayName;
-    std::string address;
-    uint16_t port = 0;
-    PairingState pairingState = PairingState::not_paired;
-    HostReachability reachability = HostReachability::unknown;
-    std::string activeAddress;
-    std::string uuid;
-    std::string localAddress;
-    std::string remoteAddress;
-    std::string ipv6Address;
-    std::string manualAddress;
-    std::string macAddress;
-    uint16_t httpsPort = 0;
-    uint32_t runningGameId = 0;
-    std::vector<HostAppRecord> apps;
-    HostAppListState appListState = HostAppListState::idle;
-    std::string appListStatusMessage;
-    uint16_t resolvedHttpPort = 0;
-    uint64_t appListContentHash = 0;
-    uint32_t lastAppListRefreshTick = 0;
+    std::string displayName;  ///< User-facing host label shown in the shell.
+    std::string address;  ///< Stored primary IPv4 address for the host.
+    uint16_t port = 0;  ///< Stored HTTP port override where zero means DEFAULT_HOST_PORT.
+    PairingState pairingState = PairingState::not_paired;  ///< Current pairing state for this client.
+    HostReachability reachability = HostReachability::unknown;  ///< Most recent reachability probe result.
+    std::string activeAddress;  ///< Best currently reachable address for live operations.
+    std::string uuid;  ///< Host UUID reported by Sunshine or GeForce Experience.
+    std::string localAddress;  ///< Reported LAN address from the host status response.
+    std::string remoteAddress;  ///< Reported WAN address from the host status response.
+    std::string ipv6Address;  ///< Reported IPv6 address from the host status response.
+    std::string manualAddress;  ///< Original manually entered address, when different from address.
+    std::string macAddress;  ///< Reported MAC address for the host.
+    uint16_t httpsPort = 0;  ///< HTTPS port reported by the host for asset requests.
+    uint32_t runningGameId = 0;  ///< Currently running app identifier, or zero when idle.
+    std::vector<HostAppRecord> apps;  ///< Latest fetched app list for the host.
+    HostAppListState appListState = HostAppListState::idle;  ///< Fetch state for the cached app list.
+    std::string appListStatusMessage;  ///< User-visible status for the most recent app list operation.
+    uint16_t resolvedHttpPort = 0;  ///< Effective HTTP port confirmed by the latest status query.
+    uint64_t appListContentHash = 0;  ///< Stable hash of the last fetched app list contents.
+    uint32_t lastAppListRefreshTick = 0;  ///< Tick count for the most recent app list refresh.
   };
 
   /**
    * @brief Result of parsing a serialized host record list.
    */
   struct ParseHostRecordsResult {
-    std::vector<HostRecord> records;
-    std::vector<std::string> errors;
+    std::vector<HostRecord> records;  ///< Parsed host records accepted from the serialized input.
+    std::vector<std::string> errors;  ///< Non-fatal line-level parse or validation errors.
   };
 
   /**
