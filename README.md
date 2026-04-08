@@ -7,9 +7,12 @@
 
 Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT use!
 
-Nothing works, except the splash screen.
+> [!WARNING]
+> Streaming does not work yet.
 
-![Splash Screen](./docs/images/loading.png)
+![Splash Screen](./docs/images/screenshots/01-splash.png)
+![Hosts Screen](./docs/images/screenshots/02-hosts.png)
+![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
 ## Build
@@ -190,6 +193,7 @@ scripts\setup-xemu.cmd --skip-support-files
 
 > [!NOTE]
 > You can set Xemu to use widescreen mode by using https://github.com/Ernegien/XboxEepromEditor
+> but 1080i does not work in Xemu.
 
 ## Todo
 
@@ -207,6 +211,7 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] Enable sonarcloud
    - [x] Build moonlight-common-c
       - [x] Build custom enet
+  - [x] Docs via doxygen
 - Menus / Screens
    - [x] Loading/splash screen
       - [x] Initial loading screen, see https://github.com/XboxDev/nxdk/blob/master/samples/sdl_image/main.c
@@ -235,7 +240,6 @@ scripts\setup-xemu.cmd --skip-support-files
 - Misc.
   - [x] Save config and pairing states
   - [x] Host pairing
-  - [x] Docs via doxygen
   - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
 
 <details style="display: none;">
