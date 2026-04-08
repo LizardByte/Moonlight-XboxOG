@@ -42,6 +42,16 @@ namespace input {
   };
 
   /**
+   * @brief Controller axis directions mapped onto UI navigation commands.
+   */
+  enum class GamepadAxisDirection {
+    left_stick_up,
+    left_stick_down,
+    left_stick_left,
+    left_stick_right,
+  };
+
+  /**
    * @brief Keyboard keys mapped onto the same abstract UI commands.
    */
   enum class KeyboardKey {
@@ -69,6 +79,14 @@ namespace input {
    * @return The abstract UI command to process.
    */
   UiCommand map_gamepad_button_to_ui_command(GamepadButton button);
+
+  /**
+   * @brief Map a controller axis direction to a UI command.
+   *
+   * @param direction Controller axis direction that crossed the navigation threshold.
+   * @return The abstract UI command to process.
+   */
+  UiCommand map_gamepad_axis_direction_to_ui_command(GamepadAxisDirection direction);
 
   /**
    * @brief Map a keyboard key to a UI command.

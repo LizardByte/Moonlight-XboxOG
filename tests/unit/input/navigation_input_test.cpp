@@ -16,6 +16,13 @@ namespace {
     EXPECT_EQ(input::map_gamepad_button_to_ui_command(input::GamepadButton::y), input::UiCommand::open_context_menu);
   }
 
+  TEST(NavigationInputTest, MapsControllerAxisDirectionsToNavigationCommands) {
+    EXPECT_EQ(input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_up), input::UiCommand::move_up);
+    EXPECT_EQ(input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_down), input::UiCommand::move_down);
+    EXPECT_EQ(input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_left), input::UiCommand::move_left);
+    EXPECT_EQ(input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_right), input::UiCommand::move_right);
+  }
+
   TEST(NavigationInputTest, MapsKeyboardKeysToNavigationCommands) {
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::down), input::UiCommand::move_down);
     EXPECT_EQ(input::map_keyboard_key_to_ui_command(input::KeyboardKey::enter), input::UiCommand::confirm);

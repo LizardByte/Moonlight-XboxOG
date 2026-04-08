@@ -22,7 +22,6 @@
 #include <openssl/pem.h>
 #include <openssl/rand.h>
 #include <openssl/rsa.h>
-#include <openssl/sha.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
@@ -1086,310 +1085,6 @@ namespace {
     return elements;
   }
 
-  void skip_json_whitespace(std::string_view json, std::size_t *cursor) {
-    if (cursor == nullptr) {
-      return;
-    }
-
-    while (*cursor < json.size() && std::isspace(static_cast<unsigned char>(json[*cursor]))) {
-      ++(*cursor);
-    }
-  }
-
-  bool parse_json_string_literal(std::string_view json, std::size_t *cursor, std::string *value) {
-    if (cursor == nullptr || *cursor >= json.size() || json[*cursor] != '"') {
-      return false;
-    }
-
-    ++(*cursor);
-    std::string parsedValue;
-    while (*cursor < json.size()) {
-      const char character = json[*cursor];
-      ++(*cursor);
-      if (character == '"') {
-        if (value != nullptr) {
-          *value = std::move(parsedValue);
-        }
-        return true;
-      }
-      if (character != '\\') {
-        parsedValue.push_back(character);
-        continue;
-      }
-
-      if (*cursor >= json.size()) {
-        return false;
-      }
-
-      const char escaped = json[*cursor];
-      ++(*cursor);
-      switch (escaped) {
-        case '"':
-        case '\\':
-        case '/':
-          parsedValue.push_back(escaped);
-          break;
-        case 'b':
-          parsedValue.push_back('\b');
-          break;
-        case 'f':
-          parsedValue.push_back('\f');
-          break;
-        case 'n':
-          parsedValue.push_back('\n');
-          break;
-        case 'r':
-          parsedValue.push_back('\r');
-          break;
-        case 't':
-          parsedValue.push_back('\t');
-          break;
-        case 'u':
-          if ((*cursor + 4U) > json.size()) {
-            return false;
-          }
-          parsedValue.push_back('?');
-          *cursor += 4U;
-          break;
-        default:
-          parsedValue.push_back(escaped);
-          break;
-      }
-    }
-
-    return false;
-  }
-
-  bool find_matching_json_delimiter(std::string_view json, std::size_t openIndex, char openCharacter, char closeCharacter, std::size_t *closeIndex) {
-    if (openIndex >= json.size() || json[openIndex] != openCharacter) {
-      return false;
-    }
-
-    bool inString = false;
-    bool escaped = false;
-    int depth = 0;
-    for (std::size_t index = openIndex; index < json.size(); ++index) {
-      const char character = json[index];
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-        } else if (character == '\\') {
-          escaped = true;
-        } else if (character == '"') {
-          inString = false;
-        }
-        continue;
-      }
-
-      if (character == '"') {
-        inString = true;
-        continue;
-      }
-      if (character == openCharacter) {
-        ++depth;
-        continue;
-      }
-      if (character == closeCharacter) {
-        --depth;
-        if (depth == 0) {  // NOSONAR(cpp:S134) delimiter matching keeps nested parsing state local
-          if (closeIndex != nullptr) {
-            *closeIndex = index;
-          }
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  bool extract_json_named_array(std::string_view json, std::string_view fieldName, std::string_view *arrayView) {
-    const std::string keyToken = "\"" + std::string(fieldName) + "\"";
-    std::size_t cursor = 0;
-    while (cursor < json.size()) {
-      const std::size_t keyIndex = json.find(keyToken, cursor);
-      if (keyIndex == std::string_view::npos) {
-        return false;
-      }
-
-      std::size_t separatorIndex = keyIndex + keyToken.size();
-      skip_json_whitespace(json, &separatorIndex);
-      if (separatorIndex >= json.size() || json[separatorIndex] != ':') {
-        cursor = keyIndex + 1;
-        continue;
-      }
-
-      ++separatorIndex;
-      skip_json_whitespace(json, &separatorIndex);
-      if (separatorIndex >= json.size() || json[separatorIndex] != '[') {
-        cursor = keyIndex + 1;
-        continue;
-      }
-
-      std::size_t arrayEnd = separatorIndex;
-      if (!find_matching_json_delimiter(json, separatorIndex, '[', ']', &arrayEnd)) {
-        return false;
-      }
-
-      if (arrayView != nullptr) {
-        *arrayView = json.substr(separatorIndex, arrayEnd - separatorIndex + 1U);
-      }
-      return true;
-    }
-
-    return false;
-  }
-
-  std::vector<std::string_view> extract_json_object_blocks(std::string_view arrayView) {
-    std::vector<std::string_view> blocks;
-    if (arrayView.size() < 2U || arrayView.front() != '[' || arrayView.back() != ']') {
-      return blocks;
-    }
-
-    std::size_t cursor = 1;
-    while (cursor + 1U < arrayView.size()) {  // NOSONAR(cpp:S924) permissive JSON scanning uses multiple early breaks for malformed payloads
-      skip_json_whitespace(arrayView, &cursor);
-      if (cursor + 1U >= arrayView.size()) {
-        break;
-      }
-      if (arrayView[cursor] == ',') {
-        ++cursor;
-        continue;
-      }
-      if (arrayView[cursor] != '{') {
-        ++cursor;
-        continue;
-      }
-
-      std::size_t objectEnd = cursor;
-      if (!find_matching_json_delimiter(arrayView, cursor, '{', '}', &objectEnd)) {
-        break;
-      }
-
-      blocks.push_back(arrayView.substr(cursor, objectEnd - cursor + 1U));
-      cursor = objectEnd + 1U;
-    }
-
-    return blocks;
-  }
-
-  bool extract_json_field_value(std::string_view object, std::string_view fieldName, std::string_view *valueView, bool *isStringValue = nullptr) {  // NOSONAR(cpp:S3776) permissive JSON parsing stays centralized here
-    if (object.empty() || object.front() != '{') {
-      return false;
-    }
-
-    std::size_t cursor = 1;
-    while (cursor < object.size()) {
-      skip_json_whitespace(object, &cursor);
-      if (cursor >= object.size() || object[cursor] == '}') {
-        return false;
-      }
-
-      std::size_t keyCursor = cursor;
-      std::string key;
-      if (!parse_json_string_literal(object, &keyCursor, &key)) {
-        return false;
-      }
-
-      skip_json_whitespace(object, &keyCursor);
-      if (keyCursor >= object.size() || object[keyCursor] != ':') {
-        return false;
-      }
-
-      ++keyCursor;
-      skip_json_whitespace(object, &keyCursor);
-      if (keyCursor >= object.size()) {
-        return false;
-      }
-
-      const std::size_t valueStart = keyCursor;
-      std::size_t valueEnd = valueStart;
-      bool valueIsString = false;
-      if (object[keyCursor] == '"') {
-        valueIsString = true;
-        if (std::string ignored; !parse_json_string_literal(object, &keyCursor, &ignored)) {
-          return false;
-        }
-        valueEnd = keyCursor;
-      } else if (object[keyCursor] == '{') {
-        if (!find_matching_json_delimiter(object, keyCursor, '{', '}', &valueEnd)) {
-          return false;
-        }
-        keyCursor = valueEnd + 1U;
-      } else if (object[keyCursor] == '[') {
-        if (!find_matching_json_delimiter(object, keyCursor, '[', ']', &valueEnd)) {
-          return false;
-        }
-        keyCursor = valueEnd + 1U;
-      } else {
-        while (keyCursor < object.size() && object[keyCursor] != ',' && object[keyCursor] != '}') {
-          ++keyCursor;
-        }
-        valueEnd = keyCursor;
-      }
-
-      if (key == fieldName) {
-        if (valueView != nullptr) {
-          *valueView = trim_ascii_whitespace(object.substr(valueStart, valueEnd - valueStart));
-        }
-        if (isStringValue != nullptr) {
-          *isStringValue = valueIsString;
-        }
-        return true;
-      }
-
-      cursor = keyCursor;
-      if (cursor < object.size() && object[cursor] == ',') {
-        ++cursor;
-      }
-    }
-
-    return false;
-  }
-
-  bool extract_json_string_like_field(std::string_view object, const std::vector<std::string_view> &fieldNames, std::string *value) {
-    for (std::string_view fieldName : fieldNames) {
-      std::string_view rawValue;
-      bool isStringValue = false;
-      if (!extract_json_field_value(object, fieldName, &rawValue, &isStringValue)) {
-        continue;
-      }
-
-      if (isStringValue) {
-        std::size_t cursor = 0;
-        std::string parsedValue;
-        if (parse_json_string_literal(rawValue, &cursor, &parsedValue)) {
-          if (value != nullptr) {  // NOSONAR(cpp:S134) JSON field extraction keeps conversion adjacent to the matching field
-            *value = std::move(parsedValue);
-          }
-          return true;
-        }
-      } else if (!rawValue.empty()) {
-        if (value != nullptr) {
-          *value = std::string(trim_ascii_whitespace(rawValue));
-        }
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  bool extract_json_bool_like_field(std::string_view object, const std::vector<std::string_view> &fieldNames, bool *value) {
-    for (std::string_view fieldName : fieldNames) {
-      std::string text;
-      if (!extract_json_string_like_field(object, {fieldName}, &text)) {
-        continue;
-      }
-
-      if (try_parse_flag(text, value)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
   std::vector<XmlElementView> extract_candidate_app_elements(std::string_view xml) {
     for (std::string_view tagName : {std::string_view("App"), std::string_view("app"), std::string_view("Game"), std::string_view("game"), std::string_view("Application"), std::string_view("application"), std::string_view("Program"), std::string_view("program")}) {
       std::vector<XmlElementView> elements = extract_xml_elements(xml, tagName);
@@ -1399,58 +1094,6 @@ namespace {
     }
 
     return {};
-  }
-
-  bool parse_json_app_list_response(std::string_view json, std::vector<network::HostAppEntry> *apps, std::string *errorMessage) {
-    const std::string_view trimmed = trim_ascii_whitespace(json);
-    std::string_view appArray;
-    if (!trimmed.empty() && trimmed.front() == '[') {
-      appArray = trimmed;
-    } else {
-      for (std::string_view fieldName : {std::string_view("apps"), std::string_view("Applications"), std::string_view("applications"), std::string_view("games"), std::string_view("Games"), std::string_view("applist"), std::string_view("data")}) {
-        if (extract_json_named_array(trimmed, fieldName, &appArray)) {
-          break;
-        }
-      }
-    }
-
-    if (appArray.empty()) {
-      return append_error(errorMessage, "The host applist response did not contain any app entries");
-    }
-
-    const std::vector<std::string_view> appObjects = extract_json_object_blocks(appArray);
-    if (appObjects.empty()) {
-      return append_error(errorMessage, "The host applist response did not contain any app entries");
-    }
-
-    std::vector<network::HostAppEntry> parsedApps;
-    parsedApps.reserve(appObjects.size());
-    for (std::string_view appObject : appObjects) {
-      std::string name;
-      std::string idText;
-      extract_json_string_like_field(appObject, {"AppTitle", "title", "Title", "name", "Name", "displayName", "DisplayName"}, &name);
-      extract_json_string_like_field(appObject, {"ID", "id", "Id", "appid", "appId", "AppId"}, &idText);
-
-      uint32_t parsedId = 0;
-      if (name.empty() || !try_parse_uint32(trim_ascii_whitespace(idText), &parsedId) || parsedId == 0U) {
-        continue;
-      }
-
-      bool hdrSupported = false;
-      bool hidden = false;
-      extract_json_bool_like_field(appObject, {"IsHdrSupported", "HDRSupported", "isHdrSupported", "hdrSupported"}, &hdrSupported);
-      extract_json_bool_like_field(appObject, {"Hidden", "hidden", "IsHidden", "isHidden"}, &hidden);
-      parsedApps.push_back({name, static_cast<int>(parsedId), hdrSupported, hidden});
-    }
-
-    if (parsedApps.empty()) {
-      return append_error(errorMessage, "The host applist response did not include any valid app IDs");
-    }
-
-    if (apps != nullptr) {
-      *apps = std::move(parsedApps);
-    }
-    return true;
   }
 
   bool append_applist_status_error(std::string_view responseBody, std::string *errorMessage) {
@@ -2016,19 +1659,18 @@ namespace {
     return parse_http_response(rawResponse, response, errorMessage);
   }
 
-  const EVP_MD *pairing_digest(int serverMajorVersion) {
-    // TODO: remove legacy support... it is not needed
-    return serverMajorVersion >= 7 ? EVP_sha256() : EVP_sha1();  // NOSONAR(cpp:S4790) legacy servers require SHA-1 compatibility
+  const EVP_MD *pairing_digest() {
+    return EVP_sha256();
   }
 
-  std::size_t pairing_hash_length(int serverMajorVersion) {
-    return serverMajorVersion >= 7 ? 32U : 20U;
+  std::size_t pairing_hash_length() {
+    return 32U;
   }
 
-  bool compute_digest(const unsigned char *data, std::size_t size, int serverMajorVersion, std::vector<unsigned char> *digest, std::string *errorMessage) {
+  bool compute_digest(const unsigned char *data, std::size_t size, std::vector<unsigned char> *digest, std::string *errorMessage) {
     unsigned int digestLength = 0;
     std::vector<unsigned char> output(EVP_MAX_MD_SIZE);
-    if (EVP_Digest(data, size, output.data(), &digestLength, pairing_digest(serverMajorVersion), nullptr) != 1) {
+    if (EVP_Digest(data, size, output.data(), &digestLength, pairing_digest(), nullptr) != 1) {
       return append_error(errorMessage, "Failed to compute the host pairing digest");
     }
 
@@ -2121,7 +1763,7 @@ namespace {
     return true;
   }
 
-  bool derive_aes_key(std::string_view saltHex, std::string_view pin, int serverMajorVersion, std::vector<unsigned char> *key, std::string *errorMessage) {
+  bool derive_aes_key(std::string_view saltHex, std::string_view pin, std::vector<unsigned char> *key, std::string *errorMessage) {
     std::vector<unsigned char> saltBytes;
     if (!hex_decode(saltHex, &saltBytes, errorMessage) || saltBytes.size() != 16U || pin.size() != 4U) {
       return append_error(errorMessage, "The host pairing salt or PIN was invalid");
@@ -2131,7 +1773,7 @@ namespace {
     combined.reserve(saltBytes.size() + pin.size());
     combined.insert(combined.end(), saltBytes.begin(), saltBytes.end());
     combined.insert(combined.end(), pin.begin(), pin.end());
-    return compute_digest(combined.data(), combined.size(), serverMajorVersion, key, errorMessage);
+    return compute_digest(combined.data(), combined.size(), key, errorMessage);
   }
 
   bool parse_pairing_tag(const HttpResponse &response, std::string_view tagName, std::string *value, std::string *errorMessage) {
@@ -2284,7 +1926,7 @@ namespace network {
       if (!trimmedResponse.empty() && trimmedResponse.front() == '<') {
         return append_applist_status_error(trimmedResponse, errorMessage);
       }
-      return parse_json_app_list_response(trimmedResponse, apps, errorMessage);
+      return append_error(errorMessage, "The applist response was not XML (payload preview: " + summarize_http_payload_preview(trimmedResponse) + ")");
     }
 
     std::vector<HostAppEntry> parsedApps;
@@ -2619,7 +2261,7 @@ namespace network {
 
     std::vector<unsigned char> aesKey;
     trace_pairing_phase("deriving AES key");
-    if (!derive_aes_key(saltHex, request.pin, serverInfo.serverMajorVersion, &aesKey, &errorMessage)) {
+    if (!derive_aes_key(saltHex, request.pin, &aesKey, &errorMessage)) {
       return fail_with_phase("phase 1 (derive AES key)", errorMessage);
     }
     if (fail_if_cancelled()) {
@@ -2663,7 +2305,7 @@ namespace network {
       return fail_with_phase("phase 2 (client challenge)", errorMessage);
     }
 
-    const std::size_t hashLength = pairing_hash_length(serverInfo.serverMajorVersion);
+    const std::size_t hashLength = pairing_hash_length();
     if (challengeResponsePlaintext.size() < hashLength + 16U) {
       result.message = "The host returned an incomplete challenge response during pairing";
       return result;
@@ -2685,7 +2327,7 @@ namespace network {
     clientHashSource.insert(clientHashSource.end(), clientSecretBytes.begin(), clientSecretBytes.end());
 
     std::vector<unsigned char> clientHash;
-    if (!compute_digest(clientHashSource.data(), clientHashSource.size(), serverInfo.serverMajorVersion, &clientHash, &errorMessage)) {
+    if (!compute_digest(clientHashSource.data(), clientHashSource.size(), &clientHash, &errorMessage)) {
       return fail_with_phase("phase 3 (server challenge response)", errorMessage);
     }
 

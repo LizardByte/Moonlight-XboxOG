@@ -5,6 +5,7 @@
 #include "src/network/host_pairing.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -21,17 +22,46 @@ namespace {
   constexpr std::size_t ADD_HOST_KEYPAD_COLUMN_COUNT = 3U;
   constexpr const char *DELETE_SAVED_FILE_MENU_ID_PREFIX = "delete-saved-file:";
   constexpr const char *SETTINGS_CATEGORY_PREFIX = "settings-category:";
+  constexpr std::array<char, 11> ADD_HOST_ADDRESS_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'};
+  constexpr std::array<char, 10> ADD_HOST_PORT_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
 
-  struct AddHostKeypadButton {
-    char character;
+  /**
+   * @brief Describes the keypad characters available for the active add-host field.
+   */
+  struct AddHostKeypadLayout {
+    const char *characters;  ///< Null-terminated backing storage for the keypad characters.
+    std::size_t buttonCount;  ///< Number of selectable keypad buttons in the layout.
   };
 
-  std::vector<AddHostKeypadButton> build_add_host_keypad_buttons(const app::ClientState &state) {
+  /**
+   * @brief Returns the keypad character layout for the active add-host field.
+   *
+   * @param state Current client state containing the active add-host field.
+   * @return The keypad layout that matches the active add-host field.
+   */
+  AddHostKeypadLayout add_host_keypad_layout(const app::ClientState &state) {
     if (state.addHostDraft.activeField == app::AddHostField::address) {
-      return {{'1'}, {'2'}, {'3'}, {'4'}, {'5'}, {'6'}, {'7'}, {'8'}, {'9'}, {'.'}, {'0'}};
+      return {ADD_HOST_ADDRESS_KEYPAD_CHARACTERS.data(), ADD_HOST_ADDRESS_KEYPAD_CHARACTERS.size()};
     }
 
-    return {{'1'}, {'2'}, {'3'}, {'4'}, {'5'}, {'6'}, {'7'}, {'8'}, {'9'}, {'0'}};
+    return {ADD_HOST_PORT_KEYPAD_CHARACTERS.data(), ADD_HOST_PORT_KEYPAD_CHARACTERS.size()};
+  }
+
+  /**
+   * @brief Returns the currently selected keypad character for the active add-host field.
+   *
+   * @param state Current client state containing the keypad selection.
+   * @param character Receives the selected keypad character when one is available.
+   * @return True when a keypad character was written to @p character.
+   */
+  bool selected_add_host_keypad_character(const app::ClientState &state, char *character) {
+    const AddHostKeypadLayout layout = add_host_keypad_layout(state);
+    if (character == nullptr || layout.buttonCount == 0U) {
+      return false;
+    }
+
+    *character = layout.characters[state.addHostDraft.keypad.selectedButtonIndex % layout.buttonCount];
+    return true;
   }
 
   std::string add_host_field_menu_id(app::AddHostField field) {
@@ -452,25 +482,46 @@ namespace {
   }
 
   bool move_add_host_keypad_selection(app::ClientState &state, int rowDelta, int columnDelta) {
-    const std::vector<AddHostKeypadButton> buttons = build_add_host_keypad_buttons(state);
-    if (buttons.empty()) {
+    const AddHostKeypadLayout layout = add_host_keypad_layout(state);
+    if (layout.buttonCount == 0U) {
       return false;
     }
 
-    const auto rowCount = static_cast<int>((buttons.size() + ADD_HOST_KEYPAD_COLUMN_COUNT - 1U) / ADD_HOST_KEYPAD_COLUMN_COUNT);
-    const std::size_t currentIndex = state.addHostDraft.keypad.selectedButtonIndex % buttons.size();
-    auto currentRow = static_cast<int>(currentIndex / ADD_HOST_KEYPAD_COLUMN_COUNT);
-    auto currentColumn = static_cast<int>(currentIndex % ADD_HOST_KEYPAD_COLUMN_COUNT);
+    const auto rowCount = static_cast<int>((layout.buttonCount + ADD_HOST_KEYPAD_COLUMN_COUNT - 1U) / ADD_HOST_KEYPAD_COLUMN_COUNT);
+    const std::size_t currentIndex = state.addHostDraft.keypad.selectedButtonIndex % layout.buttonCount;
+    const auto currentRow = static_cast<int>(currentIndex / ADD_HOST_KEYPAD_COLUMN_COUNT);
+    const auto currentColumn = static_cast<int>(currentIndex % ADD_HOST_KEYPAD_COLUMN_COUNT);
 
-    currentRow = std::clamp(currentRow + rowDelta, 0, rowCount - 1);
-    currentColumn = std::clamp(currentColumn + columnDelta, 0, static_cast<int>(ADD_HOST_KEYPAD_COLUMN_COUNT) - 1);
+    auto wrap_index = [](int value, int count) {
+      if (count <= 0) {
+        return 0;
+      }
 
-    auto nextIndex = (static_cast<std::size_t>(currentRow) * ADD_HOST_KEYPAD_COLUMN_COUNT) + static_cast<std::size_t>(currentColumn);
-    if (nextIndex >= buttons.size()) {
-      nextIndex = buttons.size() - 1U;
+      int wrappedValue = value % count;
+      if (wrappedValue < 0) {
+        wrappedValue += count;
+      }
+      return wrappedValue;
+    };
+
+    int targetRow = currentRow;
+    int targetColumn = currentColumn;
+    if (rowDelta != 0) {
+      targetRow = wrap_index(currentRow + rowDelta, rowCount);
+      const std::size_t rowStart = static_cast<std::size_t>(targetRow) * ADD_HOST_KEYPAD_COLUMN_COUNT;
+      const std::size_t rowWidth = std::min<std::size_t>(ADD_HOST_KEYPAD_COLUMN_COUNT, layout.buttonCount - rowStart);
+      targetColumn = static_cast<int>(std::min<std::size_t>(currentColumn, rowWidth - 1U));
     }
+
+    const std::size_t targetRowStart = static_cast<std::size_t>(targetRow) * ADD_HOST_KEYPAD_COLUMN_COUNT;
+    const std::size_t targetRowWidth = std::min<std::size_t>(ADD_HOST_KEYPAD_COLUMN_COUNT, layout.buttonCount - targetRowStart);
+    if (columnDelta != 0 && targetRowWidth > 0U) {
+      targetColumn = wrap_index(targetColumn + columnDelta, static_cast<int>(targetRowWidth));
+    }
+
+    const auto nextIndex = targetRowStart + static_cast<std::size_t>(targetColumn);
     state.addHostDraft.keypad.selectedButtonIndex = nextIndex;
-    return true;
+    return nextIndex != currentIndex;
   }
 
   void append_to_active_add_host_field(app::ClientState &state, char character) {
@@ -1255,8 +1306,9 @@ namespace app {
           return update;
         case input::UiCommand::activate:
           {
-            if (const std::vector<AddHostKeypadButton> buttons = build_add_host_keypad_buttons(state); !buttons.empty()) {
-              append_to_active_add_host_field(state, buttons[state.addHostDraft.keypad.selectedButtonIndex % buttons.size()].character);
+            char character = '\0';
+            if (selected_add_host_keypad_character(state, &character)) {
+              append_to_active_add_host_field(state, character);
             }
             return update;
           }

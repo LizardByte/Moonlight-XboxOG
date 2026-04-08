@@ -713,6 +713,50 @@ namespace {
     EXPECT_EQ(state.addHostDraft.addressInput, std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]) + "1");
   }
 
+  TEST(ClientStateTest, AddHostKeypadWrapsHorizontallyAcrossRowEdges) {
+    app::ClientState state = app::create_initial_state();
+
+    app::handle_command(state, input::UiCommand::activate);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_TRUE(state.addHostDraft.keypad.visible);
+
+    state.addHostDraft.keypad.selectedButtonIndex = 2U;
+    app::handle_command(state, input::UiCommand::move_right);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 0U);
+
+    app::handle_command(state, input::UiCommand::move_left);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 2U);
+
+    state.addHostDraft.keypad.selectedButtonIndex = 10U;
+    app::handle_command(state, input::UiCommand::move_right);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 9U);
+
+    app::handle_command(state, input::UiCommand::move_left);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 10U);
+  }
+
+  TEST(ClientStateTest, AddHostKeypadWrapsVerticallyAcrossTopAndBottomRows) {
+    app::ClientState state = app::create_initial_state();
+
+    app::handle_command(state, input::UiCommand::activate);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_TRUE(state.addHostDraft.keypad.visible);
+
+    state.addHostDraft.keypad.selectedButtonIndex = 1U;
+    app::handle_command(state, input::UiCommand::move_up);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 10U);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 1U);
+
+    state.addHostDraft.keypad.selectedButtonIndex = 8U;
+    app::handle_command(state, input::UiCommand::move_down);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 10U);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 1U);
+  }
+
   TEST(ClientStateTest, SuccessfulPairingReturnsToHostsAndKeepsTheHostSelected) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {

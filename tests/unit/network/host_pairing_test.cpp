@@ -200,20 +200,12 @@ namespace {
     EXPECT_TRUE(apps[1].hdrSupported);
   }
 
-  TEST(HostPairingTest, ParsesJsonAppLists) {
-    const std::string json = R"({"apps":[{"name":"Steam","id":401,"hdrSupported":true},{"title":"Desktop","appid":"402","hidden":false}]})";
-
+  TEST(HostPairingTest, RejectsNonXmlAppLists) {
     std::vector<network::HostAppEntry> apps;
     std::string errorMessage;
 
-    ASSERT_TRUE(network::parse_app_list_response(json, &apps, &errorMessage)) << errorMessage;
-    ASSERT_EQ(apps.size(), 2U);
-    EXPECT_EQ(apps[0].name, "Steam");
-    EXPECT_EQ(apps[0].id, 401);
-    EXPECT_TRUE(apps[0].hdrSupported);
-    EXPECT_EQ(apps[1].name, "Desktop");
-    EXPECT_EQ(apps[1].id, 402);
-    EXPECT_FALSE(apps[1].hidden);
+    EXPECT_FALSE(network::parse_app_list_response(R"({"apps":[{"name":"Steam","id":401}]})", &apps, &errorMessage));
+    EXPECT_NE(errorMessage.find("not XML"), std::string::npos);
   }
 
   TEST(HostPairingTest, HashesEquivalentAppListsStablyAndDetectsChanges) {

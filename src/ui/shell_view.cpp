@@ -210,7 +210,7 @@ namespace {
     std::vector<std::string> lines = {
       std::string("Editing field: ") + active_add_host_field_label(state),
       std::string("Staged value: ") + keypad_value(state),
-      "Use the D-pad to choose a key, A to enter it, X to delete, Start to accept, and B to cancel.",
+      "Use the D-pad or left stick to choose a key. Hold a direction to keep moving.",
     };
 
     if (state.addHostDraft.activeField == app::AddHostField::address) {
@@ -235,7 +235,7 @@ namespace {
         }
         return {
           "Select a PC to pair or browse its apps.",
-          "Long-press A on a controller, or press Y/I, for host actions.",
+          "Press Y on a controller, or I on a keyboard, for host actions.",
         };
       case app::ScreenId::apps:
         {
@@ -378,9 +378,12 @@ namespace {
         viewModel->modalTitle = "Support";
         viewModel->modalLines = {
           "Moonlight Xbox OG prototype UI",
-          "A / Start: close",
-          "B: close",
-          "Y or I: open context menus on hosts and apps",
+          "Use the footer actions below to close this dialog.",
+          "Open host and app context menus from the Y action on the main screens.",
+        };
+        viewModel->modalFooterActions = {
+          {"close", "Close", "icons\\button-a.svg", "icons\\button-start.svg", true},
+          {"back", "Back", "icons\\button-b.svg", {}, false},
         };
         return;
       case app::ModalId::host_actions:
@@ -447,6 +450,14 @@ namespace {
         viewModel->logViewerLines = state.logViewerLines;
         viewModel->logViewerScrollOffset = state.logViewerScrollOffset;
         viewModel->logViewerPlacement = state.logViewerPlacement;
+        viewModel->modalFooterActions = {
+          {"older", "Older", "icons\\button-lb.svg", {}, false},
+          {"newer", "Newer", "icons\\button-rb.svg", {}, false},
+          {"fast-older", "Fast Older", "icons\\button-lt.svg", {}, false},
+          {"fast-newer", "Fast Newer", "icons\\button-rt.svg", {}, false},
+          {"move-pane", "Move Pane", "icons\\button-x.svg", {}, false},
+          {"close", "Close", "icons\\button-b.svg", {}, true},
+        };
         return;
       case app::ModalId::confirmation:
         viewModel->modalTitle = state.confirmation.title;

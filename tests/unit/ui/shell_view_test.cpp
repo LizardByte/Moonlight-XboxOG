@@ -56,6 +56,8 @@ namespace {
     EXPECT_EQ(viewModel.hostTiles[1].statusLabel, "Online");
     EXPECT_EQ(viewModel.hostTiles[1].iconAssetPath, "icons\\host-monitor-online.svg");
     EXPECT_TRUE(viewModel.hostTiles[1].selected);
+    ASSERT_GE(viewModel.bodyLines.size(), 2U);
+    EXPECT_EQ(viewModel.bodyLines[1], "Press Y on a controller, or I on a keyboard, for host actions.");
   }
 
   TEST(ShellViewTest, HidesHostMenuFooterActionWhenToolbarIsSelected) {
@@ -280,6 +282,23 @@ namespace {
     EXPECT_EQ(viewModel.logViewerScrollOffset, 1U);
     ASSERT_EQ(viewModel.logViewerLines.size(), 2U);
     EXPECT_EQ(viewModel.logViewerLines[0], "[000001] [INFO] app: Entered shell");
+    ASSERT_EQ(viewModel.modalFooterActions.size(), 6U);
+    EXPECT_EQ(viewModel.modalFooterActions[0].iconAssetPath, "icons\\button-lb.svg");
+    EXPECT_EQ(viewModel.modalFooterActions[5].iconAssetPath, "icons\\button-b.svg");
+  }
+
+  TEST(ShellViewTest, BuildsSupportModalFooterActionsWithControllerIcons) {
+    app::ClientState state = app::create_initial_state();
+    state.modal.id = app::ModalId::support;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.modalVisible);
+    EXPECT_EQ(viewModel.modalTitle, "Support");
+    ASSERT_EQ(viewModel.modalFooterActions.size(), 2U);
+    EXPECT_EQ(viewModel.modalFooterActions[0].iconAssetPath, "icons\\button-a.svg");
+    EXPECT_EQ(viewModel.modalFooterActions[0].secondaryIconAssetPath, "icons\\button-start.svg");
+    EXPECT_EQ(viewModel.modalFooterActions[1].iconAssetPath, "icons\\button-b.svg");
   }
 
   TEST(ShellViewTest, BuildsConfirmationModalFooterActionsForResetDialogs) {

@@ -58,10 +58,14 @@ namespace {
   constexpr Uint8 MUTED_GREEN = 0xAB;
   constexpr Uint8 MUTED_BLUE = 0xB5;
   constexpr Sint16 TRIGGER_PAGE_SCROLL_THRESHOLD = 16000;
-  constexpr Uint32 CONTEXT_HOLD_MILLISECONDS = 550U;
+  constexpr Sint16 LEFT_STICK_NAVIGATION_THRESHOLD = 16000;
+  constexpr Sint16 LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD = 12000;
   constexpr Uint32 EXIT_COMBO_HOLD_MILLISECONDS = 900U;
+  constexpr Uint32 CONTROLLER_NAVIGATION_INITIAL_REPEAT_MILLISECONDS = 150U;
+  constexpr Uint32 CONTROLLER_NAVIGATION_REPEAT_MILLISECONDS = 45U;
   constexpr Uint32 LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS = 110U;
   constexpr Uint32 LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS = 45U;
+  constexpr int SHELL_EVENT_WAIT_TIMEOUT_MILLISECONDS = 2;
   constexpr std::size_t LOG_VIEWER_MAX_LOADED_LINES = 512U;
   constexpr std::size_t LOG_VIEWER_MAX_RENDER_CHARACTERS = 320U;
 
@@ -168,14 +172,47 @@ namespace {
     return renderResult == 0;
   }
 
+  /**
+   * @brief Caches cover-art textures keyed by the app art cache key.
+   */
   struct CoverArtTextureCache {
-    std::unordered_map<std::string, SDL_Texture *> textures;
-    std::unordered_map<std::string, bool> failedKeys;
+    std::unordered_map<std::string, SDL_Texture *> textures;  ///< Loaded cover-art textures by cache key.
+    std::unordered_map<std::string, bool> failedKeys;  ///< Cache keys that already failed to load.
   };
 
+  /**
+   * @brief Caches UI asset textures keyed by asset path.
+   */
   struct AssetTextureCache {
-    std::unordered_map<std::string, SDL_Texture *> textures;
-    std::unordered_map<std::string, bool> failedKeys;
+    std::unordered_map<std::string, SDL_Texture *> textures;  ///< Loaded asset textures by path.
+    std::unordered_map<std::string, bool> failedKeys;  ///< Asset paths that already failed to load.
+  };
+
+  /**
+   * @brief Stores a reusable rendered text texture and the inputs that produced it.
+   */
+  struct CachedTextTexture {
+    SDL_Texture *texture = nullptr;  ///< Cached SDL texture for the rendered text.
+    TTF_Font *font = nullptr;  ///< Font used to build the cached texture.
+    std::string sourceText;  ///< Original uncropped text source.
+    std::string renderedText;  ///< Sanitized or cropped text actually rendered into the texture.
+    int maxWidth = 0;  ///< Maximum width used when generating the cached texture.
+    int width = 0;  ///< Cached texture width in pixels.
+    int height = 0;  ///< Cached texture height in pixels.
+    SDL_Color color {0x00, 0x00, 0x00, 0x00};  ///< Text color used when rendering the cached texture.
+    bool wrapped = false;  ///< True when the texture was generated with wrapped rendering.
+  };
+
+  /**
+   * @brief Stores reusable layout and text textures for the add-host keypad modal.
+   */
+  struct KeypadModalLayoutCache {
+    int modalInnerWidth = 0;  ///< Last modal content width used to build the cached line layout.
+    int modalTextHeight = 0;  ///< Cached combined height of the modal body text.
+    std::vector<std::string> lines;  ///< Last body lines used to populate the cache.
+    CachedTextTexture titleTexture;  ///< Cached rendered title texture.
+    std::vector<CachedTextTexture> lineTextures;  ///< Cached rendered body line textures.
+    std::vector<CachedTextTexture> buttonLabelTextures;  ///< Cached rendered keypad button labels.
   };
 
   bool render_footer_actions(
@@ -222,6 +259,55 @@ namespace {
     }
     cache->textures.clear();
     cache->failedKeys.clear();
+  }
+
+  /**
+   * @brief Returns whether two SDL colors are identical.
+   *
+   * @param left First color to compare.
+   * @param right Second color to compare.
+   * @return True when all RGBA components match.
+   */
+  bool colors_match(SDL_Color left, SDL_Color right) {
+    return left.r == right.r && left.g == right.g && left.b == right.b && left.a == right.a;
+  }
+
+  /**
+   * @brief Releases a cached text texture and resets its metadata.
+   *
+   * @param cache Cached text entry to clear.
+   */
+  void clear_cached_text_texture(CachedTextTexture *cache) {
+    if (cache == nullptr) {
+      return;
+    }
+
+    destroy_texture(cache->texture);
+    *cache = {};
+  }
+
+  /**
+   * @brief Releases every cached text texture stored for the keypad modal.
+   *
+   * @param cache Keypad modal cache to clear.
+   */
+  void clear_keypad_modal_layout_cache(KeypadModalLayoutCache *cache) {
+    if (cache == nullptr) {
+      return;
+    }
+
+    clear_cached_text_texture(&cache->titleTexture);
+    for (CachedTextTexture &lineTexture : cache->lineTextures) {
+      clear_cached_text_texture(&lineTexture);
+    }
+    for (CachedTextTexture &buttonLabelTexture : cache->buttonLabelTextures) {
+      clear_cached_text_texture(&buttonLabelTexture);
+    }
+    cache->lineTextures.clear();
+    cache->buttonLabelTextures.clear();
+    cache->modalInnerWidth = 0;
+    cache->modalTextHeight = 0;
+    cache->lines.clear();
   }
 
   Uint32 color_seed(std::string_view text) {
@@ -528,6 +614,188 @@ namespace {
     return render_surface_line(renderer, surface, x, y, drawnHeight);
   }
 
+  /**
+   * @brief Builds or reuses a cached wrapped text texture for keypad modal content.
+   *
+   * @param renderer SDL renderer used to create textures.
+   * @param font Font used to render the text.
+   * @param text Source text to cache.
+   * @param color Text color used for rendering.
+   * @param maxWidth Maximum wrapped width in pixels.
+   * @param cache Cache entry to populate or reuse.
+   * @return True when the wrapped texture is ready for use.
+   */
+  bool ensure_wrapped_text_texture(
+    SDL_Renderer *renderer,
+    TTF_Font *font,
+    const std::string &text,
+    SDL_Color color,
+    int maxWidth,
+    CachedTextTexture *cache
+  ) {
+    if (font == nullptr || maxWidth <= 0 || cache == nullptr) {
+      return false;
+    }
+
+    const std::string renderText = sanitize_text_for_render(text);
+    if (
+      cache->texture != nullptr && cache->wrapped && cache->font == font && cache->sourceText == text && cache->renderedText == renderText && cache->maxWidth == maxWidth &&
+      colors_match(cache->color, color)
+    ) {
+      return true;
+    }
+
+    clear_cached_text_texture(cache);
+    cache->font = font;
+    cache->sourceText = text;
+    cache->renderedText = renderText;
+    cache->maxWidth = maxWidth;
+    cache->color = color;
+    cache->wrapped = true;
+    cache->height = renderText.empty() ? TTF_FontLineSkip(font) : 0;
+
+    if (renderText.empty()) {
+      return true;
+    }
+
+    SDL_Surface *surface = TTF_RenderUTF8_Blended_Wrapped(font, renderText.c_str(), color, static_cast<Uint32>(maxWidth));
+    if (surface == nullptr) {
+      cache->height = TTF_FontLineSkip(font);
+      return false;
+    }
+
+    cache->width = surface->w;
+    cache->height = surface->h;
+    cache->texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    if (cache->texture == nullptr) {
+      cache->width = 0;
+      cache->height = TTF_FontLineSkip(font);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Builds or reuses a cached single-line text texture for keypad button labels.
+   *
+   * @param renderer SDL renderer used to create textures.
+   * @param font Font used to render the text.
+   * @param text Source text to cache.
+   * @param color Text color used for rendering.
+   * @param maxWidth Maximum label width in pixels.
+   * @param cache Cache entry to populate or reuse.
+   * @return True when the single-line texture is ready for use.
+   */
+  bool ensure_single_line_text_texture(
+    SDL_Renderer *renderer,
+    TTF_Font *font,
+    const std::string &text,
+    SDL_Color color,
+    int maxWidth,
+    CachedTextTexture *cache
+  ) {
+    if (font == nullptr || maxWidth <= 0 || cache == nullptr) {
+      return false;
+    }
+
+    const std::string renderText = fit_single_line_text(font, text, maxWidth);
+    if (
+      cache->texture != nullptr && !cache->wrapped && cache->font == font && cache->sourceText == text && cache->renderedText == renderText && cache->maxWidth == maxWidth &&
+      colors_match(cache->color, color)
+    ) {
+      return true;
+    }
+
+    clear_cached_text_texture(cache);
+    cache->font = font;
+    cache->sourceText = text;
+    cache->renderedText = renderText;
+    cache->maxWidth = maxWidth;
+    cache->color = color;
+    cache->wrapped = false;
+    cache->height = renderText.empty() ? TTF_FontLineSkip(font) : 0;
+
+    if (renderText.empty()) {
+      return true;
+    }
+
+    SDL_Surface *surface = TTF_RenderText_Blended(font, renderText.c_str(), color);
+    if (surface == nullptr) {
+      cache->height = TTF_FontLineSkip(font);
+      return false;
+    }
+
+    cache->width = surface->w;
+    cache->height = surface->h;
+    cache->texture = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_FreeSurface(surface);
+    if (cache->texture == nullptr) {
+      cache->width = 0;
+      cache->height = TTF_FontLineSkip(font);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Draws a cached text texture at a fixed point, using stored height for blank lines.
+   *
+   * @param renderer SDL renderer used for drawing.
+   * @param cache Cached text texture to render.
+   * @param x Left destination coordinate.
+   * @param y Top destination coordinate.
+   * @param drawnHeight Receives the rendered or reserved text height.
+   * @return True when drawing succeeded or no texture was required.
+   */
+  bool render_cached_text_texture(SDL_Renderer *renderer, const CachedTextTexture &cache, int x, int y, int *drawnHeight = nullptr) {
+    if (cache.texture == nullptr) {
+      if (drawnHeight != nullptr) {
+        *drawnHeight = cache.height;
+      }
+      return true;
+    }
+
+    const SDL_Rect destination {x, y, cache.width, cache.height};
+    const bool rendered = SDL_RenderCopy(renderer, cache.texture, nullptr, &destination) == 0;
+    if (drawnHeight != nullptr) {
+      *drawnHeight = cache.height;
+    }
+    return rendered;
+  }
+
+  /**
+   * @brief Draws a cached single-line text texture centered within a button rect.
+   *
+   * @param renderer SDL renderer used for drawing.
+   * @param cache Cached text texture to render.
+   * @param rect Button rectangle that should contain the rendered text.
+   * @param drawnHeight Receives the rendered or reserved text height.
+   * @return True when drawing succeeded or no texture was required.
+   */
+  bool render_cached_centered_text_texture(SDL_Renderer *renderer, const CachedTextTexture &cache, const SDL_Rect &rect, int *drawnHeight = nullptr) {
+    if (cache.texture == nullptr) {
+      if (drawnHeight != nullptr) {
+        *drawnHeight = cache.height;
+      }
+      return true;
+    }
+
+    const SDL_Rect destination {
+      rect.x + std::max(0, (rect.w - cache.width) / 2),
+      rect.y + std::max(0, (rect.h - cache.height) / 2),
+      cache.width,
+      cache.height,
+    };
+    const bool rendered = SDL_RenderCopy(renderer, cache.texture, nullptr, &destination) == 0;
+    if (drawnHeight != nullptr) {
+      *drawnHeight = cache.height;
+    }
+    return rendered;
+  }
+
   bool render_text_centered_simple(
     SDL_Renderer *renderer,
     TTF_Font *font,
@@ -573,6 +841,60 @@ namespace {
     const int height = surface->h;
     SDL_FreeSurface(surface);
     return height;
+  }
+
+  /**
+   * @brief Reuses keypad modal text measurements until the content or width changes.
+   *
+   * @param renderer SDL renderer used when cached text textures must be rebuilt.
+   * @param font Font used to measure and render the keypad body text.
+   * @param viewModel Shell view model containing the keypad modal content.
+   * @param modalInnerWidth Available wrapped-text width inside the modal.
+   * @param cache Cache entry that stores the last measured keypad modal layout.
+   * @return Total pixel height required for the keypad modal body text.
+   */
+  int keypad_modal_text_height(
+    SDL_Renderer *renderer,
+    TTF_Font *font,
+    const ui::ShellViewModel &viewModel,
+    int modalInnerWidth,
+    KeypadModalLayoutCache *cache
+  ) {
+    if (cache != nullptr && cache->modalInnerWidth == modalInnerWidth && cache->lines == viewModel.keypadModalLines) {
+      return cache->modalTextHeight;
+    }
+
+    if (cache != nullptr) {
+      if (cache->lineTextures.size() > viewModel.keypadModalLines.size()) {
+        for (std::size_t index = viewModel.keypadModalLines.size(); index < cache->lineTextures.size(); ++index) {
+          clear_cached_text_texture(&cache->lineTextures[index]);
+        }
+      }
+      cache->lineTextures.resize(viewModel.keypadModalLines.size());
+    }
+
+    int modalTextHeight = 0;
+    for (std::size_t index = 0; index < viewModel.keypadModalLines.size(); ++index) {
+      const std::string &line = viewModel.keypadModalLines[index];
+      if (cache != nullptr) {
+        if (!ensure_wrapped_text_texture(renderer, font, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalInnerWidth, &cache->lineTextures[index])) {
+          modalTextHeight += measure_wrapped_text_height(font, line, modalInnerWidth) + 6;
+          continue;
+        }
+        modalTextHeight += cache->lineTextures[index].height + 6;
+        continue;
+      }
+
+      modalTextHeight += measure_wrapped_text_height(font, line, modalInnerWidth) + 6;
+    }
+
+    if (cache != nullptr) {
+      cache->modalInnerWidth = modalInnerWidth;
+      cache->modalTextHeight = modalTextHeight;
+      cache->lines = viewModel.keypadModalLines;
+    }
+
+    return modalTextHeight;
   }
 
   bool render_text_centered(
@@ -1259,6 +1581,272 @@ namespace {
     }
 
     return input::UiCommand::none;
+  }
+
+  /**
+   * @brief Tracks the repeat timing for one controller navigation direction.
+   */
+  struct ControllerNavigationHoldState {
+    bool active = false;  ///< True while the direction remains held past activation.
+    Uint32 activatedTick = 0U;  ///< Tick count when the direction first became active.
+    Uint32 lastRepeatTick = 0U;  ///< Tick count when the last repeat command fired.
+  };
+
+  /**
+   * @brief Clears the held-repeat bookkeeping for every controller navigation direction.
+   *
+   * @param upState Repeat state for up navigation.
+   * @param downState Repeat state for down navigation.
+   * @param leftState Repeat state for left navigation.
+   * @param rightState Repeat state for right navigation.
+   */
+  void reset_controller_navigation_hold_states(
+    ControllerNavigationHoldState *upState,
+    ControllerNavigationHoldState *downState,
+    ControllerNavigationHoldState *leftState,
+    ControllerNavigationHoldState *rightState
+  ) {
+    if (upState != nullptr) {
+      *upState = {};
+    }
+    if (downState != nullptr) {
+      *downState = {};
+    }
+    if (leftState != nullptr) {
+      *leftState = {};
+    }
+    if (rightState != nullptr) {
+      *rightState = {};
+    }
+  }
+
+  /**
+   * @brief Returns whether a UI command is part of directional navigation and should keep repeat state alive.
+   *
+   * @param command UI command to classify.
+   * @return True when the command represents directional navigation.
+   */
+  bool is_navigation_command(input::UiCommand command) {
+    switch (command) {
+      case input::UiCommand::move_up:
+      case input::UiCommand::move_down:
+      case input::UiCommand::move_left:
+      case input::UiCommand::move_right:
+        return true;
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+      case input::UiCommand::back:
+      case input::UiCommand::delete_character:
+      case input::UiCommand::open_context_menu:
+      case input::UiCommand::previous_page:
+      case input::UiCommand::next_page:
+      case input::UiCommand::fast_previous_page:
+      case input::UiCommand::fast_next_page:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return false;
+    }
+
+    return false;
+  }
+
+  /**
+   * @brief Returns whether a negative stick direction remains active, using hysteresis to avoid jitter near center.
+   *
+   * @param value Current stick axis value.
+   * @param state Existing hold state for the direction.
+   * @return True when the negative navigation direction should be treated as active.
+   */
+  bool axis_value_is_negative_navigation_active(Sint16 value, const ControllerNavigationHoldState *state) {
+    const Sint16 threshold = state != nullptr && state->active ? LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD : LEFT_STICK_NAVIGATION_THRESHOLD;
+    return value <= -threshold;
+  }
+
+  /**
+   * @brief Returns whether a positive stick direction remains active, using hysteresis to avoid jitter near center.
+   *
+   * @param value Current stick axis value.
+   * @param state Existing hold state for the direction.
+   * @return True when the positive navigation direction should be treated as active.
+   */
+  bool axis_value_is_positive_navigation_active(Sint16 value, const ControllerNavigationHoldState *state) {
+    const Sint16 threshold = state != nullptr && state->active ? LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD : LEFT_STICK_NAVIGATION_THRESHOLD;
+    return value >= threshold;
+  }
+
+  /**
+   * @brief Returns the held-repeat state associated with a directional UI command.
+   *
+   * @param command UI command whose hold state should be returned.
+   * @param upState Repeat state for up navigation.
+   * @param downState Repeat state for down navigation.
+   * @param leftState Repeat state for left navigation.
+   * @param rightState Repeat state for right navigation.
+   * @return Pointer to the matching hold state, or null when the command is not directional.
+   */
+  ControllerNavigationHoldState *controller_navigation_hold_state_for_command(
+    input::UiCommand command,
+    ControllerNavigationHoldState *upState,
+    ControllerNavigationHoldState *downState,
+    ControllerNavigationHoldState *leftState,
+    ControllerNavigationHoldState *rightState
+  ) {
+    switch (command) {
+      case input::UiCommand::move_up:
+        return upState;
+      case input::UiCommand::move_down:
+        return downState;
+      case input::UiCommand::move_left:
+        return leftState;
+      case input::UiCommand::move_right:
+        return rightState;
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+      case input::UiCommand::back:
+      case input::UiCommand::delete_character:
+      case input::UiCommand::open_context_menu:
+      case input::UiCommand::previous_page:
+      case input::UiCommand::next_page:
+      case input::UiCommand::fast_previous_page:
+      case input::UiCommand::fast_next_page:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return nullptr;
+    }
+
+    return nullptr;
+  }
+
+  /**
+   * @brief Arms held-repeat timing for a freshly pressed navigation direction.
+   *
+   * @param now Current SDL tick count.
+   * @param command Directional command that was just pressed.
+   * @param upState Repeat state for up navigation.
+   * @param downState Repeat state for down navigation.
+   * @param leftState Repeat state for left navigation.
+   * @param rightState Repeat state for right navigation.
+   */
+  void seed_controller_navigation_hold_state(
+    Uint32 now,
+    input::UiCommand command,
+    ControllerNavigationHoldState *upState,
+    ControllerNavigationHoldState *downState,
+    ControllerNavigationHoldState *leftState,
+    ControllerNavigationHoldState *rightState
+  ) {
+    if (command == input::UiCommand::move_up && downState != nullptr) {
+      *downState = {};
+    } else if (command == input::UiCommand::move_down && upState != nullptr) {
+      *upState = {};
+    } else if (command == input::UiCommand::move_left && rightState != nullptr) {
+      *rightState = {};
+    } else if (command == input::UiCommand::move_right && leftState != nullptr) {
+      *leftState = {};
+    }
+
+    if (ControllerNavigationHoldState *state = controller_navigation_hold_state_for_command(command, upState, downState, leftState, rightState); state != nullptr) {
+      state->active = true;
+      state->activatedTick = now;
+      state->lastRepeatTick = now;
+    }
+  }
+
+  /**
+   * @brief Clears held-repeat timing for a released navigation direction.
+   *
+   * @param command Directional command that was just released.
+   * @param upState Repeat state for up navigation.
+   * @param downState Repeat state for down navigation.
+   * @param leftState Repeat state for left navigation.
+   * @param rightState Repeat state for right navigation.
+   */
+  void release_controller_navigation_hold_state(
+    input::UiCommand command,
+    ControllerNavigationHoldState *upState,
+    ControllerNavigationHoldState *downState,
+    ControllerNavigationHoldState *leftState,
+    ControllerNavigationHoldState *rightState
+  ) {
+    if (ControllerNavigationHoldState *state = controller_navigation_hold_state_for_command(command, upState, downState, leftState, rightState); state != nullptr) {
+      *state = {};
+    }
+  }
+
+  /**
+   * @brief Returns whether the controller is still holding any D-pad or left-stick navigation input.
+   *
+   * @param controller SDL game controller to inspect.
+   * @return True when any navigation direction is still held.
+   */
+  bool is_controller_navigation_active(SDL_GameController *controller) {
+    if (controller == nullptr) {
+      return false;
+    }
+
+    const Sint16 leftStickX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
+    const Sint16 leftStickY = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
+    return SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0 || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN) != 0 ||
+           SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT) != 0 || SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) != 0 ||
+           leftStickY <= -LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD || leftStickY >= LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD || leftStickX <= -LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD ||
+           leftStickX >= LEFT_STICK_NAVIGATION_RELEASE_THRESHOLD;
+  }
+
+  input::UiCommand update_controller_navigation_hold_state(bool active, Uint32 now, input::UiCommand command, ControllerNavigationHoldState *state) {
+    if (state == nullptr || command == input::UiCommand::none) {
+      return input::UiCommand::none;
+    }
+
+    if (!active) {
+      *state = {};
+      return input::UiCommand::none;
+    }
+
+    if (!state->active) {
+      state->active = true;
+      state->activatedTick = now;
+      state->lastRepeatTick = now;
+      return command;
+    }
+
+    if (now - state->activatedTick < CONTROLLER_NAVIGATION_INITIAL_REPEAT_MILLISECONDS || now - state->lastRepeatTick < CONTROLLER_NAVIGATION_REPEAT_MILLISECONDS) {
+      return input::UiCommand::none;
+    }
+
+    state->lastRepeatTick = now;
+    return command;
+  }
+
+  input::UiCommand poll_controller_navigation(
+    SDL_GameController *controller,
+    Uint32 now,
+    ControllerNavigationHoldState *upState,
+    ControllerNavigationHoldState *downState,
+    ControllerNavigationHoldState *leftState,
+    ControllerNavigationHoldState *rightState
+  ) {
+    if (controller == nullptr) {
+      reset_controller_navigation_hold_states(upState, downState, leftState, rightState);
+      return input::UiCommand::none;
+    }
+
+    const Sint16 leftStickX = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTX);
+    const Sint16 leftStickY = SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_LEFTY);
+    const bool moveUpActive = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_UP) != 0 || axis_value_is_negative_navigation_active(leftStickY, upState);
+    const bool moveDownActive = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN) != 0 || axis_value_is_positive_navigation_active(leftStickY, downState);
+    const bool moveLeftActive = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT) != 0 || axis_value_is_negative_navigation_active(leftStickX, leftState);
+    const bool moveRightActive = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) != 0 || axis_value_is_positive_navigation_active(leftStickX, rightState);
+
+    if (const input::UiCommand command = update_controller_navigation_hold_state(moveUpActive, now, input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_up), upState); command != input::UiCommand::none) {
+      return command;
+    }
+    if (const input::UiCommand command = update_controller_navigation_hold_state(moveDownActive, now, input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_down), downState); command != input::UiCommand::none) {
+      return command;
+    }
+    if (const input::UiCommand command = update_controller_navigation_hold_state(moveLeftActive, now, input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_left), leftState); command != input::UiCommand::none) {
+      return command;
+    }
+    return update_controller_navigation_hold_state(moveRightActive, now, input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_right), rightState);
   }
 
   void log_app_update(logging::Logger &logger, const app::ClientState &state, const app::AppUpdate &update) {
@@ -2330,7 +2918,8 @@ namespace {
     TTF_Font *smallFont,
     const ui::ShellViewModel &viewModel,
     CoverArtTextureCache *textureCache,
-    AssetTextureCache *assetCache
+    AssetTextureCache *assetCache,
+    KeypadModalLayoutCache *keypadModalLayoutCache
   ) {
     int framebufferWidth = 0;
     int framebufferHeight = 0;
@@ -2710,10 +3299,7 @@ namespace {
       const int buttonRowCount = std::max(1, static_cast<int>((viewModel.keypadModalButtons.size() + viewModel.keypadModalColumnCount - 1) / viewModel.keypadModalColumnCount));
       const int preferredButtonHeight = std::max(40, TTF_FontLineSkip(bodyFont) + 16);
       const int modalInnerWidth = modalWidth - 32;
-      int modalTextHeight = 0;
-      for (const std::string &line : viewModel.keypadModalLines) {
-        modalTextHeight += measure_wrapped_text_height(smallFont, line, modalInnerWidth) + 6;
-      }
+      const int modalTextHeight = keypad_modal_text_height(renderer, smallFont, viewModel, modalInnerWidth, keypadModalLayoutCache);
       const int desiredButtonAreaHeight = (buttonRowCount * preferredButtonHeight) + (buttonGap * std::max(0, buttonRowCount - 1));
       const int desiredModalHeight = 52 + modalTextHeight + 16 + desiredButtonAreaHeight + 28;
       const int modalHeight = std::min(screenHeight - (outerMargin * 2), std::max(300, desiredModalHeight));
@@ -2727,14 +3313,18 @@ namespace {
       fill_rect(renderer, modalRect, PANEL_RED, PANEL_GREEN, PANEL_BLUE, 0xF0);
       draw_rect(renderer, modalRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
 
-      if (!render_text_line(renderer, bodyFont, viewModel.keypadModalTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 16, modalRect.w - 32)) {
+      if (
+        !ensure_wrapped_text_texture(renderer, bodyFont, viewModel.keypadModalTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.w - 32, &keypadModalLayoutCache->titleTexture) ||
+        !render_cached_text_texture(renderer, keypadModalLayoutCache->titleTexture, modalRect.x + 16, modalRect.y + 16)
+      ) {
         return false;
       }
 
       int modalY = modalRect.y + 52;
-      for (const std::string &line : viewModel.keypadModalLines) {
+      keypadModalLayoutCache->lineTextures.resize(viewModel.keypadModalLines.size());
+      for (std::size_t index = 0; index < viewModel.keypadModalLines.size(); ++index) {
         int drawnHeight = 0;
-        if (!render_text_line(renderer, smallFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 16, modalY, modalRect.w - 32, &drawnHeight)) {
+        if (!render_cached_text_texture(renderer, keypadModalLayoutCache->lineTextures[index], modalRect.x + 16, modalY, &drawnHeight)) {
           return false;
         }
         modalY += drawnHeight + 6;
@@ -2744,6 +3334,13 @@ namespace {
       const int buttonAreaHeight = (modalRect.y + modalRect.h) - buttonAreaTop - 24;
       const int buttonWidth = (modalRect.w - 32 - (buttonGap * (buttonColumnCount - 1))) / buttonColumnCount;
       const int buttonHeight = std::max(34, (buttonAreaHeight - (buttonGap * std::max(0, buttonRowCount - 1))) / buttonRowCount);
+
+      if (keypadModalLayoutCache->buttonLabelTextures.size() > viewModel.keypadModalButtons.size()) {
+        for (std::size_t index = viewModel.keypadModalButtons.size(); index < keypadModalLayoutCache->buttonLabelTextures.size(); ++index) {
+          clear_cached_text_texture(&keypadModalLayoutCache->buttonLabelTextures[index]);
+        }
+      }
+      keypadModalLayoutCache->buttonLabelTextures.resize(viewModel.keypadModalButtons.size());
 
       for (std::size_t index = 0; index < viewModel.keypadModalButtons.size(); ++index) {
         const auto row = static_cast<int>(index / viewModel.keypadModalColumnCount);
@@ -2764,7 +3361,10 @@ namespace {
         draw_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
 
         const SDL_Color buttonColor = button.enabled ? SDL_Color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF} : SDL_Color {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF};
-        if (!render_text_centered(renderer, bodyFont, button.label, buttonColor, buttonRect)) {
+        if (
+          !ensure_single_line_text_texture(renderer, bodyFont, button.label, buttonColor, buttonRect.w, &keypadModalLayoutCache->buttonLabelTextures[index]) ||
+          !render_cached_centered_text_texture(renderer, keypadModalLayoutCache->buttonLabelTextures[index], buttonRect)
+        ) {
           return false;
         }
       }
@@ -2847,13 +3447,10 @@ namespace ui {
     bool rightTriggerPressed = false;
     bool leftShoulderPressed = false;
     bool rightShoulderPressed = false;
-    bool controllerAPressed = false;
-    bool controllerAContextTriggered = false;
     bool controllerStartPressed = false;
     bool controllerBackPressed = false;
     bool controllerExitComboArmed = false;
     bool controllerExitComboTriggered = false;
-    Uint32 controllerADownTick = 0;
     Uint32 controllerStartDownTick = 0;
     Uint32 controllerBackDownTick = 0;
     Uint32 nextHostProbeTick = 0;
@@ -2861,12 +3458,18 @@ namespace ui {
     Uint32 rightShoulderRepeatTick = 0;
     Uint32 leftTriggerRepeatTick = 0;
     Uint32 rightTriggerRepeatTick = 0;
+    ControllerNavigationHoldState moveUpHoldState {};
+    ControllerNavigationHoldState moveDownHoldState {};
+    ControllerNavigationHoldState moveLeftHoldState {};
+    ControllerNavigationHoldState moveRightHoldState {};
+    bool controllerNavigationNeutralRequired = false;
     PairingTaskState pairingTask {};
     AppListTaskState appListTask {};
     AppArtTaskState appArtTask {};
     HostProbeTaskState hostProbeTask {};
     CoverArtTextureCache coverArtTextureCache {};
     AssetTextureCache assetTextureCache {};
+    KeypadModalLayoutCache keypadModalLayoutCache {};
     const unsigned long encoderSettings = XVideoGetEncoderSettings();
     reset_pairing_task(&pairingTask);
     reset_app_list_task(&appListTask);
@@ -2874,9 +3477,11 @@ namespace ui {
     reset_host_probe_task(&hostProbeTask);
     logger.set_minimum_level(state.loggingLevel);
     logger.log(logging::LogLevel::info, "app", "Entered interactive shell");
+    bool keypadRedrawRequested = true;
 
     const auto draw_current_shell = [&]() {
-      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
+      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache, &keypadModalLayoutCache)) {
+        keypadRedrawRequested = false;
         return true;
       }
 
@@ -2890,6 +3495,8 @@ namespace ui {
       if (command == input::UiCommand::none) {
         return;
       }
+
+      keypadRedrawRequested = true;
 
       const app::AppUpdate update = app::handle_command(state, command);
       logger.set_minimum_level(state.loggingLevel);
@@ -2931,11 +3538,6 @@ namespace ui {
         }
       }
 
-      if (controllerAPressed && !controllerAContextTriggered && SDL_GetTicks() - controllerADownTick >= CONTEXT_HOLD_MILLISECONDS) {
-        controllerAContextTriggered = true;
-        process_command(input::UiCommand::open_context_menu);
-      }
-
       if (state.modal.id == app::ModalId::log_viewer) {
         const Uint32 now = SDL_GetTicks();
         if (leftShoulderPressed && now - leftShoulderRepeatTick >= LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS) {
@@ -2957,120 +3559,144 @@ namespace ui {
       }
 
       SDL_Event event;
-      while (SDL_PollEvent(&event)) {
-        input::UiCommand command = input::UiCommand::none;
+      bool skipPolledControllerNavigation = false;
+      if (SDL_WaitEventTimeout(&event, SHELL_EVENT_WAIT_TIMEOUT_MILLISECONDS) != 0) {
+        do {
+          input::UiCommand command = input::UiCommand::none;
 
-        switch (event.type) {
-          case SDL_QUIT:
-            state.shouldExit = true;
-            break;
-          case SDL_CONTROLLERDEVICEADDED:
-            if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
-              controller = SDL_GameControllerOpen(event.cdevice.which);
-              if (controller != nullptr) {
-                logger.log(logging::LogLevel::info, "input", "Controller connected");
+          switch (event.type) {
+            case SDL_QUIT:
+              state.shouldExit = true;
+              break;
+            case SDL_CONTROLLERDEVICEADDED:
+              if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
+                controller = SDL_GameControllerOpen(event.cdevice.which);
+                if (controller != nullptr) {
+                  logger.log(logging::LogLevel::info, "input", "Controller connected");
+                }
               }
-            }
-            break;
-          case SDL_CONTROLLERDEVICEREMOVED:
-            if (controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
-              close_controller(controller);
-              controller = nullptr;
-              leftTriggerPressed = false;
-              rightTriggerPressed = false;
-              leftShoulderPressed = false;
-              rightShoulderPressed = false;
-              controllerAPressed = false;
-              controllerAContextTriggered = false;
-              controllerStartPressed = false;
-              controllerBackPressed = false;
-              controllerExitComboArmed = false;
-              controllerExitComboTriggered = false;
-              logger.log(logging::LogLevel::warning, "input", "Controller disconnected");
-            }
-            break;
-          case SDL_CONTROLLERBUTTONDOWN:
-            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A) {  // NOSONAR(cpp:S134) button state transitions stay explicit for controller input parity
-              if (!controllerAPressed) {
-                controllerAPressed = true;
-                controllerAContextTriggered = false;
-                controllerADownTick = SDL_GetTicks();
+              break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+              if (controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
+                close_controller(controller);
+                controller = nullptr;
+                leftTriggerPressed = false;
+                rightTriggerPressed = false;
+                leftShoulderPressed = false;
+                rightShoulderPressed = false;
+                controllerStartPressed = false;
+                controllerBackPressed = false;
+                controllerExitComboArmed = false;
+                controllerExitComboTriggered = false;
+                controllerNavigationNeutralRequired = false;
+                reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
+                logger.log(logging::LogLevel::warning, "input", "Controller disconnected");
               }
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
-              if (!controllerStartPressed) {
-                controllerStartPressed = true;
-                controllerStartDownTick = SDL_GetTicks();
+              break;
+            case SDL_CONTROLLERBUTTONDOWN:
+              {
+                const Uint32 controllerButtonDownTick = SDL_GetTicks();
+                if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+                  if (!controllerStartPressed) {
+                    controllerStartPressed = true;
+                    controllerStartDownTick = controllerButtonDownTick;
+                  }
+                } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) {
+                  if (!controllerBackPressed) {
+                    controllerBackPressed = true;
+                    controllerBackDownTick = controllerButtonDownTick;
+                  }
+                } else {
+                  if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+                    leftShoulderPressed = true;
+                    leftShoulderRepeatTick = controllerButtonDownTick;
+                  } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+                    rightShoulderPressed = true;
+                    rightShoulderRepeatTick = controllerButtonDownTick;
+                  }
+
+                  command = translate_controller_button(event.cbutton.button);
+                  if (is_navigation_command(command)) {
+                    seed_controller_navigation_hold_state(
+                      controllerButtonDownTick,
+                      command,
+                      &moveUpHoldState,
+                      &moveDownHoldState,
+                      &moveLeftHoldState,
+                      &moveRightHoldState
+                    );
+                  }
+                }
+
+                if (  // NOSONAR(cpp:S134) exit-combo arming stays inline with the button state machine
+                  controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
+                ) {
+                  controllerExitComboArmed = true;
+                }
+                break;
               }
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) {
-              if (!controllerBackPressed) {
-                controllerBackPressed = true;
-                controllerBackDownTick = SDL_GetTicks();
-              }
-            } else {
-              if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
-                leftShoulderPressed = true;
-                leftShoulderRepeatTick = SDL_GetTicks();
+            case SDL_CONTROLLERBUTTONUP:
+              if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START && controllerStartPressed) {
+                controllerStartPressed = false;
+                if (!controllerExitComboArmed && !controllerExitComboTriggered) {
+                  command = input::map_gamepad_button_to_ui_command(input::GamepadButton::start);
+                }
+                if (!controllerStartPressed && !controllerBackPressed) {
+                  controllerExitComboArmed = false;
+                  controllerExitComboTriggered = false;
+                }
+              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && controllerBackPressed) {
+                controllerBackPressed = false;
+                if (!controllerExitComboArmed && !controllerExitComboTriggered) {
+                  command = input::map_gamepad_button_to_ui_command(input::GamepadButton::back);
+                }
+                if (!controllerStartPressed && !controllerBackPressed) {
+                  controllerExitComboArmed = false;
+                  controllerExitComboTriggered = false;
+                }
+              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+                leftShoulderPressed = false;
               } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
-                rightShoulderPressed = true;
-                rightShoulderRepeatTick = SDL_GetTicks();
+                rightShoulderPressed = false;
               }
-              command = translate_controller_button(event.cbutton.button);
-            }
-            if (  // NOSONAR(cpp:S134) exit-combo arming stays inline with the button state machine
-              controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
-            ) {
-              controllerExitComboArmed = true;
-            }
-            break;
-          case SDL_CONTROLLERBUTTONUP:
-            if (event.cbutton.button == SDL_CONTROLLER_BUTTON_A && controllerAPressed) {  // NOSONAR(cpp:S134) button release handling stays explicit for controller input parity
-              controllerAPressed = false;
-              if (!controllerAContextTriggered) {
-                command = input::UiCommand::activate;
+              release_controller_navigation_hold_state(translate_controller_button(event.cbutton.button), &moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
+              break;
+            case SDL_CONTROLLERAXISMOTION:
+              command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
+              if (command == input::UiCommand::fast_previous_page) {  // NOSONAR(cpp:S134) trigger repeat bookkeeping stays inline with translated command handling
+                leftTriggerRepeatTick = SDL_GetTicks();
+              } else if (command == input::UiCommand::fast_next_page) {
+                rightTriggerRepeatTick = SDL_GetTicks();
               }
-              controllerAContextTriggered = false;
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START && controllerStartPressed) {
-              controllerStartPressed = false;
-              if (!controllerExitComboArmed && !controllerExitComboTriggered) {
-                command = input::map_gamepad_button_to_ui_command(input::GamepadButton::start);
+              break;
+            case SDL_KEYDOWN:
+              if (event.key.repeat == 0) {  // NOSONAR(cpp:S134) keyboard translation stays inline with SDL event routing
+                command = translate_keyboard_key(event.key.keysym.sym, event.key.keysym.mod);
               }
-              if (!controllerStartPressed && !controllerBackPressed) {
-                controllerExitComboArmed = false;
-                controllerExitComboTriggered = false;
-              }
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && controllerBackPressed) {
-              controllerBackPressed = false;
-              if (!controllerExitComboArmed && !controllerExitComboTriggered) {
-                command = input::map_gamepad_button_to_ui_command(input::GamepadButton::back);
-              }
-              if (!controllerStartPressed && !controllerBackPressed) {
-                controllerExitComboArmed = false;
-                controllerExitComboTriggered = false;
-              }
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
-              leftShoulderPressed = false;
-            } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
-              rightShoulderPressed = false;
-            }
-            break;
-          case SDL_CONTROLLERAXISMOTION:
-            command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
-            if (command == input::UiCommand::fast_previous_page) {  // NOSONAR(cpp:S134) trigger repeat bookkeeping stays inline with translated command handling
-              leftTriggerRepeatTick = SDL_GetTicks();
-            } else if (command == input::UiCommand::fast_next_page) {
-              rightTriggerRepeatTick = SDL_GetTicks();
-            }
-            break;
-          case SDL_KEYDOWN:
-            if (event.key.repeat == 0) {  // NOSONAR(cpp:S134) keyboard translation stays inline with SDL event routing
-              command = translate_keyboard_key(event.key.keysym.sym, event.key.keysym.mod);
-            }
-            break;
-          default:
-            break;
-        }
+              break;
+            default:
+              break;
+          }
 
-        process_command(command);
+          process_command(command);
+          if (command != input::UiCommand::none && !is_navigation_command(command)) {
+            controllerNavigationNeutralRequired = true;
+            skipPolledControllerNavigation = true;
+            reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
+          }
+        } while (SDL_PollEvent(&event));
+      }
+
+      if (controllerNavigationNeutralRequired) {
+        if (is_controller_navigation_active(controller)) {
+          reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
+        } else {
+          controllerNavigationNeutralRequired = false;
+        }
+      }
+
+      if (!skipPolledControllerNavigation && !controllerNavigationNeutralRequired) {
+        process_command(poll_controller_navigation(controller, SDL_GetTicks(), &moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState));
       }
 
       finish_pairing_task_if_ready(logger, state, &pairingTask);
@@ -3082,13 +3708,9 @@ namespace ui {
       start_app_list_task_if_needed(logger, state, &appListTask, backgroundTaskTick);
       start_app_art_task_if_needed(logger, state, &appArtTask);
 
-      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); !draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache)) {
-        report_shell_failure(logger, "render", std::string("Shell render failed: ") + SDL_GetError());
-        running = false;
+      if ((state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || keypadRedrawRequested) && !draw_current_shell()) {
         break;
       }
-
-      SDL_Delay(16);
     }
 
     if (pairingTask.activeAttempt != nullptr) {
@@ -3122,6 +3744,7 @@ namespace ui {
     close_controller(controller);
     clear_cover_art_texture_cache(&coverArtTextureCache);
     clear_asset_texture_cache(&assetTextureCache);
+    clear_keypad_modal_layout_cache(&keypadModalLayoutCache);
     destroy_texture(titleLogoTexture);
     TTF_CloseFont(smallFont);
     TTF_CloseFont(bodyFont);

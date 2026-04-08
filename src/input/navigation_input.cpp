@@ -33,6 +33,21 @@ namespace input {
     return UiCommand::none;
   }
 
+  UiCommand map_gamepad_axis_direction_to_ui_command(GamepadAxisDirection direction) {
+    switch (direction) {
+      case GamepadAxisDirection::left_stick_up:
+        return UiCommand::move_up;
+      case GamepadAxisDirection::left_stick_down:
+        return UiCommand::move_down;
+      case GamepadAxisDirection::left_stick_left:
+        return UiCommand::move_left;
+      case GamepadAxisDirection::left_stick_right:
+        return UiCommand::move_right;
+    }
+
+    return UiCommand::none;
+  }
+
   UiCommand map_keyboard_key_to_ui_command(KeyboardKey key, bool shiftPressed) {
     switch (key) {
       case KeyboardKey::up:
