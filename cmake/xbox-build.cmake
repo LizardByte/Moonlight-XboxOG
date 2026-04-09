@@ -37,6 +37,9 @@ add_custom_target(sync_xbe_assets ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
             "${XBOX_XBE_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy
+            "${NXDK_DIR}/samples/sdl_ttf/vegur-regular.ttf"
+            "${XBOX_XBE_DIR}/assets/fonts/vegur-regular.ttf"
         COMMENT "Sync XBE assets"
 )
 

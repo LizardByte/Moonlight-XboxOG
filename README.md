@@ -36,14 +36,15 @@ Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT 
 pacman -Syu
 nxdk_dependencies=(
   "bison"
-  "cmake"
   "flex"
   "git"
   "make"
+  "mingw-w64-x86_64-cmake"
   "mingw-w64-x86_64-clang"
   "mingw-w64-x86_64-gcc"
   "mingw-w64-x86_64-lld"
   "mingw-w64-x86_64-llvm"
+  "mingw-w64-x86_64-make"
 )
 moonlight_dependencies=(
   "mingw-w64-x86_64-doxygen"
@@ -211,7 +212,7 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] Enable sonarcloud
    - [x] Build moonlight-common-c
       - [x] Build custom enet
-  - [x] Docs via doxygen
+   - [x] Docs via doxygen
 - Menus / Screens
    - [x] Loading/splash screen
       - [x] Initial loading screen, see https://github.com/XboxDev/nxdk/blob/master/samples/sdl_image/main.c

@@ -110,8 +110,8 @@ jobs:
             mingw-w64-x86_64-clang
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-lld
-            mingw-w64-x86_64-make
             mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-make
 
       - name: Setup python
         id: setup-python
@@ -145,21 +145,6 @@ jobs:
           mkdir -p artifacts
           tar -czf ./artifacts/Moonlight.tar.gz ./${CMAKE_BUILD}/xbox/xbe
           cp ./${CMAKE_BUILD}/xbox/Moonlight.iso ./artifacts
-
-      - name: Debug OpenSSL logs
-        if: failure()
-        run: |
-          for log in \
-            "./${CMAKE_BUILD}/openssl_external_host-prefix/src/openssl_external_host-stamp/openssl_external_host-configure.log" \
-            "./${CMAKE_BUILD}/openssl_external_host-prefix/src/openssl_external_host-stamp/openssl_external_host-build.log" \
-            "./${CMAKE_BUILD}/xbox/openssl_external_xbox-prefix/src/openssl_external_xbox-stamp/openssl_external_xbox-configure.log" \
-            "./${CMAKE_BUILD}/xbox/openssl_external_xbox-prefix/src/openssl_external_xbox-stamp/openssl_external_xbox-build.log"
-          do
-            if [ -f "${log}" ]; then
-              echo "===== ${log} ====="
-              cat "${log}"
-            fi
-          done
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
