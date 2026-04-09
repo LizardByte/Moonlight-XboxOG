@@ -166,7 +166,7 @@ namespace {
                                 {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
-    state.hosts.front().runningGameId = 101;
+    state.activeHost.runningGameId = 101;
     app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
                                                                                                                                                              {"Steam", 101, true, false, false, "steam-cover", true, false},
                                                                                                                                                              {"Desktop", 102, false, false, false, "desktop-cover", false, false},
@@ -195,15 +195,20 @@ namespace {
 
   TEST(ShellViewTest, HidesCachedAppTilesWhenTheSelectedHostIsNoLongerPaired) {
     app::ClientState state = app::create_initial_state();
-    app::replace_hosts(state, {
-                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired, app::HostReachability::online},
-                              });
     state.activeScreen = app::ScreenId::apps;
-    state.hosts.front().apps = {
+    state.activeHostLoaded = true;
+    state.activeHost = {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::not_paired,
+      app::HostReachability::online,
+    };
+    state.activeHost.apps = {
       {"Steam", 101, false, false, false, "steam-cover", true, false},
     };
-    state.hosts.front().appListState = app::HostAppListState::failed;
-    state.hosts.front().appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again.";
+    state.activeHost.appListState = app::HostAppListState::failed;
+    state.activeHost.appListStatusMessage = "The host reports that this client is no longer paired. Pair the host again.";
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 

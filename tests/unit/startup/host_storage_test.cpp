@@ -69,13 +69,44 @@ namespace {
     EXPECT_EQ(loadResult.hosts[0].displayName, "Living Room PC");
   }
 
+  TEST_F(HostStorageTest, SavesAndReloadsCachedAppLists) {
+    app::HostRecord host {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+    };
+    host.runningGameId = 101U;
+    host.resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
+    host.httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
+    host.appListContentHash = 0x99887766ULL;
+    host.apps = {
+      {"Steam", 101, true, false, true, "steam-cover", true, false},
+      {"Desktop", 102, false, true, false, "desktop-cover", false, false},
+    };
+
+    const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts({host}, testFilePath);
+    ASSERT_TRUE(saveResult.success) << saveResult.errorMessage;
+
+    const startup::LoadSavedHostsResult loadResult = startup::load_saved_hosts(testFilePath);
+    ASSERT_TRUE(loadResult.warnings.empty());
+    ASSERT_EQ(loadResult.hosts.size(), 1U);
+    ASSERT_EQ(loadResult.hosts[0].apps.size(), 2U);
+    EXPECT_EQ(loadResult.hosts[0].appListContentHash, 0x99887766ULL);
+    EXPECT_EQ(loadResult.hosts[0].resolvedHttpPort, test_support::kTestPorts[test_support::kPortResolvedHttp]);
+    EXPECT_EQ(loadResult.hosts[0].httpsPort, test_support::kTestPorts[test_support::kPortResolvedHttps]);
+    EXPECT_TRUE(loadResult.hosts[0].apps[0].favorite);
+    EXPECT_TRUE(loadResult.hosts[0].apps[0].running);
+    EXPECT_TRUE(loadResult.hosts[0].apps[1].hidden);
+  }
+
   TEST_F(HostStorageTest, SurfacesParseWarningsButKeepsValidHosts) {
     FILE *file = std::fopen(testFilePath.c_str(), "wb");
     ASSERT_NE(file, nullptr);
     const std::string fileContent =
       "Living Room PC\t" + std::string(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]) +
-      "\t\tpaired\n"
-      "Broken Host\tnot-an-ip\t\tnot_paired\n";
+      "\t\tpaired\t0,0,0,0\t\n"
+      "Broken Host\tnot-an-ip\t\tnot_paired\t0,0,0,0\t\n";
     ASSERT_EQ(std::fwrite(fileContent.data(), 1, fileContent.size(), file), fileContent.size());
     ASSERT_EQ(std::fclose(file), 0);
 

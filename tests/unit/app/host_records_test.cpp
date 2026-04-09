@@ -62,12 +62,46 @@ namespace {
     EXPECT_EQ(parsedRecords.records[1].pairingState, app::PairingState::not_paired);
   }
 
+  TEST(HostRecordsTest, RoundTripsCachedAppListMetadata) {
+    app::HostRecord host {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+    };
+    host.runningGameId = 102U;
+    host.resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
+    host.httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
+    host.appListContentHash = 0xABCD1234ULL;
+    host.apps = {
+      {"Steam Big Picture", 101, true, false, true, "steam-big-picture", true, false},
+      {"Desktop", 102, false, true, false, "desktop-cover", false, false},
+    };
+
+    const app::ParseHostRecordsResult parsedRecords = app::parse_host_records(app::serialize_host_records({host}));
+
+    ASSERT_TRUE(parsedRecords.errors.empty());
+    ASSERT_EQ(parsedRecords.records.size(), 1U);
+    ASSERT_EQ(parsedRecords.records.front().apps.size(), 2U);
+    EXPECT_EQ(parsedRecords.records.front().runningGameId, 102U);
+    EXPECT_EQ(parsedRecords.records.front().resolvedHttpPort, test_support::kTestPorts[test_support::kPortResolvedHttp]);
+    EXPECT_EQ(parsedRecords.records.front().httpsPort, test_support::kTestPorts[test_support::kPortResolvedHttps]);
+    EXPECT_EQ(parsedRecords.records.front().appListContentHash, 0xABCD1234ULL);
+    EXPECT_EQ(parsedRecords.records.front().appListState, app::HostAppListState::ready);
+    EXPECT_EQ(parsedRecords.records.front().apps[0].name, "Steam Big Picture");
+    EXPECT_TRUE(parsedRecords.records.front().apps[0].favorite);
+    EXPECT_TRUE(parsedRecords.records.front().apps[0].boxArtCached);
+    EXPECT_FALSE(parsedRecords.records.front().apps[0].running);
+    EXPECT_TRUE(parsedRecords.records.front().apps[1].hidden);
+    EXPECT_TRUE(parsedRecords.records.front().apps[1].running);
+  }
+
   TEST(HostRecordsTest, ReportsMalformedSerializedLinesWithoutDroppingValidRecords) {
     const std::string serializedRecords =
-      "Living Room PC\t192.168.1.20\t\tpaired\n"
-      "Broken Host\tnot-an-ip\t\tnot_paired\n"
+      "Living Room PC\t192.168.1.20\t\tpaired\t0,0,0,0\t\n"
+      "Broken Host\tnot-an-ip\t\tnot_paired\t0,0,0,0\t\n"
       "Bad Format\n"
-      "Office PC\t10.0.0.25\t48000\tnot_paired\n";
+      "Office PC\t10.0.0.25\t48000\tnot_paired\t0,0,0,0\t\n";
 
     const app::ParseHostRecordsResult parsedRecords = app::parse_host_records(serializedRecords);
 

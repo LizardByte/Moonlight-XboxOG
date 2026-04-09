@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -127,6 +126,100 @@ namespace {
     );
   }
 
+  void reset_add_host_draft(app::ClientState &state, app::ScreenId returnScreen);
+
+  void remember_host_selection(app::ClientState &state, const app::HostRecord &host) {
+    state.selectedHostAddress = host.address;
+    state.selectedHostPort = host.port;
+  }
+
+  void clear_active_host(app::ClientState &state) {
+    state.activeHost = {};
+    state.activeHostLoaded = false;
+  }
+
+  void clear_active_host_app_list(app::ClientState &state) {
+    if (!state.activeHostLoaded) {
+      return;
+    }
+
+    state.activeHost.apps.clear();
+    state.activeHost.appListState = app::HostAppListState::idle;
+    state.activeHost.appListStatusMessage.clear();
+    state.activeHost.appListContentHash = 0U;
+    state.activeHost.lastAppListRefreshTick = 0U;
+    state.activeHost.runningGameId = 0U;
+    state.selectedAppIndex = 0U;
+    state.appsScrollPage = 0U;
+    state.showHiddenApps = false;
+  }
+
+  void copy_host_to_active_host(app::ClientState &state, const app::HostRecord &host) {
+    state.activeHost = host;
+    state.activeHostLoaded = true;
+    remember_host_selection(state, host);
+  }
+
+  void unload_hosts_page_state(app::ClientState &state) {
+    if (!state.hostsLoaded) {
+      return;
+    }
+
+    if (!state.hosts.empty() && state.selectedHostIndex < state.hosts.size()) {
+      remember_host_selection(state, state.hosts[state.selectedHostIndex]);
+    }
+
+    state.hosts.clear();
+    state.hostsLoaded = false;
+    state.selectedHostIndex = 0U;
+    state.hostsFocusArea = app::HostsFocusArea::toolbar;
+  }
+
+  void unload_apps_page_state(app::ClientState &state) {
+    if (state.activeHostLoaded) {
+      remember_host_selection(state, state.activeHost);
+    }
+    clear_active_host_app_list(state);
+  }
+
+  void unload_settings_page_state(app::ClientState &state) {
+    state.savedFiles.clear();
+    state.savedFilesDirty = true;
+    state.logViewerLines.clear();
+    state.logViewerScrollOffset = 0U;
+  }
+
+  void unload_pair_host_screen_state(app::ClientState &state) {
+    state.pairingDraft = {{}, app::DEFAULT_HOST_PORT, {}, app::PairingStage::idle, {}};
+  }
+
+  void unload_screen_state(app::ClientState &state, app::ScreenId nextScreen) {
+    if (state.activeScreen == nextScreen) {
+      return;
+    }
+
+    switch (state.activeScreen) {
+      case app::ScreenId::home:
+      case app::ScreenId::hosts:
+        if (nextScreen == app::ScreenId::apps || nextScreen == app::ScreenId::pair_host || nextScreen == app::ScreenId::settings) {
+          unload_hosts_page_state(state);
+        }
+        return;
+      case app::ScreenId::apps:
+        unload_apps_page_state(state);
+        return;
+      case app::ScreenId::add_host:
+        reset_add_host_draft(state, app::ScreenId::hosts);
+        return;
+      case app::ScreenId::pair_host:
+        unload_pair_host_screen_state(state);
+        return;
+      case app::ScreenId::settings:
+        unload_settings_page_state(state);
+        return;
+    }
+  }
+
   void sync_selected_settings_category_from_menu(app::ClientState &state) {
     if (const ui::MenuItem *selectedItem = state.menu.selected_item(); selectedItem != nullptr) {
       state.selectedSettingsCategory = settings_category_from_menu_id(selectedItem->id);
@@ -169,18 +262,21 @@ namespace {
     state.modal.selectedActionIndex = 0U;
   }
 
-  const app::HostRecord *find_host_by_endpoint(const std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {  // NOSONAR(cpp:S1144) used by endpoint-aware selection and background update flows
+  app::HostRecord *find_host_by_endpoint(std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {
     const auto iterator = std::find_if(hosts.begin(), hosts.end(), [&address, port](const app::HostRecord &host) {
       return app::host_matches_endpoint(host, address, port);
     });
     return iterator == hosts.end() ? nullptr : &(*iterator);
   }
 
-  app::HostRecord *find_host_by_endpoint(std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {
-    const auto iterator = std::find_if(hosts.begin(), hosts.end(), [&address, port](const app::HostRecord &host) {
-      return app::host_matches_endpoint(host, address, port);
-    });
-    return iterator == hosts.end() ? nullptr : &(*iterator);
+  app::HostRecord *find_loaded_host_by_endpoint(app::ClientState &state, const std::string &address, uint16_t port) {
+    if (app::HostRecord *host = find_host_by_endpoint(state.hosts, address, port); host != nullptr) {
+      return host;
+    }
+    if (state.activeHostLoaded && app::host_matches_endpoint(state.activeHost, address, port)) {
+      return &state.activeHost;
+    }
+    return nullptr;
   }
 
   std::vector<std::size_t> visible_app_indices(const app::HostRecord &host, bool showHiddenApps) {
@@ -369,6 +465,7 @@ namespace {
   }
 
   void set_screen(app::ClientState &state, app::ScreenId screen, const std::string &preferredItemId = {}) {
+    unload_screen_state(state, screen);
     state.activeScreen = screen;
     if (screen == app::ScreenId::settings) {
       state.savedFilesDirty = true;
@@ -714,9 +811,13 @@ namespace {
   }
 
   bool enter_pair_host_screen(app::ClientState &state, const std::string &address, uint16_t port) {
-    if (const app::HostRecord *host = find_host_by_endpoint(state.hosts, address, port); host != nullptr && host->reachability == app::HostReachability::offline) {
+    if (const app::HostRecord *host = find_loaded_host_by_endpoint(state, address, port); host != nullptr && host->reachability == app::HostReachability::offline) {
       state.statusMessage = "Host is offline. Bring it online before pairing.";
       return false;
+    }
+
+    if (const app::HostRecord *host = find_loaded_host_by_endpoint(state, address, port); host != nullptr) {
+      copy_host_to_active_host(state, *host);
     }
 
     std::string pairingPin;
@@ -744,11 +845,12 @@ namespace {
       return false;
     }
 
+    copy_host_to_active_host(state, *host);
     state.showHiddenApps = showHiddenApps;
     state.selectedAppIndex = 0U;
     state.appsScrollPage = 0U;
-    host->appListState = app::HostAppListState::loading;
-    host->appListStatusMessage = (host->apps.empty() ? "Loading apps for " : "Refreshing apps for ") + host->displayName + "...";
+    state.activeHost.appListState = app::HostAppListState::loading;
+    state.activeHost.appListStatusMessage = (state.activeHost.apps.empty() ? "Loading apps for " : "Refreshing apps for ") + state.activeHost.displayName + "...";
     state.statusMessage.clear();
     set_screen(state, app::ScreenId::apps);
     return true;
@@ -759,6 +861,7 @@ namespace {
       if (app::host_matches_endpoint(state.hosts[index], address, port)) {
         state.selectedHostIndex = index;
         state.hostsFocusArea = app::HostsFocusArea::grid;
+        remember_host_selection(state, state.hosts[index]);
         return;
       }
     }
@@ -941,7 +1044,12 @@ namespace {
             return true;
           }
 
-          app::HostRecord *mutableHost = &state.hosts[state.selectedHostIndex];
+          app::HostRecord *mutableHost = state.activeHostLoaded ? &state.activeHost : nullptr;
+          if (mutableHost == nullptr) {
+            close_modal(state);
+            update->modalClosed = true;
+            return true;
+          }
           const std::vector<std::size_t> indices = visible_app_indices(*mutableHost, state.showHiddenApps);
           if (indices.empty()) {
             close_modal(state);
@@ -953,8 +1061,10 @@ namespace {
           switch (state.modal.selectedActionIndex % 3U) {
             case 0:
               appRecord.hidden = !appRecord.hidden;
+              state.hostsDirty = true;
               close_modal(state);
               update->modalClosed = true;
+              update->hostsChanged = true;
               clamp_selected_app_index(state);
               return true;
             case 1:
@@ -962,8 +1072,10 @@ namespace {
               return true;
             case 2:
               appRecord.favorite = !appRecord.favorite;
+              state.hostsDirty = true;
               close_modal(state);
               update->modalClosed = true;
+              update->hostsChanged = true;
               return true;
             default:
               return true;
@@ -987,6 +1099,7 @@ namespace app {
       false,
       false,
       false,
+      true,
       0U,
       HostsFocusArea::toolbar,
       DEFAULT_EMPTY_HOSTS_TOOLBAR_INDEX,
@@ -997,6 +1110,10 @@ namespace app {
       ui::MenuModel(),
       ui::MenuModel(),
       {},
+      {},
+      false,
+      {},
+      0,
       {{}, {}, AddHostField::address, {false, 0U, {}}, ScreenId::hosts, {}, {}, false},
       {{}, DEFAULT_HOST_PORT, {}, PairingStage::idle, {}},
       {},
@@ -1035,11 +1152,28 @@ namespace app {
 
   void replace_hosts(ClientState &state, std::vector<HostRecord> hosts, std::string statusMessage) {
     state.hosts = std::move(hosts);
+    state.hostsLoaded = true;
     state.hostsDirty = false;
     state.statusMessage = std::move(statusMessage);
-    reset_hosts_home_selection(state);
+    bool restoredSelection = false;
+    if (!state.selectedHostAddress.empty()) {
+      for (std::size_t index = 0; index < state.hosts.size(); ++index) {
+        if (host_matches_endpoint(state.hosts[index], state.selectedHostAddress, state.selectedHostPort)) {
+          state.selectedHostIndex = index;
+          state.hostsFocusArea = HostsFocusArea::grid;
+          restoredSelection = true;
+          break;
+        }
+      }
+    }
+    if (!restoredSelection) {
+      reset_hosts_home_selection(state);
+    }
     clamp_selected_host_index(state);
     clamp_selected_app_index(state);
+    if (state.activeScreen == ScreenId::hosts) {
+      clear_active_host(state);
+    }
 
     if (state.activeScreen == ScreenId::settings || state.activeScreen == ScreenId::add_host || state.activeScreen == ScreenId::pair_host) {
       rebuild_menu(state);
@@ -1078,6 +1212,8 @@ namespace app {
     }
     if (!state.hosts.empty() && state.selectedHostIndex < state.hosts.size()) {
       state.hosts[state.selectedHostIndex].reachability = success ? HostReachability::online : HostReachability::offline;
+    } else if (state.activeHostLoaded) {
+      state.activeHost.reachability = success ? HostReachability::online : HostReachability::offline;
     }
     state.statusMessage = std::move(message);
   }
@@ -1092,7 +1228,7 @@ namespace app {
     state.pairingDraft.statusMessage = message;
     state.statusMessage = std::move(message);
 
-    HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
+    HostRecord *host = find_loaded_host_by_endpoint(state, address, port);
     if (host == nullptr) {
       return false;
     }
@@ -1101,7 +1237,11 @@ namespace app {
       clear_deleted_host_pairing(state, address, port);
       host->pairingState = PairingState::paired;
       host->reachability = HostReachability::online;
-      select_host_by_endpoint(state, address, port);
+      if (state.hostsLoaded) {
+        select_host_by_endpoint(state, address, port);
+      } else {
+        remember_host_selection(state, *host);
+      }
       set_screen(state, ScreenId::hosts);
       state.hostsDirty = true;
       return true;
@@ -1121,17 +1261,23 @@ namespace app {
     std::string message
   ) {
     HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
+    if (host == nullptr && state.activeScreen == ScreenId::apps && state.activeHostLoaded && host_matches_endpoint(state.activeHost, address, port)) {
+      host = &state.activeHost;
+    }
     if (host == nullptr) {
       return;
     }
 
-    const bool hostIsActiveAppsScreenSelection = state.activeScreen == ScreenId::apps && selected_host(state) == host;
+    bool persistedAppCacheChanged = false;
+
+    const bool hostIsActiveAppsScreenSelection = state.activeScreen == ScreenId::apps && state.activeHostLoaded && host == &state.activeHost;
     const HostAppRecord *currentSelection = selected_app(state);
     const int selectedAppId = currentSelection == nullptr ? 0 : currentSelection->id;
 
     if (!success) {
       if (const bool hostIsUnpaired = network::error_indicates_unpaired_client(message); hostIsUnpaired) {
         host->pairingState = PairingState::not_paired;
+        persistedAppCacheChanged = !host->apps.empty() || host->appListContentHash != 0U;
         host->apps.clear();
         host->appListContentHash = 0;
         host->lastAppListRefreshTick = 0U;
@@ -1170,13 +1316,16 @@ namespace app {
         mergedApps.push_back(std::move(appRecord));
       }
       host->apps = std::move(mergedApps);
+      persistedAppCacheChanged = true;
     } else {
       refresh_running_flags(host);
     }
 
+    persistedAppCacheChanged = persistedAppCacheChanged || host->appListContentHash != appListContentHash;
     host->appListContentHash = appListContentHash;
     host->appListState = HostAppListState::ready;
     host->appListStatusMessage = message;
+    state.hostsDirty = state.hostsDirty || persistedAppCacheChanged;
     if (hostIsActiveAppsScreenSelection) {
       state.statusMessage.clear();
     }
@@ -1192,13 +1341,20 @@ namespace app {
 
   void mark_cover_art_cached(ClientState &state, const std::string &address, uint16_t port, int appId) {
     HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
+    if (host == nullptr && state.activeScreen == ScreenId::apps && state.activeHostLoaded && host_matches_endpoint(state.activeHost, address, port)) {
+      host = &state.activeHost;
+    }
     if (host == nullptr) {
       return;
     }
 
     for (HostAppRecord &appRecord : host->apps) {
       if (appRecord.id == appId) {
+        if (appRecord.boxArtCached) {
+          return;
+        }
         appRecord.boxArtCached = true;
+        state.hostsDirty = true;
         return;
       }
     }
@@ -1221,6 +1377,9 @@ namespace app {
   }
 
   const HostRecord *selected_host(const ClientState &state) {
+    if ((state.activeScreen == ScreenId::apps || state.activeScreen == ScreenId::pair_host) && state.activeHostLoaded) {
+      return &state.activeHost;
+    }
     if (state.hosts.empty() || state.selectedHostIndex >= state.hosts.size()) {
       return nullptr;
     }
@@ -1241,7 +1400,10 @@ namespace app {
   }
 
   const HostRecord *apps_host(const ClientState &state) {
-    return selected_host(state);
+    if (state.activeScreen != ScreenId::apps || !state.activeHostLoaded) {
+      return nullptr;
+    }
+    return &state.activeHost;
   }
 
   AppUpdate handle_command(ClientState &state, input::UiCommand command) {  // NOSONAR(cpp:S3776) top-level UI command routing intentionally remains in one place

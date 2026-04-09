@@ -180,6 +180,9 @@ namespace {
     EXPECT_EQ(update.pairingPort, app::DEFAULT_HOST_PORT);
     EXPECT_TRUE(app::is_valid_pairing_pin(update.pairingPin));
     EXPECT_EQ(state.activeScreen, app::ScreenId::pair_host);
+    EXPECT_FALSE(state.hostsLoaded);
+    EXPECT_TRUE(state.hosts.empty());
+    EXPECT_TRUE(state.activeHostLoaded);
   }
 
   TEST(ClientStateTest, SelectingAnOfflineUnpairedHostDoesNotOpenThePairingScreen) {
@@ -285,6 +288,21 @@ namespace {
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
   }
 
+  TEST(ClientStateTest, EnteringTheAppsScreenUnloadsTheHostsPageData) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
+                              });
+
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+
+    EXPECT_EQ(state.activeScreen, app::ScreenId::apps);
+    EXPECT_FALSE(state.hostsLoaded);
+    EXPECT_TRUE(state.hosts.empty());
+    EXPECT_TRUE(state.activeHostLoaded);
+    EXPECT_EQ(state.activeHost.address, test_support::kTestIpv4Addresses[test_support::kIpOffice]);
+  }
+
   TEST(ClientStateTest, SelectingAnOfflinePairedHostDoesNotOpenTheAppsScreen) {
     app::ClientState state = app::create_initial_state();
     app::replace_hosts(state, {
@@ -306,10 +324,9 @@ namespace {
                                 {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
-    app::handle_command(state, input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
-    state.hosts.front().runningGameId = 101;
-    state.hosts.front().apps = {
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+    state.activeHost.runningGameId = 101;
+    state.activeHost.apps = {
       {"Steam", 101, false, true, true, "cached-steam", true, false},
     };
 
@@ -321,13 +338,13 @@ namespace {
                                true,
                                "Loaded 2 app(s)");
 
-    ASSERT_EQ(state.hosts.front().apps.size(), 2U);
-    EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
-    EXPECT_TRUE(state.hosts.front().apps[0].hidden);
-    EXPECT_TRUE(state.hosts.front().apps[0].favorite);
-    EXPECT_TRUE(state.hosts.front().apps[0].boxArtCached);
-    EXPECT_TRUE(state.hosts.front().apps[0].running);
-    EXPECT_TRUE(state.hosts.front().apps[1].boxArtCached);
+    ASSERT_EQ(state.activeHost.apps.size(), 2U);
+    EXPECT_EQ(state.activeHost.appListState, app::HostAppListState::ready);
+    EXPECT_TRUE(state.activeHost.apps[0].hidden);
+    EXPECT_TRUE(state.activeHost.apps[0].favorite);
+    EXPECT_TRUE(state.activeHost.apps[0].boxArtCached);
+    EXPECT_TRUE(state.activeHost.apps[0].running);
+    EXPECT_TRUE(state.activeHost.apps[1].boxArtCached);
     EXPECT_TRUE(state.statusMessage.empty());
   }
 
@@ -338,8 +355,7 @@ namespace {
                               });
 
     state.hosts.front().resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
-    app::handle_command(state, input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
 
     app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttp], {
                                                                                                                                                               {"Steam", 101, true, false, false, "steam-cover", true, false},
@@ -348,9 +364,9 @@ namespace {
                                true,
                                "Loaded 1 app(s)");
 
-    ASSERT_EQ(state.hosts.front().apps.size(), 1U);
-    EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
-    EXPECT_EQ(state.hosts.front().apps.front().name, "Steam");
+    ASSERT_EQ(state.activeHost.apps.size(), 1U);
+    EXPECT_EQ(state.activeHost.appListState, app::HostAppListState::ready);
+    EXPECT_EQ(state.activeHost.apps.front().name, "Steam");
     EXPECT_TRUE(state.statusMessage.empty());
   }
 
@@ -360,15 +376,37 @@ namespace {
                                 {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
                               });
 
-    state.hosts.front().httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
-    state.hosts.front().apps = {
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+    state.activeHost.httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
+    state.activeHost.apps = {
       {"Steam", 101, true, false, false, "steam-cover", false, false},
     };
 
     app::mark_cover_art_cached(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttps], 101);
 
-    ASSERT_EQ(state.hosts.front().apps.size(), 1U);
-    EXPECT_TRUE(state.hosts.front().apps.front().boxArtCached);
+    ASSERT_EQ(state.activeHost.apps.size(), 1U);
+    EXPECT_TRUE(state.activeHost.apps.front().boxArtCached);
+  }
+
+  TEST(ClientStateTest, SuccessfulAppListRefreshMarksHostsDirtyForPersistence) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
+                              });
+
+    ASSERT_FALSE(state.hostsDirty);
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+
+    app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {
+                                                                                                                                                             {"Steam", 101, true, false, false, "steam-cover", true, false},
+                                                                                                                                                           },
+                               0xACEDU,
+                               true,
+                               "Loaded 1 app(s)");
+
+    EXPECT_TRUE(state.hostsDirty);
+    ASSERT_EQ(state.activeHost.apps.size(), 1U);
+    EXPECT_EQ(state.activeHost.appListContentHash, 0xACEDU);
   }
 
   TEST(ClientStateTest, FailedRefreshKeepsCachedAppsAvailable) {
@@ -378,17 +416,37 @@ namespace {
                               });
 
     ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
-    state.hosts.front().apps = {
+    state.activeHost.apps = {
       {"Steam", 101, false, false, false, "cached-steam", true, false},
     };
-    state.hosts.front().appListContentHash = 0x1234U;
+    state.activeHost.appListContentHash = 0x1234U;
 
     app::apply_app_list_result(state, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], {}, 0, false, "Timed out while refreshing apps");
 
-    EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::ready);
-    ASSERT_EQ(state.hosts.front().apps.size(), 1U);
-    EXPECT_EQ(state.hosts.front().apps.front().name, "Steam");
+    EXPECT_EQ(state.activeHost.appListState, app::HostAppListState::ready);
+    ASSERT_EQ(state.activeHost.apps.size(), 1U);
+    EXPECT_EQ(state.activeHost.apps.front().name, "Steam");
     EXPECT_EQ(state.statusMessage, "Timed out while refreshing apps");
+  }
+
+  TEST(ClientStateTest, LeavingTheAppsScreenUnloadsTheInMemoryAppList) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
+                              });
+
+    ASSERT_TRUE(app::begin_selected_host_app_browse(state, false));
+    state.activeHost.apps = {
+      {"Steam", 101, false, false, false, "cached-steam", true, false},
+    };
+    state.activeHost.appListState = app::HostAppListState::ready;
+
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::back);
+
+    EXPECT_TRUE(update.screenChanged);
+    EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
+    EXPECT_TRUE(state.activeHost.apps.empty());
+    EXPECT_EQ(state.activeHost.appListState, app::HostAppListState::idle);
   }
 
   TEST(ClientStateTest, ExplicitUnpairedAppListFailureMarksTheHostAsNotPaired) {
@@ -539,8 +597,8 @@ namespace {
 
     EXPECT_EQ(state.activeScreen, app::ScreenId::hosts);
     EXPECT_TRUE(state.statusMessage.empty());
-    EXPECT_EQ(state.hosts.front().appListState, app::HostAppListState::failed);
-    EXPECT_EQ(state.hosts.front().appListStatusMessage, "The host applist response did not contain any app entries");
+    EXPECT_EQ(state.activeHost.appListState, app::HostAppListState::idle);
+    EXPECT_TRUE(state.activeHost.appListStatusMessage.empty());
   }
 
   TEST(ClientStateTest, SettingsCanRequestDeletionOfSavedFilesFromTheResetCategory) {

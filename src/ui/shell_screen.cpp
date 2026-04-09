@@ -31,6 +31,7 @@
 #include "src/startup/cover_art_cache.h"
 #include "src/startup/host_storage.h"
 #include "src/startup/saved_files.h"
+#include "src/ui/host_probe_result_queue.h"
 #include "src/ui/shell_view.h"
 
 namespace {
@@ -1864,8 +1865,73 @@ namespace {
     }
   }
 
+  app::HostRecord *find_persisted_host_record(std::vector<app::HostRecord> &hosts, const std::string &address, uint16_t port) {
+    const auto iterator = std::find_if(hosts.begin(), hosts.end(), [&address, port](const app::HostRecord &host) {
+      return app::host_matches_endpoint(host, address, port);
+    });
+    return iterator == hosts.end() ? nullptr : &(*iterator);
+  }
+
+  void merge_host_for_persistence(app::HostRecord *targetHost, const app::HostRecord &sourceHost) {
+    if (targetHost == nullptr) {
+      return;
+    }
+
+    targetHost->displayName = sourceHost.displayName;
+    targetHost->address = sourceHost.address;
+    targetHost->port = sourceHost.port;
+    targetHost->pairingState = sourceHost.pairingState;
+    targetHost->reachability = sourceHost.reachability;
+    targetHost->activeAddress = sourceHost.activeAddress;
+    targetHost->uuid = sourceHost.uuid;
+    targetHost->localAddress = sourceHost.localAddress;
+    targetHost->remoteAddress = sourceHost.remoteAddress;
+    targetHost->ipv6Address = sourceHost.ipv6Address;
+    targetHost->manualAddress = sourceHost.manualAddress;
+    targetHost->macAddress = sourceHost.macAddress;
+    targetHost->httpsPort = sourceHost.httpsPort;
+    targetHost->runningGameId = sourceHost.runningGameId;
+    targetHost->apps = sourceHost.apps;
+    targetHost->appListState = sourceHost.appListState;
+    targetHost->appListStatusMessage = sourceHost.appListStatusMessage;
+    targetHost->resolvedHttpPort = sourceHost.resolvedHttpPort;
+    targetHost->appListContentHash = sourceHost.appListContentHash;
+    targetHost->lastAppListRefreshTick = sourceHost.lastAppListRefreshTick;
+  }
+
+  bool ensure_hosts_loaded_for_active_screen(logging::Logger &logger, app::ClientState &state) {
+    if (state.activeScreen != app::ScreenId::hosts || state.hostsLoaded) {
+      return true;
+    }
+
+    const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
+    for (const std::string &warning : loadedHosts.warnings) {
+      logger.log(logging::LogLevel::warning, "hosts", warning);
+    }
+    app::replace_hosts(state, loadedHosts.hosts, state.statusMessage);
+    return true;
+  }
+
   bool persist_hosts(logging::Logger &logger, app::ClientState &state) {
-    const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(state.hosts);
+    std::vector<app::HostRecord> hostsToSave;
+    if (state.hostsLoaded) {
+      hostsToSave = state.hosts;
+    } else if (state.activeHostLoaded) {
+      const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
+      for (const std::string &warning : loadedHosts.warnings) {
+        logger.log(logging::LogLevel::warning, "hosts", warning);
+      }
+      hostsToSave = loadedHosts.hosts;
+      if (app::HostRecord *host = find_persisted_host_record(hostsToSave, state.activeHost.address, state.activeHost.port); host != nullptr) {
+        merge_host_for_persistence(host, state.activeHost);
+      } else {
+        hostsToSave.push_back(state.activeHost);
+      }
+    } else {
+      hostsToSave = state.hosts;
+    }
+
+    const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hostsToSave);
     if (saveResult.success) {
       state.hostsDirty = false;
       logger.log(logging::LogLevel::info, "hosts", "Saved host records");
@@ -1885,11 +1951,7 @@ namespace {
   }
 
   void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {  // NOSONAR(cpp:S3776) host metadata updates intentionally stay grouped with pairing-state transitions
-    for (app::HostRecord &host : state.hosts) {
-      if (!app::host_matches_endpoint(host, address, port)) {
-        continue;
-      }
-
+    auto apply_to_host = [&](app::HostRecord &host) {
       bool persistedMetadataChanged = false;
       const bool hostRequiresManualPairing = app::host_requires_manual_pairing(state, address, port);
       if (!serverInfo.hostName.empty()) {
@@ -1919,13 +1981,24 @@ namespace {
           host.appListContentHash = 0;
           host.lastAppListRefreshTick = 0;
           state.selectedAppIndex = 0U;
-          if (state.activeScreen == app::ScreenId::apps && state.selectedHostIndex < state.hosts.size() && &host == &state.hosts[state.selectedHostIndex]) {  // NOSONAR(cpp:S134) selected-host UI update stays inline with pairing-state demotion
+          if (state.activeScreen == app::ScreenId::apps && state.activeHostLoaded && &host == &state.activeHost) {
             state.statusMessage = host.appListStatusMessage;
           }
         }
       }
       state.hostsDirty = state.hostsDirty || persistedMetadataChanged;
-      break;
+    };
+
+    for (app::HostRecord &host : state.hosts) {
+      if (!app::host_matches_endpoint(host, address, port)) {
+        continue;
+      }
+      apply_to_host(host);
+      return;
+    }
+
+    if (state.activeHostLoaded && app::host_matches_endpoint(state.activeHost, address, port)) {
+      apply_to_host(state.activeHost);
     }
   }
 
@@ -1979,6 +2052,15 @@ namespace {
       logger.log(logging::LogLevel::warning, "storage", warning);
     }
     app::replace_saved_files(state, savedFiles.files);
+  }
+
+  void release_page_resources_for_screen(app::ScreenId previousScreen, app::ScreenId nextScreen, CoverArtTextureCache *coverArtTextureCache, KeypadModalLayoutCache *keypadModalLayoutCache) {
+    if (previousScreen != nextScreen && previousScreen == app::ScreenId::apps) {
+      clear_cover_art_texture_cache(coverArtTextureCache);
+    }
+    if (previousScreen != nextScreen && previousScreen == app::ScreenId::add_host) {
+      clear_keypad_modal_layout_cache(keypadModalLayoutCache);
+    }
   }
 
   void delete_saved_file_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
@@ -2168,22 +2250,24 @@ namespace {
   };
 
   struct HostProbeTaskState {
-    struct TargetHost {
-      std::string address;
-      uint16_t port = 0;
-    };
-
-    struct ProbeResult {
+    struct ProbeWorkerState {
+      SDL_Thread *thread = nullptr;
+      std::atomic<bool> completed = false;
       std::string address;
       uint16_t port = 0;
       bool success = false;
       network::HostPairingServerInfo serverInfo;
+      const network::PairingIdentity *clientIdentity = nullptr;
+      ui::HostProbeResultQueue *resultQueue = nullptr;
     };
 
-    SDL_Thread *thread = nullptr;
-    std::atomic<bool> completed = false;
-    std::vector<TargetHost> targets;
-    std::vector<ProbeResult> results;
+    std::vector<std::unique_ptr<ProbeWorkerState>> workers;
+    network::PairingIdentity clientIdentity;
+    bool clientIdentityAvailable = false;
+    ui::HostProbeResultQueue resultQueue;
+    std::size_t onlineCount = 0U;
+    std::size_t offlineCount = 0U;
+    bool metadataChanged = false;
   };
 
   void reset_pairing_attempt(PairingAttemptState *attempt) {
@@ -2331,14 +2415,31 @@ namespace {
       return;
     }
 
-    task->thread = nullptr;
-    task->completed.store(false);
-    task->targets.clear();
-    task->results.clear();
+    task->workers.clear();
+    task->clientIdentity = {};
+    task->clientIdentityAvailable = false;
+    ui::reset_host_probe_result_queue(&task->resultQueue);
+    task->onlineCount = 0U;
+    task->offlineCount = 0U;
+    task->metadataChanged = false;
   }
 
   bool host_probe_task_is_active(const HostProbeTaskState &task) {
-    return task.thread != nullptr && !task.completed.load();
+    return !task.workers.empty();
+  }
+
+  bool mark_host_offline(app::ClientState &state, const std::string &address, uint16_t port) {
+    for (app::HostRecord &host : state.hosts) {
+      if (!app::host_matches_endpoint(host, address, port)) {
+        continue;
+      }
+
+      host.reachability = app::HostReachability::offline;
+      host.manualAddress = address;
+      return true;
+    }
+
+    return false;
   }
 
   int run_pairing_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2499,71 +2600,92 @@ namespace {
   }
 
   int run_host_probe_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
-    auto *task = static_cast<HostProbeTaskState *>(context);
-    if (task == nullptr) {
+    auto *worker = static_cast<HostProbeTaskState::ProbeWorkerState *>(context);
+    if (worker == nullptr) {
       return -1;
     }
 
-    network::PairingIdentity clientIdentity {};
-    const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr;
-
-    task->results.clear();
-    task->results.reserve(task->targets.size());
-    for (const HostProbeTaskState::TargetHost &target : task->targets) {
-      HostProbeTaskState::ProbeResult result {};
-      result.address = target.address;
-      result.port = target.port;
-      result.success = test_tcp_host_connection(target.address, target.port, clientIdentityPointer, nullptr, &result.serverInfo);
-      task->results.push_back(std::move(result));
-    }
-
-    task->completed.store(true);
+    worker->success = test_tcp_host_connection(worker->address, worker->port, worker->clientIdentity, nullptr, &worker->serverInfo);
+    ui::publish_host_probe_result(
+      worker->resultQueue,
+      {
+        worker->address,
+        worker->port,
+        worker->success,
+        worker->serverInfo,
+      }
+    );
+    worker->completed.store(true, std::memory_order_release);
     return 0;
   }
 
-  void finish_host_probe_task_if_ready(logging::Logger &logger, app::ClientState &state, HostProbeTaskState *task) {
-    if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
+  void apply_published_host_probe_results(app::ClientState &state, HostProbeTaskState *task) {
+    if (task == nullptr) {
       return;
     }
 
-    SDL_Thread *thread = task->thread;
-    task->thread = nullptr;
-    int threadResult = 0;
-    SDL_WaitThread(thread, &threadResult);
-    (void) threadResult;
-
-    const std::vector<HostProbeTaskState::ProbeResult> results = task->results;
-    reset_host_probe_task(task);
-
-    std::size_t onlineCount = 0;
-    std::size_t offlineCount = 0;
-    bool metadataChanged = false;
-    for (const HostProbeTaskState::ProbeResult &result : results) {
+    const std::vector<ui::HostProbeResult> results = ui::drain_host_probe_results(&task->resultQueue);
+    for (const ui::HostProbeResult &result : results) {
       if (result.success) {
-        apply_server_info_to_host(state, result.address, result.port, result.serverInfo);
-        metadataChanged = metadataChanged || state.hostsDirty;
-        ++onlineCount;
+        if (state.activeScreen == app::ScreenId::hosts && state.hostsLoaded) {
+          apply_server_info_to_host(state, result.address, result.port, result.serverInfo);
+          task->metadataChanged = task->metadataChanged || state.hostsDirty;
+        }
+        ++task->onlineCount;
         continue;
       }
 
-      for (app::HostRecord &host : state.hosts) {
-        if (host.address == result.address && app::effective_host_port(host.port) == app::effective_host_port(result.port)) {
-          host.reachability = app::HostReachability::offline;
-          host.manualAddress = result.address;
-          ++offlineCount;
-          break;
-        }
+      if (state.activeScreen == app::ScreenId::hosts && state.hostsLoaded) {
+        mark_host_offline(state, result.address, result.port);
       }
-    }
-
-    logger.log(logging::LogLevel::info, "hosts", "Refreshed " + std::to_string(results.size()) + " saved host(s): " + std::to_string(onlineCount) + " online, " + std::to_string(offlineCount) + " offline");
-    if (metadataChanged) {
-      persist_hosts(logger, state);
+      ++task->offlineCount;
     }
   }
 
+  void reap_completed_host_probe_workers(HostProbeTaskState *task) {
+    if (task == nullptr) {
+      return;
+    }
+
+    auto iterator = task->workers.begin();
+    while (iterator != task->workers.end()) {
+      if ((*iterator)->thread == nullptr || !(*iterator)->completed.load(std::memory_order_acquire)) {
+        ++iterator;
+        continue;
+      }
+
+      int threadResult = 0;
+      SDL_WaitThread((*iterator)->thread, &threadResult);
+      (void) threadResult;
+      iterator = task->workers.erase(iterator);
+    }
+  }
+
+  void finish_host_probe_task_if_ready(logging::Logger &logger, app::ClientState &state, HostProbeTaskState *task) {
+    if (task == nullptr) {
+      return;
+    }
+
+    apply_published_host_probe_results(state, task);
+    reap_completed_host_probe_workers(task);
+    apply_published_host_probe_results(state, task);
+    if (host_probe_task_is_active(*task) || !ui::host_probe_result_round_complete(task->resultQueue)) {
+      return;
+    }
+
+    logger.log(
+      logging::LogLevel::info,
+      "hosts",
+      "Refreshed " + std::to_string(task->onlineCount + task->offlineCount) + " saved host(s): " + std::to_string(task->onlineCount) + " online, " + std::to_string(task->offlineCount) + " offline"
+    );
+    if (task->metadataChanged) {
+      persist_hosts(logger, state);
+    }
+    reset_host_probe_task(task);
+  }
+
   void start_host_probe_task_if_needed(logging::Logger &logger, const app::ClientState &state, HostProbeTaskState *task, Uint32 now, Uint32 *nextHostProbeTick) {
-    if (task == nullptr || host_probe_task_is_active(*task) || state.activeScreen != app::ScreenId::hosts || !network::runtime_network_ready()) {
+    if (task == nullptr || host_probe_task_is_active(*task) || state.activeScreen != app::ScreenId::hosts || !state.hostsLoaded || !network::runtime_network_ready()) {
       return;
     }
     if (nextHostProbeTick != nullptr && *nextHostProbeTick != 0U && now < *nextHostProbeTick) {
@@ -2571,16 +2693,24 @@ namespace {
     }
 
     reset_host_probe_task(task);
+    task->clientIdentityAvailable = try_load_saved_pairing_identity(&task->clientIdentity);
+    ui::begin_host_probe_result_round(&task->resultQueue, state.hosts.size());
     for (const app::HostRecord &host : state.hosts) {
-      task->targets.push_back({host.address, app::effective_host_port(host.port)});
-    }
-    if (task->targets.empty()) {
-      return;
-    }
+      auto worker = std::make_unique<HostProbeTaskState::ProbeWorkerState>();
+      worker->address = host.address;
+      worker->port = app::effective_host_port(host.port);
+      worker->clientIdentity = task->clientIdentityAvailable ? &task->clientIdentity : nullptr;
+      worker->resultQueue = &task->resultQueue;
+      worker->thread = SDL_CreateThread(run_host_probe_task, "probe-saved-host", worker.get());
+      if (worker->thread == nullptr) {
+        logger.log(logging::LogLevel::error, "hosts", "Failed to start the saved-host refresh worker for " + host.address + ": " + SDL_GetError());
+        ui::skip_host_probe_result_target(&task->resultQueue);
+        continue;
+      }
 
-    task->thread = SDL_CreateThread(run_host_probe_task, "probe-saved-hosts", task);
-    if (task->thread == nullptr) {
-      logger.log(logging::LogLevel::error, "hosts", std::string("Failed to start the saved-host refresh task: ") + SDL_GetError());
+      task->workers.push_back(std::move(worker));
+    }
+    if (task->workers.empty()) {
       reset_host_probe_task(task);
       return;
     }
@@ -2612,6 +2742,10 @@ namespace {
           host.manualAddress = update.pairingAddress;
           break;
         }
+      }
+      if (state.activeHostLoaded && app::host_matches_endpoint(state.activeHost, update.pairingAddress, update.pairingPort)) {
+        state.activeHost.reachability = app::HostReachability::offline;
+        state.activeHost.manualAddress = update.pairingAddress;
       }
       state.pairingDraft.stage = app::PairingStage::failed;
       state.pairingDraft.generatedPin.clear();
@@ -2756,8 +2890,8 @@ namespace {
         return;
       }
 
-      if (state.selectedHostIndex < state.hosts.size()) {
-        app::HostRecord &mutableHost = state.hosts[state.selectedHostIndex];
+      if (state.activeHostLoaded) {
+        app::HostRecord &mutableHost = state.activeHost;
         mutableHost.appListState = app::HostAppListState::loading;
         mutableHost.appListStatusMessage = (mutableHost.apps.empty() ? "Loading apps for " : "Refreshing apps for ") + mutableHost.displayName + "...";
         state.statusMessage.clear();
@@ -2771,17 +2905,17 @@ namespace {
     if (task->thread == nullptr) {
       const std::string errorMessage = std::string("Failed to start the app-list fetch task: ") + SDL_GetError();
       logger.log(logging::LogLevel::error, "apps", errorMessage);
-      if (!state.hosts.empty() && state.selectedHostIndex < state.hosts.size()) {
-        state.hosts[state.selectedHostIndex].appListState = app::HostAppListState::failed;
-        state.hosts[state.selectedHostIndex].appListStatusMessage = errorMessage;
+      if (state.activeHostLoaded) {
+        state.activeHost.appListState = app::HostAppListState::failed;
+        state.activeHost.appListStatusMessage = errorMessage;
         state.statusMessage = errorMessage;
       }
       reset_app_list_task(task);
       return;
     }
 
-    if (state.selectedHostIndex < state.hosts.size()) {
-      state.hosts[state.selectedHostIndex].lastAppListRefreshTick = now;
+    if (state.activeHostLoaded) {
+      state.activeHost.lastAppListRefreshTick = now;
     }
   }
 
@@ -3498,12 +3632,10 @@ namespace ui {
 
       keypadRedrawRequested = true;
 
+      const app::ScreenId previousScreen = state.activeScreen;
       const app::AppUpdate update = app::handle_command(state, command);
       logger.set_minimum_level(state.loggingLevel);
       log_app_update(logger, state, update);
-      if (update.screenChanged && !draw_current_shell()) {
-        return;
-      }
       show_log_file_if_requested(logger, state, update);
       cancel_pairing_if_requested(logger, state, update, &pairingTask);
       test_host_connection_if_requested(logger, state, update);
@@ -3514,9 +3646,21 @@ namespace ui {
       factory_reset_if_requested(logger, state, update, &coverArtTextureCache);
       refresh_saved_files_if_needed(logger, state);
       persist_hosts_if_needed(logger, state, update);
+
+      if (previousScreen != state.activeScreen) {
+        release_page_resources_for_screen(previousScreen, state.activeScreen, &coverArtTextureCache, &keypadModalLayoutCache);
+        ensure_hosts_loaded_for_active_screen(logger, state);
+      }
+      if ((previousScreen != state.activeScreen || update.screenChanged) && !draw_current_shell()) {
+        return;
+      }
+      if (state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
+        clear_keypad_modal_layout_cache(&keypadModalLayoutCache);
+      }
     };
 
     while (running && !state.shouldExit) {
+      ensure_hosts_loaded_for_active_screen(logger, state);
       finish_pairing_task_if_ready(logger, state, &pairingTask);
       finish_app_list_task_if_ready(logger, state, &appListTask);
       finish_app_art_task_if_ready(logger, state, &appArtTask, &coverArtTextureCache);
@@ -3735,9 +3879,13 @@ namespace ui {
       SDL_WaitThread(appArtTask.thread, &threadResult);
       (void) threadResult;
     }
-    if (hostProbeTask.thread != nullptr) {
+    for (const std::unique_ptr<HostProbeTaskState::ProbeWorkerState> &worker : hostProbeTask.workers) {
+      if (worker == nullptr || worker->thread == nullptr) {
+        continue;
+      }
+
       int threadResult = 0;
-      SDL_WaitThread(hostProbeTask.thread, &threadResult);
+      SDL_WaitThread(worker->thread, &threadResult);
       (void) threadResult;
     }
 

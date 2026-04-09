@@ -151,6 +151,7 @@ namespace app {
     bool overlayVisible;  ///< True when the diagnostics overlay is visible.
     bool shouldExit;  ///< True when the application should terminate.
     bool hostsDirty;  ///< True when the host list changed and should be saved.
+    bool hostsLoaded;  ///< True when the hosts page list is currently loaded in memory.
     std::size_t overlayScrollOffset;  ///< Scroll offset used by long overlay content.
     HostsFocusArea hostsFocusArea;  ///< Focused region on the hosts page.
     std::size_t selectedToolbarButtonIndex;  ///< Zero-based selection inside the hosts toolbar.
@@ -161,6 +162,10 @@ namespace app {
     ui::MenuModel menu;  ///< Primary vertical menu model for the active screen.
     ui::MenuModel detailMenu;  ///< Secondary detail or actions menu.
     std::vector<HostRecord> hosts;  ///< Saved hosts currently tracked by the shell.
+    HostRecord activeHost;  ///< Host snapshot kept for host-specific non-host screens after unloading the hosts page.
+    bool activeHostLoaded = false;  ///< True when activeHost contains a valid host snapshot.
+    std::string selectedHostAddress;  ///< Last selected host address used to restore hosts-page selection after reload.
+    uint16_t selectedHostPort = 0;  ///< Last selected host port override used to restore hosts-page selection after reload.
     AddHostDraft addHostDraft;  ///< Draft state for the add-host workflow.
     PairingDraft pairingDraft;  ///< Draft state for the active pairing workflow.
     ModalState modal;  ///< Context modal currently stacked over the shell.
@@ -356,9 +361,12 @@ namespace app {
   bool begin_selected_host_app_browse(ClientState &state, bool showHiddenApps);
 
   /**
-   * @brief Return the currently selected saved host on the Hosts screen.
+   * @brief Return the currently selected loaded host for the active screen.
    *
-   * @param state App state containing the hosts list and menu selection.
+   * On the hosts page this returns the selected saved host tile. On host-specific
+   * pages such as pairing it may return the lightweight active host snapshot.
+   *
+   * @param state App state containing the loaded host selection.
    * @return Selected host record, or nullptr when no saved host is selected.
    */
   const HostRecord *selected_host(const ClientState &state);

@@ -178,8 +178,11 @@ namespace app {
   /**
    * @brief Serialize host records into a stable tab-separated text format.
    *
+   * The serialized form preserves the saved host identity plus any cached app-list
+   * entries and their local visibility or artwork metadata.
+   *
    * @param records Host records to serialize.
-   * @return Serialized text suitable for a future persistence layer.
+   * @return Serialized text suitable for disk persistence.
    */
   std::string serialize_host_records(const std::vector<HostRecord> &records);
 
