@@ -11,7 +11,7 @@
 
 // local includes
 #include "src/platform/filesystem_utils.h"
-#include "src/startup/host_storage.h"
+#include "src/startup/storage_paths.h"
 
 namespace {
 
@@ -24,13 +24,7 @@ namespace {
 namespace logging {
 
   std::string default_log_file_path() {
-    const std::string hostStoragePath = startup::default_host_storage_path();
-    const std::string directoryPath = platform::parent_directory(hostStoragePath);
-    if (directoryPath.empty()) {
-      return "moonlight.log";
-    }
-
-    return platform::join_path(directoryPath, "moonlight.log");
+    return startup::default_storage_path("moonlight.log");
   }
 
   bool reset_log_file(const std::string &filePath, std::string *errorMessage) {
@@ -86,6 +80,21 @@ namespace logging {
     }
 
     return true;
+  }
+
+  RuntimeLogFileSink::RuntimeLogFileSink(std::string filePath):
+      filePath_(std::move(filePath)) {}
+
+  const std::string &RuntimeLogFileSink::file_path() const {
+    return filePath_;
+  }
+
+  bool RuntimeLogFileSink::reset(std::string *errorMessage) const {
+    return reset_log_file(filePath_, errorMessage);
+  }
+
+  bool RuntimeLogFileSink::consume(const LogEntry &entry, std::string *errorMessage) const {
+    return append_log_file_entry(entry, filePath_, errorMessage);
   }
 
   LoadLogFileResult load_log_file(const std::string &filePath, std::size_t maxLines) {

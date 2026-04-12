@@ -3,7 +3,6 @@
 
 // standard includes
 #include <algorithm>
-#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -22,7 +21,9 @@
 #endif
 
 // local includes
+#include "src/app/settings_storage.h"
 #include "src/logging/log_file.h"
+#include "src/platform/error_utils.h"
 #include "src/platform/filesystem_utils.h"
 #include "src/startup/client_identity_storage.h"
 #include "src/startup/cover_art_cache.h"
@@ -36,30 +37,17 @@ namespace {
 
   struct ResolvedSavedFileCatalogConfig {
     std::string hostStoragePath;
+    std::string settingsFilePath;
     std::string logFilePath;
     std::string pairingDirectory;
     std::string coverArtCacheRoot;
   };
 
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
-    }
-    return false;
-  }
-
-  std::string join_path(const std::string &left, const std::string &right) {
-    return platform::join_path(left, right);
-  }
-
-  std::string file_name_from_path(const std::string &path) {
-    const std::size_t separatorIndex = path.find_last_of("\\/");
-    return separatorIndex == std::string::npos ? path : path.substr(separatorIndex + 1U);
-  }
-
-  bool path_has_prefix(const std::string &path, const std::string &prefix) {
-    return platform::path_has_prefix(path, prefix);
-  }
+  using platform::append_error;
+  using platform::file_name_from_path;
+  using platform::join_path;
+  using platform::path_has_prefix;
+  using platform::try_get_file_size;
 
   std::string relative_path_from_root(const std::string &rootPath, const std::string &path) {
     if (!path_has_prefix(path, rootPath)) {
@@ -73,13 +61,10 @@ namespace {
     return offset >= path.size() ? file_name_from_path(path) : path.substr(offset);
   }
 
-  bool try_get_file_size(const std::string &path, std::uint64_t *sizeBytes) {
-    return platform::try_get_file_size(path, sizeBytes);
-  }
-
   ResolvedSavedFileCatalogConfig resolve_config(const startup::SavedFileCatalogConfig &config) {
     return {
       config.hostStoragePath.empty() ? startup::default_host_storage_path() : config.hostStoragePath,
+      config.settingsFilePath.empty() ? app::default_settings_path() : config.settingsFilePath,
       config.logFilePath.empty() ? logging::default_log_file_path() : config.logFilePath,
       config.pairingDirectory.empty() ? startup::default_client_identity_directory() : config.pairingDirectory,
       config.coverArtCacheRoot.empty() ? startup::default_cover_art_cache_root() : config.coverArtCacheRoot,
@@ -92,7 +77,11 @@ namespace {
     const std::string &path,
     const std::string &displayName
   ) {
-    if (files == nullptr || seenPaths == nullptr || path.empty() || seenPaths->find(path) != seenPaths->end()) {
+    if (files == nullptr || seenPaths == nullptr || path.empty()) {
+      return;
+    }
+
+    if (seenPaths->find(path) != seenPaths->end()) {
       return;
     }
 
@@ -199,7 +188,7 @@ namespace {
   }
 
   bool path_is_managed_saved_file(const std::string &path, const ResolvedSavedFileCatalogConfig &config) {
-    if (path == config.hostStoragePath || path == config.logFilePath) {
+    if (path == config.hostStoragePath || path == config.settingsFilePath || path == config.logFilePath) {
       return true;
     }
 
@@ -233,6 +222,7 @@ namespace startup {
     std::unordered_map<std::string, bool> seenPaths;
 
     add_file_if_present(&result.files, &seenPaths, resolvedConfig.hostStoragePath, file_name_from_path(resolvedConfig.hostStoragePath));
+    add_file_if_present(&result.files, &seenPaths, resolvedConfig.settingsFilePath, file_name_from_path(resolvedConfig.settingsFilePath));
     add_file_if_present(&result.files, &seenPaths, resolvedConfig.logFilePath, file_name_from_path(resolvedConfig.logFilePath));
     add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_UNIQUE_ID_FILE_NAME), join_path("pairing", PAIRING_UNIQUE_ID_FILE_NAME));
     add_file_if_present(&result.files, &seenPaths, join_path(resolvedConfig.pairingDirectory, PAIRING_CERTIFICATE_FILE_NAME), join_path("pairing", PAIRING_CERTIFICATE_FILE_NAME));

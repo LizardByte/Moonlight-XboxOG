@@ -110,6 +110,9 @@ namespace ui {
     std::vector<ShellActionRow> menuRows;  ///< Primary action rows for the active screen.
     std::vector<ShellActionRow> detailMenuRows;  ///< Secondary action rows for details or settings.
     std::string selectedMenuRowLabel;  ///< Label of the currently selected primary menu row.
+    std::string selectedMenuRowDescription;  ///< Description of the currently selected row, when available.
+    bool leftPanelActive = false;  ///< True when the left navigation panel should use the active accent border.
+    bool rightPanelActive = false;  ///< True when the right content panel should use the active accent border.
     std::vector<ShellFooterAction> footerActions;  ///< Footer actions shown for the current screen.
     bool overlayVisible = false;  ///< True when the diagnostics overlay should be rendered.
     std::string overlayTitle;  ///< Diagnostics overlay title.

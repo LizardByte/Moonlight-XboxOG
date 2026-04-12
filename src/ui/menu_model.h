@@ -18,6 +18,7 @@ namespace ui {
   struct MenuItem {
     std::string id;  ///< Stable identifier used by reducers and view builders.
     std::string label;  ///< User-facing label shown in the menu.
+    std::string description;  ///< Helper copy explaining what the item changes or activates.
     bool enabled;  ///< True when the item can be selected and activated.
   };
 

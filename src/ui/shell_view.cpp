@@ -303,9 +303,13 @@ namespace {
             std::string("Category: ") + settings_category_label(state.selectedSettingsCategory),
           };
           if (state.selectedSettingsCategory == app::SettingsCategory::logging) {
-            lines.push_back(std::string("Log file: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
-            lines.push_back(std::string("Current logging level: ") + logging::to_string(state.loggingLevel));
-            lines.emplace_back("Use View Log File to inspect persisted startup and applist diagnostics.");
+            lines.emplace_back("Runtime log file: reset on every startup");
+            lines.push_back(std::string("Log file path: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
+            lines.push_back(std::string("File logging level: ") + logging::to_string(state.loggingLevel));
+            lines.push_back(std::string("xemu console logging level: ") + logging::to_string(state.xemuConsoleLoggingLevel));
+            lines.emplace_back("File logging writes to disk and should usually stay at NONE unless you are debugging an issue.");
+            lines.emplace_back("xemu console logging writes through DbgPrint(). Start xemu with -device lpc47m157 -serial stdio.");
+            lines.emplace_back("Startup console messages are always shown before the splash screen.");
           } else if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
             if (state.savedFiles.empty()) {
               lines.emplace_back("Saved files: none found.");
@@ -556,10 +560,16 @@ namespace ui {
     viewModel.menuRows = menu_rows(state);
     viewModel.detailMenuRows = detail_menu_rows(state);
     if (state.activeScreen == app::ScreenId::settings || state.activeScreen == app::ScreenId::add_host || state.activeScreen == app::ScreenId::pair_host) {
+      viewModel.leftPanelActive = state.activeScreen != app::ScreenId::settings || state.settingsFocusArea == app::SettingsFocusArea::categories;
+      viewModel.rightPanelActive = state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options;
+    }
+    if (state.activeScreen == app::ScreenId::settings || state.activeScreen == app::ScreenId::add_host || state.activeScreen == app::ScreenId::pair_host) {
       if (state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.detailMenu.selected_item()->label;
+        viewModel.selectedMenuRowDescription = state.detailMenu.selected_item()->description;
       } else if (state.menu.selected_item() != nullptr) {
         viewModel.selectedMenuRowLabel = state.menu.selected_item()->label;
+        viewModel.selectedMenuRowDescription = state.menu.selected_item()->description;
       }
     }
     viewModel.footerActions = footer_actions(state);

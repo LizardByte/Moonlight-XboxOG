@@ -1,8 +1,8 @@
 // class header include
 #include "src/startup/video_mode.h"
 
-// nxdk includes
-#include <hal/debug.h>
+// local includes
+#include "src/logging/global_logger.h"
 
 namespace startup {
 
@@ -85,7 +85,7 @@ namespace startup {
 
   void log_video_modes(const VideoModeSelection &selection) {
     for (const std::string &line : format_video_mode_lines(selection)) {
-      debugPrint("%s\n", line.c_str());
+      logging::logger.info("video", line);
     }
   }
 

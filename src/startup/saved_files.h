@@ -20,10 +20,11 @@ namespace startup {
    * @brief Optional path overrides used to inspect Moonlight-managed files.
    */
   struct SavedFileCatalogConfig {
-    std::string hostStoragePath;  ///< Path to the saved-host storage file
-    std::string logFilePath;  ///< Path to the persisted log file
-    std::string pairingDirectory;  ///< Directory containing saved client pairing identity files
-    std::string coverArtCacheRoot;  ///< Root directory containing cached cover art artifacts
+    std::string hostStoragePath;  ///< Path to the saved-host storage file.
+    std::string settingsFilePath;  ///< Path to the persisted TOML settings file.
+    std::string logFilePath;  ///< Path to the persisted log file.
+    std::string pairingDirectory;  ///< Directory containing persisted pairing credentials.
+    std::string coverArtCacheRoot;  ///< Root directory containing cached cover art artifacts.
   };
 
   /**

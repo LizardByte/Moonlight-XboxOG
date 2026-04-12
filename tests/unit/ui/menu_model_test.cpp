@@ -6,9 +6,9 @@ namespace {
 
   TEST(MenuModelTest, SelectsTheFirstEnabledItemWhenConstructed) {
     const ui::MenuModel menu({
-      {"disabled", "Disabled", false},
-      {"hosts", "Hosts", true},
-      {"settings", "Settings", true},
+      {"disabled", "Disabled", {}, false},
+      {"hosts", "Hosts", {}, true},
+      {"settings", "Settings", {}, true},
     });
 
     ASSERT_NE(menu.selected_item(), nullptr);
@@ -18,9 +18,9 @@ namespace {
 
   TEST(MenuModelTest, MovesSelectionAndSkipsDisabledItems) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
-      {"disabled", "Disabled", false},
-      {"settings", "Settings", true},
+      {"hosts", "Hosts", {}, true},
+      {"disabled", "Disabled", {}, false},
+      {"settings", "Settings", {}, true},
     });
 
     const ui::MenuUpdate update = menu.handle_command(input::UiCommand::move_down);
@@ -32,8 +32,8 @@ namespace {
 
   TEST(MenuModelTest, WrapsAroundWhenMovingPastTheLastItem) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
-      {"settings", "Settings", true},
+      {"hosts", "Hosts", {}, true},
+      {"settings", "Settings", {}, true},
     });
 
     EXPECT_TRUE(menu.handle_command(input::UiCommand::move_up).selectionChanged);
@@ -43,8 +43,8 @@ namespace {
 
   TEST(MenuModelTest, ActivatesTheSelectedItem) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
-      {"settings", "Settings", true},
+      {"hosts", "Hosts", {}, true},
+      {"settings", "Settings", {}, true},
     });
 
     const ui::MenuUpdate update = menu.handle_command(input::UiCommand::activate);
@@ -55,9 +55,9 @@ namespace {
 
   TEST(MenuModelTest, CanSelectAnEnabledItemById) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
-      {"disabled", "Disabled", false},
-      {"settings", "Settings", true},
+      {"hosts", "Hosts", {}, true},
+      {"disabled", "Disabled", {}, false},
+      {"settings", "Settings", {}, true},
     });
 
     EXPECT_TRUE(menu.select_item_by_id("settings"));
@@ -69,7 +69,7 @@ namespace {
 
   TEST(MenuModelTest, SurfacesBackAndOverlayActionsWithoutChangingSelection) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
+      {"hosts", "Hosts", {}, true},
     });
 
     const ui::MenuUpdate backUpdate = menu.handle_command(input::UiCommand::back);
@@ -83,7 +83,7 @@ namespace {
 
   TEST(MenuModelTest, SurfacesFastPageActionsWithoutChangingSelection) {
     ui::MenuModel menu({
-      {"hosts", "Hosts", true},
+      {"hosts", "Hosts", {}, true},
     });
 
     const ui::MenuUpdate previousUpdate = menu.handle_command(input::UiCommand::fast_previous_page);

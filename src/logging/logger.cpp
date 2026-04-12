@@ -6,16 +6,63 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <string>
 #include <utility>
 
 #if defined(_WIN32)
   #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 #endif
 
+#if defined(NXDK)
+  #include <xboxkrnl/xboxkrnl.h>
+#endif
+
+// local includes
+#include "src/logging/startup_debug.h"
+
 namespace {
 
   bool is_enabled(logging::LogLevel candidateLevel, logging::LogLevel minimumLevel) {
     return static_cast<int>(candidateLevel) >= static_cast<int>(minimumLevel);
+  }
+
+  std::string normalized_source_path(const char *filePath) {
+    // NOTE: do not trim file extensions, it's needed so IDE can link the file and line number
+    if (filePath == nullptr || filePath[0] == '\0') {
+      return {};
+    }
+
+    std::string normalized(filePath);
+    for (char &character : normalized) {
+      if (character == '\\') {
+        character = '/';
+      }
+    }
+
+    for (const char *marker : {"src/", "tests/"}) {
+      if (const std::size_t markerOffset = normalized.find(marker); markerOffset != std::string::npos) {
+        return normalized.substr(markerOffset);
+      }
+    }
+
+    if (const std::size_t lastSeparator = normalized.find_last_of('/'); lastSeparator != std::string::npos) {
+      return normalized.substr(lastSeparator + 1U);
+    }
+
+    return normalized;
+  }
+
+  std::string debugger_console_line(const logging::LogEntry &entry) {
+    return std::string("[") + logging::format_timestamp(entry.timestamp) + "] " + logging::format_entry(entry);
+  }
+
+  void emit_debugger_console_line(const logging::LogEntry &entry) {
+#if defined(NXDK)
+    const std::string line = debugger_console_line(entry);
+    DbgPrint("%s\r\n", line.c_str());
+#else
+    (void) entry;
+#endif
   }
 
   logging::LogTimestamp current_local_timestamp() {
@@ -73,6 +120,8 @@ namespace logging {
         return "WARN";
       case LogLevel::error:
         return "ERROR";
+      case LogLevel::none:
+        return "NONE";
     }
 
     return "UNKNOWN";
@@ -96,12 +145,36 @@ namespace logging {
     return {buffer.data()};
   }
 
-  std::string format_entry(const LogEntry &entry) {
-    if (entry.category.empty()) {
-      return std::string("[") + to_string(entry.level) + "] " + entry.message;
+  std::string format_source_location(const LogSourceLocation &location) {
+    if (!location.valid()) {
+      return {};
     }
 
-    return std::string("[") + to_string(entry.level) + "] " + entry.category + ": " + entry.message;
+    const std::string normalizedPath = normalized_source_path(location.file);
+    if (normalizedPath.empty()) {
+      return {};
+    }
+
+    return normalizedPath + ":" + std::to_string(location.line);
+  }
+
+  std::string format_entry(const LogEntry &entry) {
+    const std::string sourceLocationText = format_source_location(entry.sourceLocation);
+    std::string line = std::string("[") + to_string(entry.level) + "] ";
+    if (!sourceLocationText.empty()) {
+      line += "[" + sourceLocationText + "] ";
+      if (!entry.category.empty()) {
+        line += entry.category + ": ";
+      }
+      line += entry.message;
+      return line;
+    }
+
+    if (!entry.category.empty()) {
+      line += entry.category + ": ";
+    }
+    line += entry.message;
+    return line;
   }
 
   Logger::Logger(std::size_t capacity, TimestampProvider timestampProvider):
@@ -120,11 +193,58 @@ namespace logging {
     return minimumLevel_;
   }
 
-  bool Logger::should_log(LogLevel level) const {
-    return is_enabled(level, minimumLevel_);
+  void Logger::set_file_sink(LogSink sink) {
+    fileSink_ = std::move(sink);
   }
 
-  bool Logger::log(LogLevel level, std::string category, std::string message) {
+  void Logger::set_file_minimum_level(LogLevel minimumLevel) {
+    fileMinimumLevel_ = minimumLevel;
+  }
+
+  LogLevel Logger::file_minimum_level() const {
+    return fileMinimumLevel_;
+  }
+
+  void Logger::set_startup_debug_enabled(bool enabled) {
+    startupDebugEnabled_ = enabled;
+  }
+
+  bool Logger::startup_debug_enabled() const {
+    return startupDebugEnabled_;
+  }
+
+  void Logger::set_debugger_console_minimum_level(LogLevel minimumLevel) {
+    debuggerConsoleMinimumLevel_ = minimumLevel;
+  }
+
+  LogLevel Logger::debugger_console_minimum_level() const {
+    return debuggerConsoleMinimumLevel_;
+  }
+
+  bool Logger::should_log(LogLevel level) const {
+    if (is_enabled(level, minimumLevel_)) {
+      return true;
+    }
+    if (startupDebugEnabled_) {
+      return true;
+    }
+    if (fileSink_ && is_enabled(level, fileMinimumLevel_)) {
+      return true;
+    }
+    if (is_enabled(level, debuggerConsoleMinimumLevel_)) {
+      return true;
+    }
+
+    for (const RegisteredSink &registeredSink : sinks_) {
+      if (registeredSink.sink && is_enabled(level, registeredSink.minimumLevel)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool Logger::log(LogLevel level, std::string category, std::string message, LogSourceLocation location) {
     if (!should_log(level)) {
       return false;
     }
@@ -135,27 +255,60 @@ namespace logging {
       std::move(category),
       std::move(message),
       timestampProvider_(),
+      location,
     };
     ++nextSequence_;
 
-    if (entries_.size() == capacity_) {
-      entries_.pop_front();
+    if (is_enabled(level, minimumLevel_)) {
+      if (entries_.size() == capacity_) {
+        entries_.pop_front();
+      }
+
+      entries_.push_back(entry);
     }
 
-    entries_.push_back(entry);
+    if (startupDebugEnabled_) {
+      print_startup_log(entry.level, entry.category, entry.message);
+    }
+    if (fileSink_ && is_enabled(level, fileMinimumLevel_)) {
+      fileSink_(entry);
+    }
+    if (is_enabled(level, debuggerConsoleMinimumLevel_)) {
+      emit_debugger_console_line(entry);
+    }
 
-    for (const LogSink &sink : sinks_) {
-      if (sink) {
-        sink(entries_.back());
+    for (const RegisteredSink &registeredSink : sinks_) {
+      if (registeredSink.sink && is_enabled(level, registeredSink.minimumLevel)) {
+        registeredSink.sink(entry);
       }
     }
 
     return true;
   }
 
-  void Logger::add_sink(LogSink sink) {
+  bool Logger::trace(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::trace, std::move(category), std::move(message), location);
+  }
+
+  bool Logger::debug(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::debug, std::move(category), std::move(message), location);
+  }
+
+  bool Logger::info(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::info, std::move(category), std::move(message), location);
+  }
+
+  bool Logger::warn(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::warning, std::move(category), std::move(message), location);
+  }
+
+  bool Logger::error(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::error, std::move(category), std::move(message), location);
+  }
+
+  void Logger::add_sink(LogSink sink, LogLevel minimumLevel) {
     if (sink) {
-      sinks_.push_back(std::move(sink));
+      sinks_.push_back({minimumLevel, std::move(sink)});
     }
   }
 

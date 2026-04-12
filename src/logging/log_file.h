@@ -47,6 +47,46 @@ namespace logging {
   bool append_log_file_entry(const LogEntry &entry, const std::string &filePath = default_log_file_path(), std::string *errorMessage = nullptr);
 
   /**
+   * @brief Small helper that targets one persisted runtime log file.
+   */
+  class RuntimeLogFileSink {
+  public:
+    /**
+     * @brief Construct a runtime log-file sink for the requested file path.
+     *
+     * @param filePath Target log file path.
+     */
+    explicit RuntimeLogFileSink(std::string filePath = default_log_file_path());
+
+    /**
+     * @brief Return the configured runtime log-file path.
+     *
+     * @return Target log file path.
+     */
+    const std::string &file_path() const;
+
+    /**
+     * @brief Truncate or recreate the configured runtime log file.
+     *
+     * @param errorMessage Optional output for I/O failures.
+     * @return true when the file was reset successfully.
+     */
+    bool reset(std::string *errorMessage = nullptr) const;
+
+    /**
+     * @brief Append one log entry to the configured runtime log file.
+     *
+     * @param entry Structured log entry to write.
+     * @param errorMessage Optional output for file-append failures.
+     * @return true when the entry was written successfully.
+     */
+    bool consume(const LogEntry &entry, std::string *errorMessage = nullptr) const;
+
+  private:
+    std::string filePath_;
+  };
+
+  /**
    * @brief Load recent lines from the persisted log file.
    *
    * @param filePath Target log file path.

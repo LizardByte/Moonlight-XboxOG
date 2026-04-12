@@ -21,11 +21,15 @@
 #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // local includes
+#include "src/app/settings_storage.h"
 #include "src/input/navigation_input.h"
+#include "src/logging/global_logger.h"
 #include "src/logging/log_file.h"
 #include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 #include "src/os.h"
+#include "src/platform/error_utils.h"
+#include "src/platform/filesystem_utils.h"
 #include "src/splash/splash_layout.h"
 #include "src/startup/client_identity_storage.h"
 #include "src/startup/cover_art_cache.h"
@@ -129,19 +133,11 @@ namespace {
     return texture;
   }
 
-  int report_shell_failure(logging::Logger &logger, const char *category, const std::string &message) {
-    logger.log(logging::LogLevel::error, category, message);
-    logger.log(logging::LogLevel::warning, category, "Holding the failure screen for 5 seconds before exit.");
+  int report_shell_failure(const char *category, const std::string &message) {
+    logging::logger.error(category, message);
+    logging::logger.warn(category, "Holding the failure screen for 5 seconds before exit.");
     Sleep(5000);
     return 1;
-  }
-
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
-    }
-
-    return false;
   }
 
   void destroy_texture(SDL_Texture *texture) {
@@ -1850,18 +1846,18 @@ namespace {
     return update_controller_navigation_hold_state(moveRightActive, now, input::map_gamepad_axis_direction_to_ui_command(input::GamepadAxisDirection::left_stick_right), rightState);
   }
 
-  void log_app_update(logging::Logger &logger, const app::ClientState &state, const app::AppUpdate &update) {
+  void log_app_update(const app::ClientState &state, const app::AppUpdate &update) {
     if (!update.activatedItemId.empty()) {
-      logger.log(logging::LogLevel::info, "ui", "Activated menu item: " + update.activatedItemId);
+      logging::logger.info("ui", "Activated menu item: " + update.activatedItemId);
     }
     if (update.screenChanged) {
-      logger.log(logging::LogLevel::info, "ui", std::string("Switched screen to ") + app::to_string(state.activeScreen));
+      logging::logger.info("ui", std::string("Switched screen to ") + app::to_string(state.activeScreen));
     }
     if (update.overlayVisibilityChanged) {
-      logger.log(logging::LogLevel::info, "overlay", state.overlayVisible ? "Overlay enabled" : "Overlay disabled");
+      logging::logger.info("overlay", state.overlayVisible ? "Overlay enabled" : "Overlay disabled");
     }
     if (update.exitRequested) {
-      logger.log(logging::LogLevel::info, "app", "Exit requested from shell");
+      logging::logger.info("app", "Exit requested from shell");
     }
   }
 
@@ -1899,27 +1895,27 @@ namespace {
     targetHost->lastAppListRefreshTick = sourceHost.lastAppListRefreshTick;
   }
 
-  bool ensure_hosts_loaded_for_active_screen(logging::Logger &logger, app::ClientState &state) {
+  bool ensure_hosts_loaded_for_active_screen(app::ClientState &state) {
     if (state.activeScreen != app::ScreenId::hosts || state.hostsLoaded) {
       return true;
     }
 
     const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
     for (const std::string &warning : loadedHosts.warnings) {
-      logger.log(logging::LogLevel::warning, "hosts", warning);
+      logging::logger.warn("hosts", warning);
     }
     app::replace_hosts(state, loadedHosts.hosts, state.statusMessage);
     return true;
   }
 
-  bool persist_hosts(logging::Logger &logger, app::ClientState &state) {
+  bool persist_hosts(app::ClientState &state) {
     std::vector<app::HostRecord> hostsToSave;
     if (state.hostsLoaded) {
       hostsToSave = state.hosts;
     } else if (state.activeHostLoaded) {
       const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
       for (const std::string &warning : loadedHosts.warnings) {
-        logger.log(logging::LogLevel::warning, "hosts", warning);
+        logging::logger.warn("hosts", warning);
       }
       hostsToSave = loadedHosts.hosts;
       if (app::HostRecord *host = find_persisted_host_record(hostsToSave, state.activeHost.address, state.activeHost.port); host != nullptr) {
@@ -1934,20 +1930,43 @@ namespace {
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hostsToSave);
     if (saveResult.success) {
       state.hostsDirty = false;
-      logger.log(logging::LogLevel::info, "hosts", "Saved host records");
+      logging::logger.info("hosts", "Saved host records");
       return true;
     }
 
-    logger.log(logging::LogLevel::error, "hosts", saveResult.errorMessage);
+    logging::logger.error("hosts", saveResult.errorMessage);
     return false;
   }
 
-  void persist_hosts_if_needed(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update) {
+  void persist_hosts_if_needed(app::ClientState &state, const app::AppUpdate &update) {
     if (!update.hostsChanged) {
       return;
     }
 
-    persist_hosts(logger, state);
+    persist_hosts(state);
+  }
+
+  app::AppSettings persistent_settings_from_state(const app::ClientState &state) {
+    return {
+      state.loggingLevel,
+      state.xemuConsoleLoggingLevel,
+      state.logViewerPlacement,
+    };
+  }
+
+  void persist_settings_if_needed(app::ClientState &state, const app::AppUpdate &update) {
+    if (!update.settingsChanged || !state.settingsDirty) {
+      return;
+    }
+
+    const app::SaveAppSettingsResult saveResult = app::save_app_settings(persistent_settings_from_state(state));
+    if (saveResult.success) {
+      state.settingsDirty = false;
+      logging::logger.info("settings", "Saved Moonlight settings");
+      return;
+    }
+
+    logging::logger.error("settings", saveResult.errorMessage);
   }
 
   void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {  // NOSONAR(cpp:S3776) host metadata updates intentionally stay grouped with pairing-state transitions
@@ -2016,12 +2035,11 @@ namespace {
       return {};
     }
 
-    const std::size_t fileNameStart = path.find_last_of("\\/");
-    if (fileNameStart == std::string::npos || fileNameStart + 1U >= path.size()) {
+    const std::string fileName = platform::file_name_from_path(path);
+    if (fileName.empty()) {
       return {};
     }
 
-    const std::string fileName = path.substr(fileNameStart + 1U);
     if (fileName.size() <= 4U || fileName.substr(fileName.size() - 4U) != ".bin") {
       return {};
     }
@@ -2042,14 +2060,14 @@ namespace {
     }
   }
 
-  void refresh_saved_files_if_needed(logging::Logger &logger, app::ClientState &state) {
+  void refresh_saved_files_if_needed(app::ClientState &state) {
     if (state.activeScreen != app::ScreenId::settings || !state.savedFilesDirty) {
       return;
     }
 
     const startup::ListSavedFilesResult savedFiles = startup::list_saved_files();
     for (const std::string &warning : savedFiles.warnings) {
-      logger.log(logging::LogLevel::warning, "storage", warning);
+      logging::logger.warn("storage", warning);
     }
     app::replace_saved_files(state, savedFiles.files);
   }
@@ -2063,14 +2081,14 @@ namespace {
     }
   }
 
-  void delete_saved_file_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
+  void delete_saved_file_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
     if (!update.savedFileDeleteRequested) {
       return;
     }
 
     if (std::string errorMessage; !startup::delete_saved_file(update.savedFileDeletePath, &errorMessage)) {
       state.statusMessage = errorMessage;
-      logger.log(logging::LogLevel::warning, "storage", errorMessage);
+      logging::logger.warn("storage", errorMessage);
       return;
     }
 
@@ -2080,10 +2098,10 @@ namespace {
     clear_cover_art_texture(coverArtTextureCache, deletedCoverArtCacheKey);
     state.savedFilesDirty = true;
     state.statusMessage = "Deleted saved file " + deletedDisplayName;
-    logger.log(logging::LogLevel::info, "storage", state.statusMessage);
+    logging::logger.info("storage", state.statusMessage);
   }
 
-  void delete_host_data_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
+  void delete_host_data_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
     if (!update.hostDeleteCleanupRequested) {
       return;
     }
@@ -2091,7 +2109,7 @@ namespace {
     std::size_t deletedCoverArtCount = 0U;
     for (const std::string &cacheKey : update.deletedHostCoverArtCacheKeys) {
       if (std::string errorMessage; !startup::delete_cover_art(cacheKey, &errorMessage)) {
-        logger.log(logging::LogLevel::warning, "storage", errorMessage);
+        logging::logger.warn("storage", errorMessage);
       } else {
         ++deletedCoverArtCount;
       }
@@ -2106,12 +2124,12 @@ namespace {
       if (!pairedHostsRemain) {
         std::string errorMessage;
         if (!startup::delete_client_identity(&errorMessage)) {
-          logger.log(logging::LogLevel::warning, "storage", errorMessage);
+          logging::logger.warn("storage", errorMessage);
         } else {
           deletedClientIdentity = true;
         }
       } else {
-        logger.log(logging::LogLevel::info, "storage", "Retained the shared pairing identity because other paired hosts still exist");
+        logging::logger.info("storage", "Retained the shared pairing identity because other paired hosts still exist");
       }
     }
 
@@ -2122,17 +2140,17 @@ namespace {
     if (deletedClientIdentity) {
       state.statusMessage += " and reset local pairing identity";
     }
-    logger.log(logging::LogLevel::info, "storage", state.statusMessage);
+    logging::logger.info("storage", state.statusMessage);
   }
 
-  void factory_reset_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
+  void factory_reset_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
     if (!update.factoryResetRequested) {
       return;
     }
 
     if (std::string errorMessage; !startup::delete_all_saved_files(&errorMessage)) {
       state.statusMessage = errorMessage;
-      logger.log(logging::LogLevel::warning, "storage", errorMessage);
+      logging::logger.warn("storage", errorMessage);
       return;
     }
 
@@ -2143,7 +2161,7 @@ namespace {
     state.statusMessage = "Factory reset completed";
     clear_cover_art_texture_cache(coverArtTextureCache);
     app::set_log_file_path(state, logging::default_log_file_path());
-    logger.log(logging::LogLevel::info, "storage", state.statusMessage);
+    logging::logger.info("storage", state.statusMessage);
   }
 
   bool try_load_saved_pairing_identity(network::PairingIdentity *identity) {
@@ -2161,7 +2179,7 @@ namespace {
   bool load_saved_pairing_identity_for_streaming(network::PairingIdentity *identity, std::string *errorMessage) {
     const startup::LoadClientIdentityResult loadedIdentity = startup::load_client_identity();
     if (!loadedIdentity.fileFound || !network::is_valid_pairing_identity(loadedIdentity.identity)) {
-      return append_error(errorMessage, "No valid paired client identity is available. Pair the host again before browsing apps.");
+      return platform::append_error(errorMessage, "No valid paired client identity is available. Pair the host again before browsing apps.");
     }
 
     if (identity != nullptr) {
@@ -2304,7 +2322,7 @@ namespace {
     return attempt != nullptr && attempt->thread != nullptr && attempt->completed.load();
   }
 
-  void finalize_pairing_attempt(logging::Logger &logger, app::ClientState *state, std::unique_ptr<PairingAttemptState> attempt) {
+  void finalize_pairing_attempt(app::ClientState *state, std::unique_ptr<PairingAttemptState> attempt) {
     if (attempt == nullptr || attempt->thread == nullptr) {
       return;
     }
@@ -2320,11 +2338,11 @@ namespace {
     reset_pairing_attempt(attempt.get());
 
     for (const PairingAttemptState::DeferredLogEntry &entry : deferredLogs) {
-      logger.log(entry.level, "pairing", entry.message);
+      logging::logger.log(entry.level, "pairing", entry.message);
     }
 
     if (discardResult || state == nullptr) {
-      logger.log(logging::LogLevel::info, "pairing", "Ignored a completed pairing result after leaving the pairing screen or starting a new attempt");
+      logging::logger.info("pairing", "Ignored a completed pairing result after leaving the pairing screen or starting a new attempt");
       return;
     }
 
@@ -2336,9 +2354,9 @@ namespace {
       result.message
     );
 
-    logger.log(result.success || result.alreadyPaired ? logging::LogLevel::info : logging::LogLevel::warning, "pairing", result.message);
+    logging::logger.log(result.success || result.alreadyPaired ? logging::LogLevel::info : logging::LogLevel::warning, "pairing", result.message);
     if (hostsChanged) {
-      persist_hosts(logger, *state);
+      persist_hosts(*state);
     }
   }
 
@@ -2354,7 +2372,7 @@ namespace {
     task->retiredAttempts.push_back(std::move(task->activeAttempt));
   }
 
-  void reap_retired_pairing_attempts(logging::Logger &logger, PairingTaskState *task) {
+  void reap_retired_pairing_attempts(PairingTaskState *task) {
     if (task == nullptr) {
       return;
     }
@@ -2366,7 +2384,7 @@ namespace {
         continue;
       }
 
-      finalize_pairing_attempt(logger, nullptr, std::move(*iterator));
+      finalize_pairing_attempt(nullptr, std::move(*iterator));
       iterator = task->retiredAttempts.erase(iterator);
     }
   }
@@ -2486,20 +2504,20 @@ namespace {
     return 0;
   }
 
-  void finish_pairing_task_if_ready(logging::Logger &logger, app::ClientState &state, PairingTaskState *task) {
+  void finish_pairing_task_if_ready(app::ClientState &state, PairingTaskState *task) {
     if (task == nullptr) {
       return;
     }
 
-    reap_retired_pairing_attempts(logger, task);
+    reap_retired_pairing_attempts(task);
     if (!pairing_attempt_is_ready(task->activeAttempt.get())) {
       return;
     }
 
-    finalize_pairing_attempt(logger, &state, std::move(task->activeAttempt));
+    finalize_pairing_attempt(&state, std::move(task->activeAttempt));
   }
 
-  void cancel_pairing_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
+  void cancel_pairing_if_requested(app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
     if (task == nullptr || !update.pairingCancelledRequested || task->activeAttempt == nullptr || task->activeAttempt->thread == nullptr) {
       return;
     }
@@ -2508,10 +2526,10 @@ namespace {
     task->activeAttempt->cancelRequested.store(true);
     retire_active_pairing_attempt(task, true);
     state.statusMessage.clear();
-    logger.log(logging::LogLevel::info, "pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
+    logging::logger.info("pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
   }
 
-  void test_host_connection_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update) {
+  void test_host_connection_if_requested(app::ClientState &state, const app::AppUpdate &update) {
     if (!update.connectionTestRequested) {
       return;
     }
@@ -2521,7 +2539,7 @@ namespace {
 
     if (address.empty()) {
       app::apply_connection_test_result(state, false, "Connection test failed because the host address is invalid");
-      logger.log(logging::LogLevel::warning, "hosts", state.statusMessage);
+      logging::logger.warn("hosts", state.statusMessage);
       return;
     }
 
@@ -2543,13 +2561,13 @@ namespace {
       }
     }
     app::apply_connection_test_result(state, success, resultMessage);
-    logger.log(success ? logging::LogLevel::info : logging::LogLevel::warning, "hosts", resultMessage);
+    logging::logger.log(success ? logging::LogLevel::info : logging::LogLevel::warning, "hosts", resultMessage);
     if (state.hostsDirty) {
-      persist_hosts(logger, state);
+      persist_hosts(state);
     }
   }
 
-  void browse_host_apps_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update) {
+  void browse_host_apps_if_requested(app::ClientState &state, const app::AppUpdate &update) {
     if (!update.appsBrowseRequested) {
       return;
     }
@@ -2575,28 +2593,28 @@ namespace {
         }
       }
       state.statusMessage = resultMessage;
-      logger.log(logging::LogLevel::warning, "apps", resultMessage);
+      logging::logger.warn("apps", resultMessage);
       return;
     }
 
     apply_server_info_to_host(state, address, port, serverInfo);
     if (state.hostsDirty) {
-      persist_hosts(logger, state);
+      persist_hosts(state);
     }
 
     host = app::selected_host(state);
     if (host == nullptr || host->pairingState != app::PairingState::paired) {
       state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again before opening apps.";
-      logger.log(logging::LogLevel::warning, "apps", state.statusMessage);
+      logging::logger.warn("apps", state.statusMessage);
       return;
     }
 
     if (app::begin_selected_host_app_browse(state, update.appsBrowseShowHidden)) {
-      logger.log(logging::LogLevel::info, "apps", "Authorized host browse for " + host->displayName);
+      logging::logger.info("apps", "Authorized host browse for " + host->displayName);
       return;
     }
 
-    logger.log(logging::LogLevel::warning, "apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
+    logging::logger.warn("apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
   }
 
   int run_host_probe_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2661,7 +2679,7 @@ namespace {
     }
   }
 
-  void finish_host_probe_task_if_ready(logging::Logger &logger, app::ClientState &state, HostProbeTaskState *task) {
+  void finish_host_probe_task_if_ready(app::ClientState &state, HostProbeTaskState *task) {
     if (task == nullptr) {
       return;
     }
@@ -2673,18 +2691,17 @@ namespace {
       return;
     }
 
-    logger.log(
-      logging::LogLevel::info,
+    logging::logger.debug(
       "hosts",
       "Refreshed " + std::to_string(task->onlineCount + task->offlineCount) + " saved host(s): " + std::to_string(task->onlineCount) + " online, " + std::to_string(task->offlineCount) + " offline"
     );
     if (task->metadataChanged) {
-      persist_hosts(logger, state);
+      persist_hosts(state);
     }
     reset_host_probe_task(task);
   }
 
-  void start_host_probe_task_if_needed(logging::Logger &logger, const app::ClientState &state, HostProbeTaskState *task, Uint32 now, Uint32 *nextHostProbeTick) {
+  void start_host_probe_task_if_needed(const app::ClientState &state, HostProbeTaskState *task, Uint32 now, Uint32 *nextHostProbeTick) {
     if (task == nullptr || host_probe_task_is_active(*task) || state.activeScreen != app::ScreenId::hosts || !state.hostsLoaded || !network::runtime_network_ready()) {
       return;
     }
@@ -2703,7 +2720,7 @@ namespace {
       worker->resultQueue = &task->resultQueue;
       worker->thread = SDL_CreateThread(run_host_probe_task, "probe-saved-host", worker.get());
       if (worker->thread == nullptr) {
-        logger.log(logging::LogLevel::error, "hosts", "Failed to start the saved-host refresh worker for " + host.address + ": " + SDL_GetError());
+        logging::logger.error("hosts", "Failed to start the saved-host refresh worker for " + host.address + ": " + SDL_GetError());
         ui::skip_host_probe_result_target(&task->resultQueue);
         continue;
       }
@@ -2720,16 +2737,16 @@ namespace {
     }
   }
 
-  void pair_host_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
+  void pair_host_if_requested(app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
     if (!update.pairingRequested || task == nullptr) {
       return;
     }
 
-    finish_pairing_task_if_ready(logger, state, task);
+    finish_pairing_task_if_ready(state, task);
 
     if (pairing_task_is_active(*task)) {
       retire_active_pairing_attempt(task, true);
-      logger.log(logging::LogLevel::info, "pairing", "Discarded the previous background pairing attempt and started a fresh one");
+      logging::logger.info("pairing", "Discarded the previous background pairing attempt and started a fresh one");
     }
 
     std::string reachabilityMessage;
@@ -2751,13 +2768,13 @@ namespace {
       state.pairingDraft.generatedPin.clear();
       state.pairingDraft.statusMessage = reachabilityMessage.empty() ? "The host could not be reached for pairing." : reachabilityMessage;
       state.statusMessage = state.pairingDraft.statusMessage;
-      logger.log(logging::LogLevel::warning, "pairing", state.pairingDraft.statusMessage);
+      logging::logger.warn("pairing", state.pairingDraft.statusMessage);
       return;
     }
 
     apply_server_info_to_host(state, update.pairingAddress, update.pairingPort, serverInfo);
     if (state.hostsDirty) {
-      persist_hosts(logger, state);
+      persist_hosts(state);
     }
 
     auto attempt = std::make_unique<PairingAttemptState>();
@@ -2776,7 +2793,7 @@ namespace {
       const std::string createThreadError = std::string("Failed to start the background pairing task: ") + SDL_GetError();
       app::apply_pairing_result(state, update.pairingAddress, update.pairingPort, false, createThreadError);
       state.pairingDraft.generatedPin.clear();
-      logger.log(logging::LogLevel::error, "pairing", createThreadError);
+      logging::logger.error("pairing", createThreadError);
       return;
     }
 
@@ -2785,7 +2802,7 @@ namespace {
     state.pairingDraft.stage = app::PairingStage::in_progress;
     state.pairingDraft.statusMessage = "The host is reachable. Enter the code shown below on the host and keep this screen open for the result.";
     state.statusMessage.clear();
-    logger.log(logging::LogLevel::info, "pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
+    logging::logger.info("pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
   }
 
   int run_app_list_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2837,7 +2854,7 @@ namespace {
     return 0;
   }
 
-  void finish_app_list_task_if_ready(logging::Logger &logger, app::ClientState &state, AppListTaskState *task) {
+  void finish_app_list_task_if_ready(app::ClientState &state, AppListTaskState *task) {
     if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
       return;
     }
@@ -2864,18 +2881,18 @@ namespace {
 
     if (success) {
       app::apply_app_list_result(state, address, port, std::move(apps), appListContentHash, true, message);
-      logger.log(logging::LogLevel::info, "apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
+      logging::logger.info("apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
       if (state.hostsDirty) {
-        persist_hosts(logger, state);
+        persist_hosts(state);
       }
       return;
     }
 
     app::apply_app_list_result(state, address, port, {}, 0, false, message);
-    logger.log(logging::LogLevel::warning, "apps", message);
+    logging::logger.warn("apps", message);
   }
 
-  void start_app_list_task_if_needed(logging::Logger &logger, app::ClientState &state, AppListTaskState *task, Uint32 now) {
+  void start_app_list_task_if_needed(app::ClientState &state, AppListTaskState *task, Uint32 now) {
     if (task == nullptr || app_list_task_is_active(*task) || state.activeScreen != app::ScreenId::apps) {
       return;
     }
@@ -2904,7 +2921,7 @@ namespace {
     task->thread = SDL_CreateThread(run_app_list_task, "fetch-app-list", task);
     if (task->thread == nullptr) {
       const std::string errorMessage = std::string("Failed to start the app-list fetch task: ") + SDL_GetError();
-      logger.log(logging::LogLevel::error, "apps", errorMessage);
+      logging::logger.error("apps", errorMessage);
       if (state.activeHostLoaded) {
         state.activeHost.appListState = app::HostAppListState::failed;
         state.activeHost.appListStatusMessage = errorMessage;
@@ -2955,7 +2972,7 @@ namespace {
     return 0;
   }
 
-  void finish_app_art_task_if_ready(logging::Logger &logger, app::ClientState &state, AppArtTaskState *task, CoverArtTextureCache *textureCache) {
+  void finish_app_art_task_if_ready(app::ClientState &state, AppArtTaskState *task, CoverArtTextureCache *textureCache) {
     if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
       return;
     }
@@ -2981,14 +2998,14 @@ namespace {
     }
 
     if (!cachedAppIds.empty()) {
-      logger.log(logging::LogLevel::info, "apps", "Cached cover art for " + std::to_string(cachedAppIds.size()) + " app(s)");
+      logging::logger.info("apps", "Cached cover art for " + std::to_string(cachedAppIds.size()) + " app(s)");
     }
     if (failureCount > 0U) {
-      logger.log(logging::LogLevel::warning, "apps", std::to_string(failureCount) + " app artwork request(s) fell back to placeholders");
+      logging::logger.warn("apps", std::to_string(failureCount) + " app artwork request(s) fell back to placeholders");
     }
   }
 
-  void start_app_art_task_if_needed(logging::Logger &logger, const app::ClientState &state, AppArtTaskState *task) {
+  void start_app_art_task_if_needed(const app::ClientState &state, AppArtTaskState *task) {
     if (task == nullptr || app_art_task_is_active(*task) || state.activeScreen != app::ScreenId::apps) {
       return;
     }
@@ -3011,12 +3028,12 @@ namespace {
     task->apps = host->apps;
     task->thread = SDL_CreateThread(run_app_art_task, "fetch-app-art", task);
     if (task->thread == nullptr) {
-      logger.log(logging::LogLevel::error, "apps", std::string("Failed to start the cover-art fetch task: ") + SDL_GetError());
+      logging::logger.error("apps", std::string("Failed to start the cover-art fetch task: ") + SDL_GetError());
       reset_app_art_task(task);
     }
   }
 
-  void show_log_file_if_requested(logging::Logger &logger, app::ClientState &state, const app::AppUpdate &update) {
+  void show_log_file_if_requested(app::ClientState &state, const app::AppUpdate &update) {
     if (!update.logViewRequested) {
       return;
     }
@@ -3026,7 +3043,7 @@ namespace {
     app::set_log_file_path(state, loadedLog.filePath);
     if (!loadedLog.errorMessage.empty()) {
       app::apply_log_viewer_contents(state, {loadedLog.errorMessage}, loadedLog.errorMessage);
-      logger.log(logging::LogLevel::warning, "logging", loadedLog.errorMessage);
+      logging::logger.warn("logging", loadedLog.errorMessage);
       return;
     }
 
@@ -3039,7 +3056,7 @@ namespace {
 
     const std::string statusMessage = loadedLog.fileFound ? "Loaded recent log file lines" : "No log file has been written yet";
     app::apply_log_viewer_contents(state, std::move(lines), statusMessage);
-    logger.log(logging::LogLevel::info, "logging", statusMessage + ": " + loadedLog.filePath);
+    logging::logger.info("logging", statusMessage + ": " + loadedLog.filePath);
   }
 
   bool draw_shell(  // NOSONAR(cpp:S3776,cpp:S107) one-frame shell rendering is intentionally centralized to keep layout and failure handling consistent
@@ -3274,15 +3291,37 @@ namespace {
     } else {
       const bool settingsScreen = viewModel.screen == app::ScreenId::settings;
       const bool hasDetailMenu = settingsScreen && !viewModel.detailMenuRows.empty();
-      const int menuPanelWidth = std::max(232, (contentRect.w * 31) / 100);
-      const SDL_Rect menuPanel {contentRect.x, contentRect.y, menuPanelWidth, contentRect.h};
-      const SDL_Rect bodyPanel {contentRect.x + menuPanelWidth + panelGap, contentRect.y, contentRect.w - menuPanelWidth - panelGap, contentRect.h};
+      const int panelInset = std::max(12, screenWidth / 96);
+      const int panelPadding = std::max(14, screenWidth / 96);
+      const SDL_Rect panelArea {
+        contentRect.x + panelInset,
+        contentRect.y + panelInset,
+        std::max(1, contentRect.w - (panelInset * 2)),
+        std::max(1, contentRect.h - (panelInset * 2)),
+      };
+      const int menuPanelWidth = std::max(232, (panelArea.w * 31) / 100);
+      const SDL_Rect menuPanel {panelArea.x, panelArea.y, menuPanelWidth, panelArea.h};
+      const SDL_Rect bodyPanel {panelArea.x + menuPanelWidth + panelGap, panelArea.y, panelArea.w - menuPanelWidth - panelGap, panelArea.h};
       fill_rect(renderer, menuPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xC8);
       fill_rect(renderer, bodyPanel, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0x88);
-      draw_rect(renderer, menuPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xD8);
-      draw_rect(renderer, bodyPanel, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xB8);
+      draw_rect(
+        renderer,
+        menuPanel,
+        viewModel.leftPanelActive ? ACCENT_RED : TEXT_RED,
+        viewModel.leftPanelActive ? ACCENT_GREEN : TEXT_GREEN,
+        viewModel.leftPanelActive ? ACCENT_BLUE : TEXT_BLUE,
+        viewModel.leftPanelActive ? 0xD8 : 0x48
+      );
+      draw_rect(
+        renderer,
+        bodyPanel,
+        viewModel.rightPanelActive ? ACCENT_RED : TEXT_RED,
+        viewModel.rightPanelActive ? ACCENT_GREEN : TEXT_GREEN,
+        viewModel.rightPanelActive ? ACCENT_BLUE : TEXT_BLUE,
+        viewModel.rightPanelActive ? 0xD8 : 0x48
+      );
 
-      const SDL_Rect menuHeaderRect {menuPanel.x + 14, menuPanel.y + 14, menuPanel.w - 28, std::max(34, TTF_FontLineSkip(smallFont) + 10)};
+      const SDL_Rect menuHeaderRect {menuPanel.x + panelPadding, menuPanel.y + panelPadding, menuPanel.w - (panelPadding * 2), std::max(34, TTF_FontLineSkip(smallFont) + 10)};
       fill_rect(renderer, menuHeaderRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xD8);
       if (!render_text_line_simple(renderer, smallFont, settingsScreen ? "Categories" : "Actions", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, menuHeaderRect.x + 10, menuHeaderRect.y + std::max(6, (menuHeaderRect.h - TTF_FontLineSkip(smallFont)) / 2), menuHeaderRect.w - 20)) {
         return false;
@@ -3292,43 +3331,68 @@ namespace {
             renderer,
             bodyFont,
             viewModel.menuRows,
-            {menuPanel.x + 14, menuHeaderRect.y + menuHeaderRect.h + 12, menuPanel.w - 28, menuPanel.h - (menuHeaderRect.h + 40)},
+            {menuPanel.x + panelPadding, menuHeaderRect.y + menuHeaderRect.h + 12, menuPanel.w - (panelPadding * 2), menuPanel.h - (menuHeaderRect.h + (panelPadding * 2) + 12)},
             std::max(36, screenHeight / 13)
           )) {
         return false;
       }
 
-      const int bodyCardPadding = 16;
       if (hasDetailMenu) {
-        const SDL_Rect optionsCard {bodyPanel.x + 16, bodyPanel.y + 16, bodyPanel.w - 32, std::max(1, bodyPanel.h - 32)};
-        fill_rect(renderer, optionsCard, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xCC);
-        draw_rect(renderer, optionsCard, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xC0);
-        if (!render_text_line_simple(renderer, smallFont, "Options", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, optionsCard.x + bodyCardPadding, optionsCard.y + 12, optionsCard.w - (bodyCardPadding * 2))) {
+        const int optionsHeaderY = bodyPanel.y + panelPadding;
+        const int optionsTopY = optionsHeaderY + 28;
+        const int descriptionGap = 16;
+        const int descriptionHeaderHeight = std::max(26, TTF_FontLineSkip(smallFont));
+        const int minimumDescriptionHeight = std::max(96, (TTF_FontLineSkip(smallFont) * 3) + descriptionHeaderHeight + 20);
+        const int availableOptionsHeight = bodyPanel.h - ((panelPadding * 2) + 28 + descriptionGap + descriptionHeaderHeight + minimumDescriptionHeight);
+        const int optionsHeight = std::max(std::max(120, bodyPanel.h / 2), availableOptionsHeight);
+        const SDL_Rect optionsRect {bodyPanel.x + panelPadding, optionsTopY, bodyPanel.w - (panelPadding * 2), std::max(96, optionsHeight)};
+        const int descriptionTopY = optionsRect.y + optionsRect.h + descriptionGap;
+        const SDL_Rect descriptionRect {
+          bodyPanel.x + panelPadding,
+          descriptionTopY,
+          bodyPanel.w - (panelPadding * 2),
+          std::max(72, bodyPanel.y + bodyPanel.h - panelPadding - descriptionTopY)
+        };
+
+        if (!render_text_line_simple(renderer, smallFont, "Options", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, bodyPanel.x + panelPadding, optionsHeaderY, bodyPanel.w - (panelPadding * 2))) {
           return false;
         }
         if (!render_action_rows(
               renderer,
               bodyFont,
               viewModel.detailMenuRows,
-              {optionsCard.x + 12, optionsCard.y + 40, optionsCard.w - 24, optionsCard.h - 52},
+              optionsRect,
               std::max(34, TTF_FontLineSkip(bodyFont) + 12)
             )) {
           return false;
         }
-      } else {
-        const SDL_Rect contentCard {
-          bodyPanel.x + 16,
-          bodyPanel.y + 16,
-          bodyPanel.w - 32,
-          std::max(1, bodyPanel.h - 32),
-        };
-        fill_rect(renderer, contentCard, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xC2);
-        draw_rect(renderer, contentCard, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x50);
 
-        int bodyY = contentCard.y + bodyCardPadding;
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        fill_rect(renderer, descriptionRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0x88);
+        draw_rect(renderer, descriptionRect, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x40);
+
+        if (!render_text_line_simple(renderer, smallFont, "Description", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionRect.y + 8, descriptionRect.w - 20)) {
+          return false;
+        }
+
+        int descriptionY = descriptionRect.y + descriptionHeaderHeight + 10;
+        if (!viewModel.selectedMenuRowLabel.empty()) {
+          int drawnHeight = 0;
+          if (!render_text_line(renderer, bodyFont, viewModel.selectedMenuRowLabel, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20, &drawnHeight)) {
+            return false;
+          }
+          descriptionY += drawnHeight + 6;
+        }
+
+        const std::string descriptionText = viewModel.selectedMenuRowDescription.empty() ? std::string("No description is available for the selected setting.") : viewModel.selectedMenuRowDescription;
+        if (!render_text_line(renderer, smallFont, descriptionText, {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20)) {
+          return false;
+        }
+      } else {
+        int bodyY = bodyPanel.y + panelPadding;
         for (const std::string &line : viewModel.bodyLines) {
           int drawnHeight = 0;
-          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentCard.x + bodyCardPadding, bodyY, contentCard.w - (bodyCardPadding * 2), &drawnHeight)) {  // NOSONAR(cpp:S134) settings-body rendering keeps layout failure handling local
+          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyY, bodyPanel.w - (panelPadding * 2), &drawnHeight)) {  // NOSONAR(cpp:S134) settings-body rendering keeps layout failure handling local
             return false;
           }
           bodyY += drawnHeight + 8;
@@ -3519,13 +3583,18 @@ namespace {
 
 namespace ui {
 
-  int run_shell(SDL_Window *window, const VIDEO_MODE &videoMode, app::ClientState &state, logging::Logger &logger) {  // NOSONAR(cpp:S3776) shell loop owns all frame/update orchestration in one place by design
+  int run_shell(  // NOSONAR(cpp:S3776) shell loop owns all frame/update orchestration in one place by design
+    SDL_Window *window,
+    const VIDEO_MODE &videoMode,
+    app::ClientState &state
+  ) {
+    logging::Logger *logger = logging::global_logger();
     if (window == nullptr) {
-      return report_shell_failure(logger, "sdl", "Shell requires a valid SDL window");
+      return report_shell_failure("sdl", "Shell requires a valid SDL window");
     }
 
     if (TTF_Init() != 0) {
-      return report_shell_failure(logger, "ttf", std::string("TTF_Init failed: ") + TTF_GetError());
+      return report_shell_failure("ttf", std::string("TTF_Init failed: ") + TTF_GetError());
     }
 
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
@@ -3536,7 +3605,7 @@ namespace ui {
     if (renderer == nullptr) {
       IMG_Quit();
       TTF_Quit();
-      return report_shell_failure(logger, "sdl", std::string("SDL_CreateRenderer failed: ") + SDL_GetError());
+      return report_shell_failure("sdl", std::string("SDL_CreateRenderer failed: ") + SDL_GetError());
     }
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
@@ -3560,7 +3629,7 @@ namespace ui {
       SDL_DestroyRenderer(renderer);
       IMG_Quit();
       TTF_Quit();
-      return report_shell_failure(logger, "ttf", std::string("Failed to load shell font from ") + fontPath + ": " + TTF_GetError());
+      return report_shell_failure("ttf", std::string("Failed to load shell font from ") + fontPath + ": " + TTF_GetError());
     }
 
     SDL_Texture *titleLogoTexture = load_texture_from_asset(renderer, "moonlight-logo.svg");
@@ -3570,7 +3639,7 @@ namespace ui {
       if (SDL_IsGameController(joystickIndex)) {
         controller = SDL_GameControllerOpen(joystickIndex);
         if (controller != nullptr) {
-          logger.log(logging::LogLevel::info, "input", "Opened primary controller");
+          logging::logger.info("input", "Opened primary controller");
           break;
         }
       }
@@ -3609,17 +3678,22 @@ namespace ui {
     reset_app_list_task(&appListTask);
     reset_app_art_task(&appArtTask);
     reset_host_probe_task(&hostProbeTask);
-    logger.set_minimum_level(state.loggingLevel);
-    logger.log(logging::LogLevel::info, "app", "Entered interactive shell");
+    if (logger != nullptr) {
+      logger->set_minimum_level(logging::LogLevel::trace);
+      logger->set_file_minimum_level(state.loggingLevel);
+      logger->set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    }
+    logging::logger.info("app", "Entered interactive shell");
     bool keypadRedrawRequested = true;
 
     const auto draw_current_shell = [&]() {
-      if (const auto viewModel = build_shell_view_model(state, logger.snapshot(logging::LogLevel::info)); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache, &keypadModalLayoutCache)) {
+      const std::vector<logging::LogEntry> retainedEntries = logger == nullptr ? std::vector<logging::LogEntry> {} : logger->snapshot(logging::LogLevel::info);
+      if (const auto viewModel = build_shell_view_model(state, retainedEntries); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache, &keypadModalLayoutCache)) {
         keypadRedrawRequested = false;
         return true;
       }
 
-      report_shell_failure(logger, "render", std::string("Shell render failed: ") + SDL_GetError());
+      report_shell_failure("render", std::string("Shell render failed: ") + SDL_GetError());
       running = false;
       state.shouldExit = true;
       return false;
@@ -3634,22 +3708,26 @@ namespace ui {
 
       const app::ScreenId previousScreen = state.activeScreen;
       const app::AppUpdate update = app::handle_command(state, command);
-      logger.set_minimum_level(state.loggingLevel);
-      log_app_update(logger, state, update);
-      show_log_file_if_requested(logger, state, update);
-      cancel_pairing_if_requested(logger, state, update, &pairingTask);
-      test_host_connection_if_requested(logger, state, update);
-      browse_host_apps_if_requested(logger, state, update);
-      pair_host_if_requested(logger, state, update, &pairingTask);
-      delete_host_data_if_requested(logger, state, update, &coverArtTextureCache);
-      delete_saved_file_if_requested(logger, state, update, &coverArtTextureCache);
-      factory_reset_if_requested(logger, state, update, &coverArtTextureCache);
-      refresh_saved_files_if_needed(logger, state);
-      persist_hosts_if_needed(logger, state, update);
+      if (logger != nullptr) {
+        logger->set_file_minimum_level(state.loggingLevel);
+        logger->set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+      }
+      log_app_update(state, update);
+      show_log_file_if_requested(state, update);
+      cancel_pairing_if_requested(state, update, &pairingTask);
+      test_host_connection_if_requested(state, update);
+      browse_host_apps_if_requested(state, update);
+      pair_host_if_requested(state, update, &pairingTask);
+      delete_host_data_if_requested(state, update, &coverArtTextureCache);
+      delete_saved_file_if_requested(state, update, &coverArtTextureCache);
+      factory_reset_if_requested(state, update, &coverArtTextureCache);
+      refresh_saved_files_if_needed(state);
+      persist_settings_if_needed(state, update);
+      persist_hosts_if_needed(state, update);
 
       if (previousScreen != state.activeScreen) {
         release_page_resources_for_screen(previousScreen, state.activeScreen, &coverArtTextureCache, &keypadModalLayoutCache);
-        ensure_hosts_loaded_for_active_screen(logger, state);
+        ensure_hosts_loaded_for_active_screen(state);
       }
       if ((previousScreen != state.activeScreen || update.screenChanged) && !draw_current_shell()) {
         return;
@@ -3660,15 +3738,15 @@ namespace ui {
     };
 
     while (running && !state.shouldExit) {
-      ensure_hosts_loaded_for_active_screen(logger, state);
-      finish_pairing_task_if_ready(logger, state, &pairingTask);
-      finish_app_list_task_if_ready(logger, state, &appListTask);
-      finish_app_art_task_if_ready(logger, state, &appArtTask, &coverArtTextureCache);
-      finish_host_probe_task_if_ready(logger, state, &hostProbeTask);
-      refresh_saved_files_if_needed(logger, state);
-      start_host_probe_task_if_needed(logger, state, &hostProbeTask, SDL_GetTicks(), &nextHostProbeTick);
-      start_app_list_task_if_needed(logger, state, &appListTask, SDL_GetTicks());
-      start_app_art_task_if_needed(logger, state, &appArtTask);
+      ensure_hosts_loaded_for_active_screen(state);
+      finish_pairing_task_if_ready(state, &pairingTask);
+      finish_app_list_task_if_ready(state, &appListTask);
+      finish_app_art_task_if_ready(state, &appArtTask, &coverArtTextureCache);
+      finish_host_probe_task_if_ready(state, &hostProbeTask);
+      refresh_saved_files_if_needed(state);
+      start_host_probe_task_if_needed(state, &hostProbeTask, SDL_GetTicks(), &nextHostProbeTick);
+      start_app_list_task_if_needed(state, &appListTask, SDL_GetTicks());
+      start_app_art_task_if_needed(state, &appArtTask);
 
       if (
         !controllerExitComboTriggered && controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
@@ -3678,7 +3756,7 @@ namespace ui {
         if (SDL_GetTicks() - comboStartTick >= EXIT_COMBO_HOLD_MILLISECONDS) {
           controllerExitComboTriggered = true;
           state.shouldExit = true;
-          logger.log(logging::LogLevel::info, "app", "Exit requested from held Start+Back on the hosts screen");
+          logging::logger.info("app", "Exit requested from held Start+Back on the hosts screen");
         }
       }
 
@@ -3716,7 +3794,7 @@ namespace ui {
               if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
                 controller = SDL_GameControllerOpen(event.cdevice.which);
                 if (controller != nullptr) {
-                  logger.log(logging::LogLevel::info, "input", "Controller connected");
+                  logging::logger.info("input", "Controller connected");
                 }
               }
               break;
@@ -3734,7 +3812,7 @@ namespace ui {
                 controllerExitComboTriggered = false;
                 controllerNavigationNeutralRequired = false;
                 reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-                logger.log(logging::LogLevel::warning, "input", "Controller disconnected");
+                logging::logger.warn("input", "Controller disconnected");
               }
               break;
             case SDL_CONTROLLERBUTTONDOWN:
@@ -3843,14 +3921,14 @@ namespace ui {
         process_command(poll_controller_navigation(controller, SDL_GetTicks(), &moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState));
       }
 
-      finish_pairing_task_if_ready(logger, state, &pairingTask);
-      finish_app_list_task_if_ready(logger, state, &appListTask);
-      finish_app_art_task_if_ready(logger, state, &appArtTask, &coverArtTextureCache);
-      finish_host_probe_task_if_ready(logger, state, &hostProbeTask);
+      finish_pairing_task_if_ready(state, &pairingTask);
+      finish_app_list_task_if_ready(state, &appListTask);
+      finish_app_art_task_if_ready(state, &appArtTask, &coverArtTextureCache);
+      finish_host_probe_task_if_ready(state, &hostProbeTask);
       const Uint32 backgroundTaskTick = SDL_GetTicks();
-      start_host_probe_task_if_needed(logger, state, &hostProbeTask, backgroundTaskTick, &nextHostProbeTick);
-      start_app_list_task_if_needed(logger, state, &appListTask, backgroundTaskTick);
-      start_app_art_task_if_needed(logger, state, &appArtTask);
+      start_host_probe_task_if_needed(state, &hostProbeTask, backgroundTaskTick, &nextHostProbeTick);
+      start_app_list_task_if_needed(state, &appListTask, backgroundTaskTick);
+      start_app_art_task_if_needed(state, &appArtTask);
 
       if ((state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || keypadRedrawRequested) && !draw_current_shell()) {
         break;
@@ -3859,7 +3937,7 @@ namespace ui {
 
     if (pairingTask.activeAttempt != nullptr) {
       pairingTask.activeAttempt->discardResult.store(true);
-      finalize_pairing_attempt(logger, nullptr, std::move(pairingTask.activeAttempt));
+      finalize_pairing_attempt(nullptr, std::move(pairingTask.activeAttempt));
     }
     while (!pairingTask.retiredAttempts.empty()) {
       std::unique_ptr<PairingAttemptState> attempt = std::move(pairingTask.retiredAttempts.back());
@@ -3867,7 +3945,7 @@ namespace ui {
       if (attempt != nullptr) {
         attempt->discardResult.store(true);
       }
-      finalize_pairing_attempt(logger, nullptr, std::move(attempt));
+      finalize_pairing_attempt(nullptr, std::move(attempt));
     }
     if (appListTask.thread != nullptr) {
       int threadResult = 0;

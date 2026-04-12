@@ -2,7 +2,6 @@
 #include "src/startup/cover_art_cache.h"
 
 // standard includes
-#include <array>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -10,46 +9,14 @@
 #include <string>
 #include <vector>
 
-// nxdk includes
-#if defined(__has_include)
-  #if __has_include(<nxdk/xbe.h>)
-    #include <nxdk/xbe.h>
-    #include <winnt.h>
-    #define MOONLIGHT_HAS_NXDK_XBE 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
-  #endif
-  #if __has_include(<nxdk/mount.h>)
-    #include <nxdk/mount.h>
-    #define MOONLIGHT_HAS_NXDK_MOUNT 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
-  #endif
-#endif
-
 // local includes
+#include "src/platform/error_utils.h"
 #include "src/platform/filesystem_utils.h"
+#include "src/startup/storage_paths.h"
 
 namespace {
 
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
-    }
-    return false;
-  }
-
-  std::string title_scoped_storage_root() {
-#ifdef MOONLIGHT_HAS_NXDK_XBE
-  #ifdef MOONLIGHT_HAS_NXDK_MOUNT
-    if (!nxIsDriveMounted('E') && !nxMountDrive('E', "\\Device\\Harddisk0\\Partition1\\")) {
-      return {};
-    }
-  #endif
-
-    std::array<char, 9> titleIdBuffer {};
-    std::snprintf(titleIdBuffer.data(), titleIdBuffer.size(), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
-    return std::string("E:\\UDATA\\") + titleIdBuffer.data() + "\\";
-#else
-    return {};
-#endif
-  }
+  using platform::append_error;
 
   std::string cover_art_cache_path(std::string_view cacheKey, const std::string &cacheRoot) {
     return platform::join_path(cacheRoot, std::string(cacheKey) + ".bin");
@@ -98,11 +65,7 @@ namespace {
 namespace startup {
 
   std::string default_cover_art_cache_root() {
-    if (const std::string titleScopedRoot = title_scoped_storage_root(); !titleScopedRoot.empty()) {
-      return titleScopedRoot + "cover-art-cache";
-    }
-
-    return {"moonlight-cover-art-cache"};
+    return default_storage_path("cover-art-cache");
   }
 
   std::string build_cover_art_cache_key(std::string_view hostUuid, std::string_view hostAddress, int appId) {

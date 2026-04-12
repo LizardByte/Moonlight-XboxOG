@@ -2,28 +2,15 @@
 #include "src/startup/host_storage.h"
 
 // standard includes
-#include <array>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
 
-// nxdk includes
-#if defined(__has_include)
-  #if __has_include(<nxdk/xbe.h>)
-    #include <nxdk/xbe.h>
-    #include <winnt.h>
-    #define MOONLIGHT_HAS_NXDK_XBE 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
-  #endif
-  #if __has_include(<nxdk/mount.h>)
-    #include <nxdk/mount.h>
-    #define MOONLIGHT_HAS_NXDK_MOUNT 1  // NOSONAR(cpp:S5028) must be a preprocessor macro for #ifdef use
-  #endif
-#endif
-
 // local includes
 #include "src/platform/filesystem_utils.h"
+#include "src/startup/storage_paths.h"
 
 namespace {
 
@@ -45,32 +32,12 @@ namespace {
     return content;
   }
 
-  std::string title_scoped_storage_root() {
-#ifdef MOONLIGHT_HAS_NXDK_XBE
-  #ifdef MOONLIGHT_HAS_NXDK_MOUNT
-    if (!nxIsDriveMounted('E') && !nxMountDrive('E', "\\Device\\Harddisk0\\Partition1\\")) {
-      return {};
-    }
-  #endif
-
-    std::array<char, 9> titleIdBuffer {};
-    std::snprintf(titleIdBuffer.data(), titleIdBuffer.size(), "%08X", CURRENT_XBE_HEADER->CertificateHeader->TitleID);
-    return std::string("E:\\UDATA\\") + titleIdBuffer.data() + "\\";
-#else
-    return {};
-#endif
-  }
-
 }  // namespace
 
 namespace startup {
 
   std::string default_host_storage_path() {
-    if (const std::string titleScopedRoot = title_scoped_storage_root(); !titleScopedRoot.empty()) {
-      return titleScopedRoot + "moonlight-hosts.tsv";
-    }
-
-    return {"moonlight-hosts.tsv"};
+    return default_storage_path("moonlight-hosts.tsv");
   }
 
   LoadSavedHostsResult load_saved_hosts(const std::string &filePath) {

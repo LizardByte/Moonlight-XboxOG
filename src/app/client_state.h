@@ -177,7 +177,9 @@ namespace app {
     std::vector<std::string> logViewerLines;  ///< Loaded log file lines shown in the log viewer.
     std::size_t logViewerScrollOffset = 0U;  ///< Zero-based vertical scroll offset inside the log viewer.
     LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;  ///< Log viewer pane placement relative to the shell.
-    logging::LogLevel loggingLevel = logging::LogLevel::info;  ///< Minimum log level selected in settings.
+    logging::LogLevel loggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written to the persisted log file.
+    logging::LogLevel xemuConsoleLoggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level mirrored through DbgPrint() to xemu's serial console.
+    bool settingsDirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.
     std::vector<startup::SavedFileEntry> savedFiles;  ///< Saved-file catalog shown on the reset settings page.
     bool savedFilesDirty = true;  ///< True when the saved-file catalog should be refreshed.
     std::vector<std::string> pairingResetEndpoints;  ///< Endpoints whose pairing material should be cleared during reset.
@@ -192,6 +194,7 @@ namespace app {
     bool overlayVisibilityChanged;  ///< True when overlay visibility toggled.
     bool exitRequested;  ///< True when the shell requested application exit.
     bool hostsChanged;  ///< True when the host list changed and should be persisted.
+    bool settingsChanged;  ///< True when persisted TOML-backed settings changed.
     bool connectionTestRequested;  ///< True when a manual host connection test should run.
     bool pairingRequested;  ///< True when manual pairing should begin.
     bool pairingCancelledRequested;  ///< True when an in-progress pairing request should be cancelled.

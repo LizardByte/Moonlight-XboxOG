@@ -45,6 +45,7 @@ target_include_directories(${PROJECT_NAME}
         PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/support
         ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/third-party/tomlplusplus/include
         ${GTEST_SOURCE_DIR}/googletest/include
         ${GTEST_SOURCE_DIR}/googlemock/include)
 target_link_libraries(${PROJECT_NAME}

@@ -8,15 +8,12 @@
 #include <utility>
 #include <vector>
 
+// local includes
+#include "src/platform/error_utils.h"
+
 namespace {
 
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
-    }
-
-    return false;
-  }
+  using platform::append_error;
 
   bool parse_ipv4_octet(std::string_view segment, int *value) {
     if (segment.empty()) {

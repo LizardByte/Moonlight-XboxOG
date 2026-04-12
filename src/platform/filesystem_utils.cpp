@@ -100,6 +100,11 @@ namespace platform {
     return std::string(filePath.substr(0, separatorIndex));
   }
 
+  std::string file_name_from_path(std::string_view path) {
+    const std::size_t separatorIndex = path.find_last_of("\\/");
+    return separatorIndex == std::string::npos ? std::string(path) : std::string(path.substr(separatorIndex + 1U));
+  }
+
   bool ensure_directory_exists(const std::string &directoryPath, std::string *errorMessage) {
     if (directoryPath.empty()) {
       return true;

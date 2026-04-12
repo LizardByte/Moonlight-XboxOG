@@ -95,6 +95,21 @@ namespace {
     return app::SettingsCategory::logging;
   }
 
+  const char *settings_category_description(app::SettingsCategory category) {
+    switch (category) {
+      case app::SettingsCategory::logging:
+        return "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.";
+      case app::SettingsCategory::display:
+        return "Display options will live here when video and layout tuning settings are added.";
+      case app::SettingsCategory::input:
+        return "Input options will live here when controller and navigation customization is added.";
+      case app::SettingsCategory::reset:
+        return "Review and delete Moonlight saved data, or remove everything with a full factory reset.";
+    }
+
+    return "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.";
+  }
+
   std::string pairing_reset_endpoint_key(std::string_view address, uint16_t port) {
     return app::normalize_ipv4_address(address) + ":" + std::to_string(app::effective_host_port(port));
   }
@@ -367,23 +382,23 @@ namespace {
     switch (state.activeScreen) {
       case app::ScreenId::settings:
         return {
-          {settings_category_menu_id(app::SettingsCategory::logging), "Logging", true},
-          {settings_category_menu_id(app::SettingsCategory::display), "Display", true},
-          {settings_category_menu_id(app::SettingsCategory::input), "Input", true},
-          {settings_category_menu_id(app::SettingsCategory::reset), "Reset", true},
+          {settings_category_menu_id(app::SettingsCategory::logging), "Logging", settings_category_description(app::SettingsCategory::logging), true},
+          {settings_category_menu_id(app::SettingsCategory::display), "Display", settings_category_description(app::SettingsCategory::display), true},
+          {settings_category_menu_id(app::SettingsCategory::input), "Input", settings_category_description(app::SettingsCategory::input), true},
+          {settings_category_menu_id(app::SettingsCategory::reset), "Reset", settings_category_description(app::SettingsCategory::reset), true},
         };
       case app::ScreenId::add_host:
         return {
-          {"edit-address", "Host Address", true},
-          {"edit-port", "Host Port", true},
-          {"test-connection", "Test Connection", true},
-          {"start-pairing", "Start Pairing", true},
-          {"save-host", "Save Host", true},
-          {"cancel-add-host", "Cancel", true},
+          {"edit-address", "Host Address", "Enter the IPv4 address for the PC that should be added to Moonlight.", true},
+          {"edit-port", "Host Port", "Override the default Moonlight host port when the PC listens on a custom value.", true},
+          {"test-connection", "Test Connection", "Check whether the current host address and port respond before saving anything.", true},
+          {"start-pairing", "Start Pairing", "Connect to the current host and begin PIN-based pairing.", true},
+          {"save-host", "Save Host", "Store this host in the saved host list and return to the home screen.", true},
+          {"cancel-add-host", "Cancel", "Discard the current host draft and return without saving.", true},
         };
       case app::ScreenId::pair_host:
         return {
-          {"cancel-pairing", "Cancel", true},
+          {"cancel-pairing", "Cancel", "Stop the current pairing attempt and return to the previous screen.", true},
         };
       case app::ScreenId::home:
       case app::ScreenId::hosts:
@@ -402,24 +417,25 @@ namespace {
     switch (state.selectedSettingsCategory) {
       case app::SettingsCategory::logging:
         return {
-          {"view-log-file", "View Log File", true},
-          {"cycle-log-level", std::string("Logging Level: ") + logging::to_string(state.loggingLevel), true},
+          {"view-log-file", "View Log File", "Open the runtime log file viewer so you can inspect the most recent log lines without leaving the shell.", true},
+          {"cycle-log-level", std::string("File Logging Level: ") + logging::to_string(state.loggingLevel), "Choose the minimum severity written to moonlight.log. Lower levels produce more detail but increase disk writes.", true},
+          {"cycle-xemu-console-log-level", std::string("xemu Console Level: ") + logging::to_string(state.xemuConsoleLoggingLevel), "Choose the minimum severity mirrored to xemu through DbgPrint() when you launch xemu with a serial console.", true},
         };
       case app::SettingsCategory::display:
         return {
-          {"display-placeholder", "Display settings are not implemented yet", true},
+          {"display-placeholder", "Display settings are not implemented yet", "Display-specific options are planned, but there are no adjustable display settings in this build yet.", true},
         };
       case app::SettingsCategory::input:
         return {
-          {"input-placeholder", "Input settings are not implemented yet", true},
+          {"input-placeholder", "Input settings are not implemented yet", "Input-specific options are planned, but there are no adjustable controller settings in this build yet.", true},
         };
       case app::SettingsCategory::reset:
         {
           std::vector<ui::MenuItem> items = {
-            {"factory-reset", "Factory Reset", true},
+            {"factory-reset", "Factory Reset", "Delete every Moonlight saved file, including hosts, pairing identity, cached art, and logs.", true},
           };
           for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
-            items.push_back({std::string(DELETE_SAVED_FILE_MENU_ID_PREFIX) + savedFile.path, "Delete " + savedFile.displayName, true});
+            items.push_back({std::string(DELETE_SAVED_FILE_MENU_ID_PREFIX) + savedFile.path, "Delete " + savedFile.displayName, "Delete only this saved file from disk while leaving the rest of the Moonlight data intact.", true});
           }
           return items;
         }
@@ -869,18 +885,20 @@ namespace {
 
   logging::LogLevel next_logging_level(logging::LogLevel currentLevel) {
     switch (currentLevel) {
+      case logging::LogLevel::none:
+        return logging::LogLevel::error;
       case logging::LogLevel::trace:
-        return logging::LogLevel::warning;
+        return logging::LogLevel::none;
       case logging::LogLevel::debug:
         return logging::LogLevel::trace;
       case logging::LogLevel::info:
         return logging::LogLevel::debug;
       case logging::LogLevel::warning:
-        return logging::LogLevel::error;
-      case logging::LogLevel::error:
         return logging::LogLevel::info;
+      case logging::LogLevel::error:
+        return logging::LogLevel::warning;
     }
-    return logging::LogLevel::info;
+    return logging::LogLevel::none;
   }
 
   bool handle_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {  // NOSONAR(cpp:S3776) modal command routing stays centralized for predictable UI behavior
@@ -899,6 +917,8 @@ namespace {
         case input::UiCommand::delete_character:
         case input::UiCommand::open_context_menu:
           cycle_log_viewer_placement(state);
+          state.settingsDirty = true;
+          update->settingsChanged = true;
           return true;
         case input::UiCommand::previous_page:
           scroll_log_viewer(state, true, LOG_VIEWER_SCROLL_STEP);
@@ -1094,42 +1114,37 @@ namespace {
 namespace app {
 
   ClientState create_initial_state() {
-    return {
-      ScreenId::hosts,
-      false,
-      false,
-      false,
-      true,
-      0U,
-      HostsFocusArea::toolbar,
-      DEFAULT_EMPTY_HOSTS_TOOLBAR_INDEX,
-      0U,
-      0U,
-      0U,
-      false,
-      ui::MenuModel(),
-      ui::MenuModel(),
-      {},
-      {},
-      false,
-      {},
-      0,
-      {{}, {}, AddHostField::address, {false, 0U, {}}, ScreenId::hosts, {}, {}, false},
-      {{}, DEFAULT_HOST_PORT, {}, PairingStage::idle, {}},
-      {},
-      SettingsFocusArea::categories,
-      SettingsCategory::logging,
-      {},
-      {},
-      {},
-      {},
-      0U,
-      LogViewerPlacement::full,
-      logging::LogLevel::info,
-      {},
-      true,
-      {},
-    };
+    ClientState state;
+    state.activeScreen = ScreenId::hosts;
+    state.overlayVisible = false;
+    state.shouldExit = false;
+    state.hostsDirty = false;
+    state.hostsLoaded = true;
+    state.overlayScrollOffset = 0U;
+    state.hostsFocusArea = HostsFocusArea::toolbar;
+    state.selectedToolbarButtonIndex = DEFAULT_EMPTY_HOSTS_TOOLBAR_INDEX;
+    state.selectedHostIndex = 0U;
+    state.selectedAppIndex = 0U;
+    state.appsScrollPage = 0U;
+    state.showHiddenApps = false;
+    state.activeHostLoaded = false;
+    state.selectedHostPort = 0;
+    state.addHostDraft.activeField = AddHostField::address;
+    state.addHostDraft.keypad.visible = false;
+    state.addHostDraft.keypad.selectedButtonIndex = 0U;
+    state.addHostDraft.returnScreen = ScreenId::hosts;
+    state.addHostDraft.lastConnectionSucceeded = false;
+    state.settingsFocusArea = SettingsFocusArea::categories;
+    state.pairingDraft.targetPort = DEFAULT_HOST_PORT;
+    state.pairingDraft.stage = PairingStage::idle;
+    state.selectedSettingsCategory = SettingsCategory::logging;
+    state.logViewerScrollOffset = 0U;
+    state.logViewerPlacement = LogViewerPlacement::full;
+    state.loggingLevel = logging::LogLevel::none;
+    state.xemuConsoleLoggingLevel = logging::LogLevel::none;
+    state.settingsDirty = false;
+    state.savedFilesDirty = true;
+    return state;
   }
 
   const char *to_string(ScreenId screen) {
@@ -1545,8 +1560,18 @@ namespace app {
       }
       if (detailUpdate.activatedItemId == "cycle-log-level") {
         state.loggingLevel = next_logging_level(state.loggingLevel);
+        state.settingsDirty = true;
+        update.settingsChanged = true;
         state.statusMessage = std::string("Logging level set to ") + logging::to_string(state.loggingLevel);
         rebuild_menu(state, "cycle-log-level");
+        return update;
+      }
+      if (detailUpdate.activatedItemId == "cycle-xemu-console-log-level") {
+        state.xemuConsoleLoggingLevel = next_logging_level(state.xemuConsoleLoggingLevel);
+        state.settingsDirty = true;
+        update.settingsChanged = true;
+        state.statusMessage = std::string("xemu console logging level set to ") + logging::to_string(state.xemuConsoleLoggingLevel);
+        rebuild_menu(state, "cycle-xemu-console-log-level");
         return update;
       }
       if (detailUpdate.activatedItemId == "factory-reset") {
@@ -1556,7 +1581,7 @@ namespace app {
           "Factory Reset",
           {
             "Delete all Moonlight saved data?",
-            "This removes hosts, logs, pairing identity, and cached cover art.",
+            "This removes hosts, settings, logs, pairing identity, and cached cover art.",
           }
         );
         update.modalOpened = true;

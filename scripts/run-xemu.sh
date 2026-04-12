@@ -15,6 +15,8 @@ Environment overrides:
   MOONLIGHT_XEMU_TARGET_PATH
   MOONLIGHT_XEMU_NETWORK
   MOONLIGHT_XEMU_TAP_IFNAME
+  MOONLIGHT_XEMU_ENABLE_SERIAL_STDIO
+  MOONLIGHT_XEMU_DISABLE_SERIAL_STDIO
 EOF
     return 0
 }
@@ -270,6 +272,11 @@ target_path=""
 network_mode="${MOONLIGHT_XEMU_NETWORK:-user}"
 tap_ifname="${MOONLIGHT_XEMU_TAP_IFNAME:-}"
 xemu_network_args=()
+serial_args=(-device lpc47m157 -serial stdio)
+
+if [[ "${MOONLIGHT_XEMU_ENABLE_SERIAL_STDIO:-1}" == "0" || -n "${MOONLIGHT_XEMU_DISABLE_SERIAL_STDIO:-}" ]]; then
+    serial_args=()
+fi
 
 if [[ -n "${MOONLIGHT_XEMU_BUILD_DIR:-}" ]]; then
     build_dir="$(resolve_build_dir "$MOONLIGHT_XEMU_BUILD_DIR")"
@@ -419,7 +426,23 @@ if [[ "$check_only" -eq 1 ]]; then
     if [[ -n "$tap_ifname" ]]; then
         printf 'XEMU_TAP_IFNAME=%s\n' "$tap_ifname"
     fi
+    if [[ "${#serial_args[@]}" -gt 0 ]]; then
+        printf 'XEMU_SERIAL_STDIO=enabled\n'
+    else
+        printf 'XEMU_SERIAL_STDIO=disabled\n'
+    fi
     exit 0
 fi
 
-exec "$xemu_exe" -config_path "$xemu_config_path" -dvd_path "$iso_path" -no-user-config "${xemu_network_args[@]}"
+xemu_args=(
+    -config_path "$xemu_config_path"
+    -dvd_path "$iso_path"
+    -no-user-config
+)
+
+if [[ ${#xemu_network_args[@]} -gt 0 ]]; then
+    xemu_args+=("${xemu_network_args[@]}")
+fi
+xemu_args+=("${serial_args[@]}")
+
+exec "$xemu_exe" "${xemu_args[@]}"

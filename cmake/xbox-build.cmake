@@ -60,6 +60,7 @@ target_sources(${CMAKE_PROJECT_NAME}
 target_include_directories(${CMAKE_PROJECT_NAME}
         SYSTEM PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third-party/tomlplusplus/include"
         "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
         "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
         "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}"

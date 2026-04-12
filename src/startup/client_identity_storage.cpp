@@ -10,17 +10,14 @@
 #include <vector>
 
 // local includes
+#include "src/platform/error_utils.h"
 #include "src/platform/filesystem_utils.h"
-#include "src/startup/host_storage.h"
+#include "src/startup/storage_paths.h"
 
 namespace {
 
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
-    }
-    return false;
-  }
+  using platform::append_error;
+  using platform::join_path;
 
   constexpr const char *UNIQUE_ID_FILE_NAME = "uniqueid.dat";
   constexpr const char *CERTIFICATE_FILE_NAME = "client.pem";
@@ -30,10 +27,6 @@ namespace {
     std::string content;
     int errorCode;
   };
-
-  std::string join_path(const std::string &left, const std::string &right) {
-    return platform::join_path(left, right);
-  }
 
   ReadFileTextResult read_file_text(const std::string &filePath, std::string *errorMessage) {
     FILE *file = std::fopen(filePath.c_str(), "rb");
@@ -102,12 +95,7 @@ namespace {
 namespace startup {
 
   std::string default_client_identity_directory() {
-    const std::string hostStorageDirectory = platform::parent_directory(default_host_storage_path());
-    if (hostStorageDirectory.empty()) {
-      return "pairing";
-    }
-
-    return join_path(hostStorageDirectory, "pairing");
+    return default_storage_path("pairing");
   }
 
   LoadClientIdentityResult load_client_identity(const std::string &directoryPath) {

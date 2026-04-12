@@ -19,7 +19,7 @@ namespace {
     EXPECT_FALSE(state.overlayVisible);
     EXPECT_FALSE(state.shouldExit);
     EXPECT_FALSE(state.hostsDirty);
-    EXPECT_TRUE(state.menu.items().empty());
+    EXPECT_EQ(state.loggingLevel, logging::LogLevel::none);
   }
 
   TEST(ClientStateTest, ReplacesHostsFromPersistenceWithoutMarkingThemDirty) {
@@ -59,7 +59,7 @@ namespace {
     EXPECT_EQ(state.activeScreen, app::ScreenId::add_host);
   }
 
-  TEST(ClientStateTest, SettingsCanRequestLogViewingAndCycleLoggingLevel) {
+  TEST(ClientStateTest, SettingsCanRequestLogViewingAndCycleBothLoggingLevelsFromNone) {
     app::ClientState state = app::create_initial_state();
 
     app::handle_command(state, input::UiCommand::move_left);
@@ -79,8 +79,15 @@ namespace {
     app::handle_command(state, input::UiCommand::move_down);
     update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_FALSE(update.logViewRequested);
-    EXPECT_EQ(state.loggingLevel, logging::LogLevel::debug);
-    EXPECT_EQ(state.statusMessage, "Logging level set to DEBUG");
+    EXPECT_TRUE(update.settingsChanged);
+    EXPECT_EQ(state.loggingLevel, logging::LogLevel::error);
+    EXPECT_EQ(state.statusMessage, "Logging level set to ERROR");
+
+    app::handle_command(state, input::UiCommand::move_down);
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_TRUE(update.settingsChanged);
+    EXPECT_EQ(state.xemuConsoleLoggingLevel, logging::LogLevel::error);
+    EXPECT_EQ(state.statusMessage, "xemu console logging level set to ERROR");
   }
 
   TEST(ClientStateTest, TogglingAndScrollingTheOverlayUpdatesTheVisibleState) {

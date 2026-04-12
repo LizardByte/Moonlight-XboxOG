@@ -99,26 +99,29 @@ namespace {
 
   TEST(ShellViewTest, ShowsLoggingDetailsOnTheSettingsScreen) {
     app::ClientState state = app::create_initial_state();
+    state.loggingLevel = logging::LogLevel::none;
+    state.xemuConsoleLoggingLevel = logging::LogLevel::warning;
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::activate);
     ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
     app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
-    state.loggingLevel = logging::LogLevel::debug;
-    app::replace_saved_files(state, {
-                                      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 2048U},
-                                      {"E:\\UDATA\\12345678\\pairing\\client.pem", "pairing\\client.pem", 1536U},
-                                    });
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    ASSERT_GE(viewModel.bodyLines.size(), 4U);
+    ASSERT_GE(viewModel.bodyLines.size(), 7U);
     EXPECT_EQ(viewModel.bodyLines[0], "Category: Logging");
-    EXPECT_EQ(viewModel.bodyLines[1], "Log file: E:\\UDATA\\12345678\\moonlight.log");
-    EXPECT_EQ(viewModel.bodyLines[2], "Current logging level: DEBUG");
-    EXPECT_EQ(viewModel.bodyLines[3], "Use View Log File to inspect persisted startup and applist diagnostics.");
-    ASSERT_EQ(viewModel.detailMenuRows.size(), 2U);
+    EXPECT_EQ(viewModel.bodyLines[1], "Runtime log file: reset on every startup");
+    EXPECT_EQ(viewModel.bodyLines[2], "Log file path: E:\\UDATA\\12345678\\moonlight.log");
+    EXPECT_EQ(viewModel.bodyLines[3], "File logging level: NONE");
+    EXPECT_EQ(viewModel.bodyLines[4], "xemu console logging level: WARN");
+    ASSERT_EQ(viewModel.detailMenuRows.size(), 3U);
     EXPECT_EQ(viewModel.detailMenuRows[0].label, "View Log File");
+    EXPECT_EQ(viewModel.detailMenuRows[1].label, "File Logging Level: NONE");
+    EXPECT_EQ(viewModel.detailMenuRows[2].label, "xemu Console Level: WARN");
+    EXPECT_EQ(viewModel.selectedMenuRowDescription, "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.");
+    EXPECT_TRUE(viewModel.leftPanelActive);
+    EXPECT_FALSE(viewModel.rightPanelActive);
   }
 
   TEST(ShellViewTest, ExposesTheFullSelectedSettingsLabelBesideTheMenu) {
@@ -138,6 +141,49 @@ namespace {
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
     EXPECT_EQ(viewModel.selectedMenuRowLabel, "Delete pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin");
+    EXPECT_EQ(viewModel.selectedMenuRowDescription, "Delete only this saved file from disk while leaving the rest of the Moonlight data intact.");
+  }
+
+  TEST(ShellViewTest, ShowsSettingDescriptionsForFocusedOptions) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
+
+    state.settingsFocusArea = app::SettingsFocusArea::options;
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("cycle-xemu-console-log-level"));
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_EQ(viewModel.selectedMenuRowLabel, "xemu Console Level: NONE");
+    EXPECT_EQ(viewModel.selectedMenuRowDescription, "Choose the minimum severity mirrored to xemu through DbgPrint() when you launch xemu with a serial console.");
+  }
+
+  TEST(ShellViewTest, MarksTheFocusedSettingsPanelAsActive) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.activeScreen, app::ScreenId::settings);
+
+    state.settingsFocusArea = app::SettingsFocusArea::options;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_FALSE(viewModel.leftPanelActive);
+    EXPECT_TRUE(viewModel.rightPanelActive);
+  }
+
+  TEST(ShellViewTest, KeepsTheLeftPanelActiveOnTheAddHostScreen) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.activeScreen, app::ScreenId::add_host);
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.leftPanelActive);
+    EXPECT_FALSE(viewModel.rightPanelActive);
   }
 
   TEST(ShellViewTest, BuildsTheAddHostKeypadModalAsANumberPad) {

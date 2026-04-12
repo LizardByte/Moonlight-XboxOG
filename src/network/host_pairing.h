@@ -158,17 +158,6 @@ namespace network {
   );
 
   /**
-   * @brief Query live host status without client authentication.
-   *
-   * @param address Host address to query.
-   * @param preferredHttpPort Preferred HTTP port override.
-   * @param serverInfo Output structure populated with parsed status data.
-   * @param errorMessage Optional output for request or parse failures.
-   * @return true when host status was retrieved successfully.
-   */
-  bool query_server_info(const std::string &address, uint16_t preferredHttpPort, HostPairingServerInfo *serverInfo, std::string *errorMessage = nullptr);
-
-  /**
    * @brief Query the app list exported by a host.
    *
    * @param address Host address to query.

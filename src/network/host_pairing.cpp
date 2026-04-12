@@ -27,6 +27,7 @@
 
 // local includes
 #include "src/network/runtime_network.h"
+#include "src/platform/error_utils.h"
 
 // platform includes
 #ifdef NXDK
@@ -73,6 +74,8 @@ extern "C" int rand_s(unsigned int *randomValue);
 #endif
 
 namespace {
+
+  using platform::append_error;
 
   void trace_pairing_phase(const char *message) {
     (void) message;
@@ -132,8 +135,6 @@ namespace {
 
     SOCKET handle = INVALID_SOCKET;
   };
-
-  bool append_error(std::string *errorMessage, std::string message);
 
   bool pairing_cancel_requested(const std::atomic<bool> *cancelRequested) {
     return cancelRequested != nullptr && cancelRequested->load(std::memory_order_acquire);
@@ -302,7 +303,6 @@ namespace {
     std::string body;
   };
 
-  bool append_error(std::string *errorMessage, std::string message);
   bool hex_value(char character, unsigned char *value);
   bool http_get(
     const std::string &address,
@@ -566,14 +566,6 @@ namespace {
         *messageLength = completeLength;
       }
       return true;
-    }
-
-    return false;
-  }
-
-  bool append_error(std::string *errorMessage, std::string message) {
-    if (errorMessage != nullptr) {
-      *errorMessage = std::move(message);
     }
 
     return false;
@@ -1150,41 +1142,6 @@ namespace {
     }
 
     return rootStatusCode == 401U || rootStatusCode == 403U || network::error_indicates_unpaired_client(rootStatusMessage);
-  }
-
-  std::vector<std::string_view> extract_xml_element_blocks(std::string_view xml, std::string_view tagName) {
-    std::vector<std::string_view> blocks;
-    const std::string openPrefix = "<" + std::string(tagName);
-    const std::string closeTag = "</" + std::string(tagName) + ">";
-    std::size_t cursor = 0;
-
-    while (cursor < xml.size()) {  // NOSONAR(cpp:S924) permissive XML scanning uses multiple early breaks for malformed payloads
-      const std::size_t openIndex = xml.find(openPrefix, cursor);
-      if (openIndex == std::string_view::npos) {
-        break;
-      }
-
-      const std::size_t tagNameEnd = openIndex + openPrefix.size();
-      if (tagNameEnd < xml.size() && xml[tagNameEnd] != '>' && !std::isspace(static_cast<unsigned char>(xml[tagNameEnd]))) {
-        cursor = openIndex + 1;
-        continue;
-      }
-
-      const std::size_t openEnd = xml.find('>', tagNameEnd);
-      if (openEnd == std::string_view::npos) {
-        break;
-      }
-
-      const std::size_t closeIndex = xml.find(closeTag, openEnd + 1);
-      if (closeIndex == std::string_view::npos) {
-        break;
-      }
-
-      blocks.push_back(xml.substr(openEnd + 1, closeIndex - openEnd - 1));
-      cursor = closeIndex + closeTag.size();
-    }
-
-    return blocks;
   }
 
   bool try_parse_flag(std::string_view text, bool *value) {

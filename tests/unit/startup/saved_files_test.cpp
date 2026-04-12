@@ -23,9 +23,10 @@ namespace {
   class SavedFilesTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     std::string testDirectory = "saved-files-test";
-    std::string hostStoragePath = test_support::join_path(testDirectory, "moonlight-hosts.tsv");
-    std::string logFilePath = test_support::join_path(testDirectory, "moonlight.log");
     std::string pairingDirectory = test_support::join_path(testDirectory, "pairing");
+    std::string hostStoragePath = test_support::join_path(testDirectory, "moonlight-hosts.tsv");
+    std::string settingsFilePath = test_support::join_path(testDirectory, "moonlight.toml");
+    std::string logFilePath = test_support::join_path(testDirectory, "moonlight.log");
     std::string pairingUniqueIdPath = test_support::join_path(pairingDirectory, "uniqueid.dat");
     std::string pairingCertificatePath = test_support::join_path(pairingDirectory, "client.pem");
     std::string pairingKeyPath = test_support::join_path(pairingDirectory, "key.pem");
@@ -33,6 +34,7 @@ namespace {
     std::string coverArtFilePath = test_support::join_path(coverArtDirectory, "cover-101.bin");
     startup::SavedFileCatalogConfig config {
       hostStoragePath,
+      settingsFilePath,
       logFilePath,
       pairingDirectory,
       coverArtDirectory,
@@ -50,6 +52,7 @@ namespace {
       test_support::remove_if_present(pairingCertificatePath);
       test_support::remove_if_present(pairingUniqueIdPath);
       test_support::remove_if_present(logFilePath);
+      test_support::remove_if_present(settingsFilePath);
       test_support::remove_if_present(hostStoragePath);
       test_support::remove_directory_if_present(coverArtDirectory);
       test_support::remove_directory_if_present(pairingDirectory);
@@ -59,6 +62,7 @@ namespace {
 
   TEST_F(SavedFilesTest, ListsMoonlightManagedFilesThatExistOnDisk) {
     write_file_bytes(hostStoragePath, {'h', 'o', 's', 't'});
+    write_file_bytes(settingsFilePath, {'s', 'e', 't'});
     write_file_bytes(logFilePath, {'l', 'o', 'g'});
     write_file_bytes(pairingUniqueIdPath, {'1', '2', '3', '4'});
     write_file_bytes(pairingCertificatePath, {'c', 'e', 'r', 't'});
@@ -68,13 +72,14 @@ namespace {
     const startup::ListSavedFilesResult result = startup::list_saved_files(config);
 
     EXPECT_TRUE(result.warnings.empty());
-    ASSERT_EQ(result.files.size(), 6U);
+    ASSERT_EQ(result.files.size(), 7U);
     EXPECT_EQ(result.files[0].displayName, test_support::join_path("cover-art-cache", "cover-101.bin"));
     EXPECT_EQ(result.files[1].displayName, "moonlight-hosts.tsv");
     EXPECT_EQ(result.files[2].displayName, "moonlight.log");
-    EXPECT_EQ(result.files[3].displayName, test_support::join_path("pairing", "client.pem"));
-    EXPECT_EQ(result.files[4].displayName, test_support::join_path("pairing", "key.pem"));
-    EXPECT_EQ(result.files[5].displayName, test_support::join_path("pairing", "uniqueid.dat"));
+    EXPECT_EQ(result.files[3].displayName, "moonlight.toml");
+    EXPECT_EQ(result.files[4].displayName, test_support::join_path("pairing", "client.pem"));
+    EXPECT_EQ(result.files[5].displayName, test_support::join_path("pairing", "key.pem"));
+    EXPECT_EQ(result.files[6].displayName, test_support::join_path("pairing", "uniqueid.dat"));
   }
 
   TEST_F(SavedFilesTest, DeletesManagedSavedFiles) {
@@ -100,6 +105,7 @@ namespace {
 
   TEST_F(SavedFilesTest, FactoryResetDeletesAllManagedSavedFiles) {
     write_file_bytes(hostStoragePath, {'h', 'o', 's', 't'});
+    write_file_bytes(settingsFilePath, {'s', 'e', 't'});
     write_file_bytes(logFilePath, {'l', 'o', 'g'});
     write_file_bytes(pairingUniqueIdPath, {'1', '2', '3', '4'});
     write_file_bytes(pairingCertificatePath, {'c', 'e', 'r', 't'});

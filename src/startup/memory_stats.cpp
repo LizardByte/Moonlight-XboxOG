@@ -1,8 +1,10 @@
 // class header include
 #include "src/startup/memory_stats.h"
 
+// local includes
+#include "src/logging/global_logger.h"
+
 // nxdk includes
-#include <hal/debug.h>
 #include <xboxkrnl/xboxkrnl.h>
 
 namespace startup {
@@ -36,7 +38,7 @@ namespace startup {
 
   void log_memory_statistics() {
     for (const std::string &line : format_memory_statistics_lines()) {
-      debugPrint("%s\n", line.c_str());
+      logging::logger.info("memory", line);
     }
   }
 
