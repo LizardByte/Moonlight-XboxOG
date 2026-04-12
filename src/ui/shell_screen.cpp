@@ -2567,7 +2567,7 @@ namespace {
 
     task->request.identity = std::move(identity);
     task->result = network::pair_host(task->request, &task->cancelRequested);
-    task->completed.store(true, std::memory_order_release);
+    task->completed.store(true);
     return 0;
   }
 
@@ -2700,7 +2700,7 @@ namespace {
         worker->serverInfo,
       }
     );
-    worker->completed.store(true, std::memory_order_release);
+    worker->completed.store(true);
     return 0;
   }
 
@@ -2734,7 +2734,7 @@ namespace {
 
     auto iterator = task->workers.begin();
     while (iterator != task->workers.end()) {
-      if ((*iterator)->thread == nullptr || !(*iterator)->completed.load(std::memory_order_acquire)) {
+      if ((*iterator)->thread == nullptr || !(*iterator)->completed.load()) {
         ++iterator;
         continue;
       }
@@ -3226,7 +3226,7 @@ namespace {
     const ui::ShellViewModel &viewModel,
     const SDL_Rect &gridRect,
     CoverArtTextureCache *textureCache,
-    AssetTextureCache *assetCache
+    const AssetTextureCache *assetCache
   ) {
     const int columnCount = std::max(1, static_cast<int>(viewModel.appColumnCount));
     const int tileGap = 16;
@@ -3791,11 +3791,12 @@ namespace {
     logging::info("app", "Exit requested from held Start+Back on the hosts screen");
   }
 
+  template<typename ProcessCommand>
   void process_log_viewer_repeat_commands(
     const app::ClientState &state,
     Uint32 now,
     ShellInputState *inputState,
-    const std::function<void(input::UiCommand)> &processCommand
+    const ProcessCommand &processCommand
   ) {
     if (inputState == nullptr || state.modal.id != app::ModalId::log_viewer) {
       return;
@@ -3957,11 +3958,12 @@ namespace {
     }
   }
 
+  template<typename ProcessCommand>
   void process_polled_shell_events(
     app::ClientState &state,
     SDL_GameController **controller,
     ShellInputState *inputState,
-    const std::function<void(input::UiCommand)> &processCommand,
+    const ProcessCommand &processCommand,
     bool *skipPolledControllerNavigation
   ) {
     SDL_Event event;
@@ -3996,11 +3998,12 @@ namespace {
     } while (SDL_PollEvent(&event));
   }
 
+  template<typename ProcessCommand>
   void process_controller_navigation(
     SDL_GameController *controller,
     ShellInputState *inputState,
     bool skipPolledControllerNavigation,
-    const std::function<void(input::UiCommand)> &processCommand
+    const ProcessCommand &processCommand
   ) {
     if (inputState == nullptr) {
       return;
@@ -4033,6 +4036,393 @@ namespace {
     ));
   }
 
+  /**
+   * @brief Stores the SDL resources and render caches owned by the shell loop.
+   */
+  struct ShellResources {
+    SDL_Renderer *renderer = nullptr;  ///< Renderer used for all shell drawing.
+    SDL_Texture *titleLogoTexture = nullptr;  ///< Cached Moonlight title logo texture.
+    TTF_Font *titleFont = nullptr;  ///< Large font used for screen titles.
+    TTF_Font *bodyFont = nullptr;  ///< Standard body font.
+    TTF_Font *smallFont = nullptr;  ///< Small font for secondary labels.
+    SDL_GameController *controller = nullptr;  ///< Primary open game controller, when available.
+    CoverArtTextureCache coverArtTextureCache;  ///< Cached cover-art textures.
+    AssetTextureCache assetTextureCache;  ///< Cached UI asset textures.
+    KeypadModalLayoutCache keypadModalLayoutCache;  ///< Cached keypad modal layout artifacts.
+    unsigned long encoderSettings = 0;  ///< Active video encoder settings for layout calculations.
+    bool imageInitialized = false;  ///< Whether SDL_image was initialized in this shell session.
+    bool ttfInitialized = false;  ///< Whether SDL_ttf was initialized in this shell session.
+  };
+
+  /**
+   * @brief Stores mutable shell loop state that changes across frames.
+   */
+  struct ShellRuntimeState {
+    bool running = true;  ///< False when the shell should stop processing frames.
+    bool keypadRedrawRequested = true;  ///< True when the add-host keypad must redraw immediately.
+    ShellInputState inputState {};  ///< Current controller and trigger input state.
+    Uint32 nextHostProbeTick = 0;  ///< Next scheduled host probe time.
+    PairingTaskState pairingTask {};  ///< Background pairing workflow state.
+    AppListTaskState appListTask {};  ///< Background app-list fetch state.
+    AppArtTaskState appArtTask {};  ///< Background box-art download state.
+    HostProbeTaskState hostProbeTask {};  ///< Background host probe state.
+  };
+
+  /**
+   * @brief Describes an initialization failure while preparing the interactive shell.
+   */
+  struct ShellInitializationFailure {
+    const char *category = "sdl";  ///< Logging category associated with the failure.
+    std::string message;  ///< Human-readable failure detail.
+  };
+
+  /**
+   * @brief Wait for an SDL thread and discard its integer return code.
+   *
+   * @param thread Thread handle to join.
+   */
+  void wait_for_thread(SDL_Thread *thread) {
+    if (thread == nullptr) {
+      return;
+    }
+
+    int threadResult = 0;
+    SDL_WaitThread(thread, &threadResult);
+    (void) threadResult;
+  }
+
+  /**
+   * @brief Open the first detected SDL game controller for shell navigation.
+   *
+   * @return The opened controller, or nullptr when none could be opened.
+   */
+  SDL_GameController *open_primary_controller() {
+    for (int joystickIndex = 0; joystickIndex < SDL_NumJoysticks(); ++joystickIndex) {
+      if (!SDL_IsGameController(joystickIndex)) {
+        continue;
+      }
+
+      SDL_GameController *controller = SDL_GameControllerOpen(joystickIndex);
+      if (controller == nullptr) {
+        continue;
+      }
+
+      logging::info("input", "Opened primary controller");
+      return controller;
+    }
+
+    return nullptr;
+  }
+
+  /**
+   * @brief Release the SDL resources and render caches owned by the shell loop.
+   *
+   * @param resources Shell resources to release.
+   */
+  void close_shell_resources(ShellResources *resources) {
+    if (resources == nullptr) {
+      return;
+    }
+
+    close_controller(resources->controller);
+    resources->controller = nullptr;
+    clear_cover_art_texture_cache(&resources->coverArtTextureCache);
+    clear_asset_texture_cache(&resources->assetTextureCache);
+    clear_keypad_modal_layout_cache(&resources->keypadModalLayoutCache);
+    destroy_texture(resources->titleLogoTexture);
+    resources->titleLogoTexture = nullptr;
+
+    if (resources->smallFont != nullptr) {
+      TTF_CloseFont(resources->smallFont);
+      resources->smallFont = nullptr;
+    }
+    if (resources->bodyFont != nullptr) {
+      TTF_CloseFont(resources->bodyFont);
+      resources->bodyFont = nullptr;
+    }
+    if (resources->titleFont != nullptr) {
+      TTF_CloseFont(resources->titleFont);
+      resources->titleFont = nullptr;
+    }
+    if (resources->renderer != nullptr) {
+      SDL_DestroyRenderer(resources->renderer);
+      resources->renderer = nullptr;
+    }
+    if (resources->imageInitialized) {
+      IMG_Quit();
+      resources->imageInitialized = false;
+    }
+    if (resources->ttfInitialized) {
+      TTF_Quit();
+      resources->ttfInitialized = false;
+    }
+  }
+
+  /**
+   * @brief Initialize the SDL renderer, fonts, caches, and controller used by the shell.
+   *
+   * @param window SDL window hosting the interactive shell.
+   * @param videoMode Active output mode used to size fonts.
+   * @param resources Shell resources to populate.
+   * @param failure Receives a failure category and message when initialization fails.
+   * @return True when all required shell resources were prepared.
+   */
+  bool initialize_shell_resources(SDL_Window *window, const VIDEO_MODE &videoMode, ShellResources *resources, ShellInitializationFailure *failure) {
+    if (window == nullptr || resources == nullptr || failure == nullptr) {
+      return false;
+    }
+
+    if (TTF_Init() != 0) {
+      failure->category = "ttf";
+      failure->message = std::string("TTF_Init failed: ") + TTF_GetError();
+      return false;
+    }
+    resources->ttfInitialized = true;
+
+    IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
+    resources->imageInitialized = true;
+
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+
+    resources->renderer = SDL_CreateRenderer(window, -1, 0);
+    if (resources->renderer == nullptr) {
+      failure->category = "sdl";
+      failure->message = std::string("SDL_CreateRenderer failed: ") + SDL_GetError();
+      close_shell_resources(resources);
+      return false;
+    }
+
+    SDL_SetRenderDrawBlendMode(resources->renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(resources->renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
+    SDL_RenderClear(resources->renderer);
+    SDL_RenderPresent(resources->renderer);
+
+    const std::string fontPath = build_asset_path("fonts\\vegur-regular.ttf");
+    resources->titleFont = TTF_OpenFont(fontPath.c_str(), std::max(24, videoMode.height / 16));
+    resources->bodyFont = TTF_OpenFont(fontPath.c_str(), std::max(18, videoMode.height / 24));
+    resources->smallFont = TTF_OpenFont(fontPath.c_str(), std::max(14, videoMode.height / 34));
+    if (resources->titleFont == nullptr || resources->bodyFont == nullptr || resources->smallFont == nullptr) {
+      failure->category = "ttf";
+      failure->message = std::string("Failed to load shell font from ") + fontPath + ": " + TTF_GetError();
+      close_shell_resources(resources);
+      return false;
+    }
+
+    resources->titleLogoTexture = load_texture_from_asset(resources->renderer, "moonlight-logo.svg");
+    resources->controller = open_primary_controller();
+    resources->encoderSettings = XVideoGetEncoderSettings();
+    return true;
+  }
+
+  /**
+   * @brief Initialize mutable shell runtime state for a new interactive session.
+   *
+   * @param state Client state whose logging configuration should be applied.
+   * @param runtime Runtime state to prepare.
+   */
+  void initialize_shell_runtime(app::ClientState &state, ShellRuntimeState *runtime) {
+    if (runtime == nullptr) {
+      return;
+    }
+
+    reset_pairing_task(&runtime->pairingTask);
+    reset_app_list_task(&runtime->appListTask);
+    reset_app_art_task(&runtime->appArtTask);
+    reset_host_probe_task(&runtime->hostProbeTask);
+    logging::set_minimum_level(logging::LogLevel::trace);
+    logging::set_file_minimum_level(state.loggingLevel);
+    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    logging::info("app", "Entered interactive shell");
+  }
+
+  /**
+   * @brief Render the current shell frame and update redraw bookkeeping.
+   *
+   * @param videoMode Active output mode used by the shell renderer.
+   * @param state Client state to visualize.
+   * @param resources Shell resources supplying the renderer and caches.
+   * @param runtime Runtime state receiving redraw and shutdown updates.
+   * @return True when the frame rendered successfully.
+   */
+  bool draw_current_shell_frame(const VIDEO_MODE &videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
+    if (resources == nullptr || runtime == nullptr) {
+      return false;
+    }
+
+    const std::vector<logging::LogEntry> retainedEntries = logging::snapshot(logging::LogLevel::info);
+    if (const auto viewModel = ui::build_shell_view_model(state, retainedEntries);
+        draw_shell(resources->renderer, videoMode, resources->encoderSettings, resources->titleLogoTexture, resources->titleFont, resources->bodyFont, resources->smallFont, viewModel, &resources->coverArtTextureCache, &resources->assetTextureCache, &resources->keypadModalLayoutCache)) {
+      runtime->keypadRedrawRequested = false;
+      return true;
+    }
+
+    report_shell_failure("render", std::string("Shell render failed: ") + SDL_GetError());
+    runtime->running = false;
+    state.shouldExit = true;
+    return false;
+  }
+
+  /**
+   * @brief Complete any background shell tasks whose results are ready.
+   *
+   * @param state Client state to update.
+   * @param resources Shell resources that own render caches.
+   * @param runtime Runtime state that owns the background tasks.
+   */
+  void finish_shell_background_tasks(app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
+    if (resources == nullptr || runtime == nullptr) {
+      return;
+    }
+
+    finish_pairing_task_if_ready(state, &runtime->pairingTask);
+    finish_app_list_task_if_ready(state, &runtime->appListTask);
+    finish_app_art_task_if_ready(state, &runtime->appArtTask, &resources->coverArtTextureCache);
+    finish_host_probe_task_if_ready(state, &runtime->hostProbeTask);
+  }
+
+  /**
+   * @brief Start any background shell tasks that are due to run on this frame.
+   *
+   * @param state Client state used to decide which tasks are eligible.
+   * @param runtime Runtime state that owns the background tasks.
+   * @param now Current SDL tick count.
+   */
+  void start_shell_background_tasks_if_needed(app::ClientState &state, ShellRuntimeState *runtime, Uint32 now) {
+    if (runtime == nullptr) {
+      return;
+    }
+
+    start_host_probe_task_if_needed(state, &runtime->hostProbeTask, now, &runtime->nextHostProbeTick);
+    start_app_list_task_if_needed(state, &runtime->appListTask, now);
+    start_app_art_task_if_needed(state, &runtime->appArtTask);
+  }
+
+  /**
+   * @brief Apply a single translated UI command inside the shell loop.
+   *
+   * @param videoMode Active output mode used by the shell renderer.
+   * @param state Client state to mutate.
+   * @param command UI command to process.
+   * @param resources Shell resources supplying render caches.
+   * @param runtime Runtime state that owns background tasks and redraw flags.
+   */
+  void process_shell_command(
+    const VIDEO_MODE &videoMode,
+    app::ClientState &state,
+    input::UiCommand command,
+    ShellResources *resources,
+    ShellRuntimeState *runtime
+  ) {
+    if (command == input::UiCommand::none || resources == nullptr || runtime == nullptr) {
+      return;
+    }
+
+    runtime->keypadRedrawRequested = true;
+
+    const app::ScreenId previousScreen = state.activeScreen;
+    const app::AppUpdate update = app::handle_command(state, command);
+    logging::set_file_minimum_level(state.loggingLevel);
+    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    log_app_update(state, update);
+    show_log_file_if_requested(state, update);
+    cancel_pairing_if_requested(state, update, &runtime->pairingTask);
+    test_host_connection_if_requested(state, update);
+    browse_host_apps_if_requested(state, update);
+    pair_host_if_requested(state, update, &runtime->pairingTask);
+    delete_host_data_if_requested(state, update, &resources->coverArtTextureCache);
+    delete_saved_file_if_requested(state, update, &resources->coverArtTextureCache);
+    factory_reset_if_requested(state, update, &resources->coverArtTextureCache);
+    refresh_saved_files_if_needed(state);
+    persist_settings_if_needed(state, update);
+    persist_hosts_if_needed(state, update);
+
+    if (previousScreen != state.activeScreen) {
+      release_page_resources_for_screen(previousScreen, state.activeScreen, &resources->coverArtTextureCache, &resources->keypadModalLayoutCache);
+      ensure_hosts_loaded_for_active_screen(state);
+    }
+    if ((previousScreen != state.activeScreen || update.screenChanged) && !draw_current_shell_frame(videoMode, state, resources, runtime)) {
+      return;
+    }
+    if (state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
+      clear_keypad_modal_layout_cache(&resources->keypadModalLayoutCache);
+    }
+  }
+
+  /**
+   * @brief Process one shell frame, including input, background tasks, and redraws.
+   *
+   * @param videoMode Active output mode used by the shell renderer.
+   * @param state Client state to update.
+   * @param resources Shell resources used by the frame.
+   * @param runtime Runtime state that carries input and task progress.
+   * @return True when the shell should continue processing future frames.
+   */
+  bool run_shell_frame(const VIDEO_MODE &videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
+    if (resources == nullptr || runtime == nullptr) {
+      return false;
+    }
+
+    const auto processCommand = [&state, &videoMode, resources, runtime](input::UiCommand command) {
+      process_shell_command(videoMode, state, command, resources, runtime);
+    };
+
+    ensure_hosts_loaded_for_active_screen(state);
+    finish_shell_background_tasks(state, resources, runtime);
+    refresh_saved_files_if_needed(state);
+    start_shell_background_tasks_if_needed(state, runtime, SDL_GetTicks());
+
+    update_exit_combo_hold(state, &runtime->inputState);
+    process_log_viewer_repeat_commands(state, SDL_GetTicks(), &runtime->inputState, processCommand);
+
+    bool skipPolledControllerNavigation = false;
+    process_polled_shell_events(state, &resources->controller, &runtime->inputState, processCommand, &skipPolledControllerNavigation);
+    process_controller_navigation(resources->controller, &runtime->inputState, skipPolledControllerNavigation, processCommand);
+
+    finish_shell_background_tasks(state, resources, runtime);
+    start_shell_background_tasks_if_needed(state, runtime, SDL_GetTicks());
+
+    if ((state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) &&
+        !draw_current_shell_frame(videoMode, state, resources, runtime)) {
+      return false;
+    }
+
+    return runtime->running && !state.shouldExit;
+  }
+
+  /**
+   * @brief Join any background shell tasks before renderer resources are released.
+   *
+   * @param runtime Runtime state that owns the background tasks.
+   */
+  void finalize_shell_tasks(ShellRuntimeState *runtime) {
+    if (runtime == nullptr) {
+      return;
+    }
+
+    if (runtime->pairingTask.activeAttempt != nullptr) {
+      runtime->pairingTask.activeAttempt->discardResult.store(true);
+      finalize_pairing_attempt(nullptr, std::move(runtime->pairingTask.activeAttempt));
+    }
+    while (!runtime->pairingTask.retiredAttempts.empty()) {
+      std::unique_ptr<PairingAttemptState> attempt = std::move(runtime->pairingTask.retiredAttempts.back());
+      runtime->pairingTask.retiredAttempts.pop_back();
+      if (attempt != nullptr) {
+        attempt->discardResult.store(true);
+      }
+      finalize_pairing_attempt(nullptr, std::move(attempt));
+    }
+
+    wait_for_thread(runtime->appListTask.thread);
+    wait_for_thread(runtime->appArtTask.thread);
+    for (const std::unique_ptr<HostProbeTaskState::ProbeWorkerState> &worker : runtime->hostProbeTask.workers) {
+      if (worker == nullptr) {
+        continue;
+      }
+
+      wait_for_thread(worker->thread);
+    }
+  }
+
 }  // namespace
 
 namespace ui {
@@ -4046,203 +4436,23 @@ namespace ui {
       return report_shell_failure("sdl", "Shell requires a valid SDL window");
     }
 
-    if (TTF_Init() != 0) {
-      return report_shell_failure("ttf", std::string("TTF_Init failed: ") + TTF_GetError());
+    ShellResources resources {};
+    ShellInitializationFailure initializationFailure {};
+    if (!initialize_shell_resources(window, videoMode, &resources, &initializationFailure)) {
+      return report_shell_failure(initializationFailure.category, initializationFailure.message);
     }
 
-    IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
+    ShellRuntimeState runtime {};
+    initialize_shell_runtime(state, &runtime);
 
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
-    if (renderer == nullptr) {
-      IMG_Quit();
-      TTF_Quit();
-      return report_shell_failure("sdl", std::string("SDL_CreateRenderer failed: ") + SDL_GetError());
-    }
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
-    SDL_RenderClear(renderer);
-    SDL_RenderPresent(renderer);
-
-    const std::string fontPath = build_asset_path("fonts\\vegur-regular.ttf");
-    TTF_Font *titleFont = TTF_OpenFont(fontPath.c_str(), std::max(24, videoMode.height / 16));
-    TTF_Font *bodyFont = TTF_OpenFont(fontPath.c_str(), std::max(18, videoMode.height / 24));
-    TTF_Font *smallFont = TTF_OpenFont(fontPath.c_str(), std::max(14, videoMode.height / 34));
-    if (titleFont == nullptr || bodyFont == nullptr || smallFont == nullptr) {
-      if (titleFont != nullptr) {
-        TTF_CloseFont(titleFont);
-      }
-      if (bodyFont != nullptr) {
-        TTF_CloseFont(bodyFont);
-      }
-      if (smallFont != nullptr) {
-        TTF_CloseFont(smallFont);
-      }
-      SDL_DestroyRenderer(renderer);
-      IMG_Quit();
-      TTF_Quit();
-      return report_shell_failure("ttf", std::string("Failed to load shell font from ") + fontPath + ": " + TTF_GetError());
-    }
-
-    SDL_Texture *titleLogoTexture = load_texture_from_asset(renderer, "moonlight-logo.svg");
-
-    SDL_GameController *controller = nullptr;
-    for (int joystickIndex = 0; joystickIndex < SDL_NumJoysticks(); ++joystickIndex) {
-      if (SDL_IsGameController(joystickIndex)) {
-        controller = SDL_GameControllerOpen(joystickIndex);
-        if (controller != nullptr) {
-          logging::info("input", "Opened primary controller");
-          break;
-        }
-      }
-    }
-
-    bool running = true;
-    ShellInputState inputState {};
-    Uint32 nextHostProbeTick = 0;
-    PairingTaskState pairingTask {};
-    AppListTaskState appListTask {};
-    AppArtTaskState appArtTask {};
-    HostProbeTaskState hostProbeTask {};
-    CoverArtTextureCache coverArtTextureCache {};
-    AssetTextureCache assetTextureCache {};
-    KeypadModalLayoutCache keypadModalLayoutCache {};
-    const unsigned long encoderSettings = XVideoGetEncoderSettings();
-    reset_pairing_task(&pairingTask);
-    reset_app_list_task(&appListTask);
-    reset_app_art_task(&appArtTask);
-    reset_host_probe_task(&hostProbeTask);
-    logging::set_minimum_level(logging::LogLevel::trace);
-    logging::set_file_minimum_level(state.loggingLevel);
-    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
-    logging::info("app", "Entered interactive shell");
-    bool keypadRedrawRequested = true;
-
-    const auto draw_current_shell = [&]() {
-      const std::vector<logging::LogEntry> retainedEntries = logging::snapshot(logging::LogLevel::info);
-      if (const auto viewModel = build_shell_view_model(state, retainedEntries); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache, &keypadModalLayoutCache)) {
-        keypadRedrawRequested = false;
-        return true;
-      }
-
-      report_shell_failure("render", std::string("Shell render failed: ") + SDL_GetError());
-      running = false;
-      state.shouldExit = true;
-      return false;
-    };
-
-    const auto process_command = [&](input::UiCommand command) {  // NOSONAR(cpp:S1188) inline command pipeline keeps one-frame side effects adjacent to the shell loop
-      if (command == input::UiCommand::none) {
-        return;
-      }
-
-      keypadRedrawRequested = true;
-
-      const app::ScreenId previousScreen = state.activeScreen;
-      const app::AppUpdate update = app::handle_command(state, command);
-      logging::set_file_minimum_level(state.loggingLevel);
-      logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
-      log_app_update(state, update);
-      show_log_file_if_requested(state, update);
-      cancel_pairing_if_requested(state, update, &pairingTask);
-      test_host_connection_if_requested(state, update);
-      browse_host_apps_if_requested(state, update);
-      pair_host_if_requested(state, update, &pairingTask);
-      delete_host_data_if_requested(state, update, &coverArtTextureCache);
-      delete_saved_file_if_requested(state, update, &coverArtTextureCache);
-      factory_reset_if_requested(state, update, &coverArtTextureCache);
-      refresh_saved_files_if_needed(state);
-      persist_settings_if_needed(state, update);
-      persist_hosts_if_needed(state, update);
-
-      if (previousScreen != state.activeScreen) {
-        release_page_resources_for_screen(previousScreen, state.activeScreen, &coverArtTextureCache, &keypadModalLayoutCache);
-        ensure_hosts_loaded_for_active_screen(state);
-      }
-      if ((previousScreen != state.activeScreen || update.screenChanged) && !draw_current_shell()) {
-        return;
-      }
-      if (state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
-        clear_keypad_modal_layout_cache(&keypadModalLayoutCache);
-      }
-    };
-
-    while (running && !state.shouldExit) {
-      ensure_hosts_loaded_for_active_screen(state);
-      finish_pairing_task_if_ready(state, &pairingTask);
-      finish_app_list_task_if_ready(state, &appListTask);
-      finish_app_art_task_if_ready(state, &appArtTask, &coverArtTextureCache);
-      finish_host_probe_task_if_ready(state, &hostProbeTask);
-      refresh_saved_files_if_needed(state);
-      start_host_probe_task_if_needed(state, &hostProbeTask, SDL_GetTicks(), &nextHostProbeTick);
-      start_app_list_task_if_needed(state, &appListTask, SDL_GetTicks());
-      start_app_art_task_if_needed(state, &appArtTask);
-
-      update_exit_combo_hold(state, &inputState);
-      process_log_viewer_repeat_commands(state, SDL_GetTicks(), &inputState, process_command);
-
-      bool skipPolledControllerNavigation = false;
-      process_polled_shell_events(state, &controller, &inputState, process_command, &skipPolledControllerNavigation);
-      process_controller_navigation(controller, &inputState, skipPolledControllerNavigation, process_command);
-
-      finish_pairing_task_if_ready(state, &pairingTask);
-      finish_app_list_task_if_ready(state, &appListTask);
-      finish_app_art_task_if_ready(state, &appArtTask, &coverArtTextureCache);
-      finish_host_probe_task_if_ready(state, &hostProbeTask);
-      const Uint32 backgroundTaskTick = SDL_GetTicks();
-      start_host_probe_task_if_needed(state, &hostProbeTask, backgroundTaskTick, &nextHostProbeTick);
-      start_app_list_task_if_needed(state, &appListTask, backgroundTaskTick);
-      start_app_art_task_if_needed(state, &appArtTask);
-
-      if ((state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || keypadRedrawRequested) && !draw_current_shell()) {
+    while (runtime.running && !state.shouldExit) {
+      if (!run_shell_frame(videoMode, state, &resources, &runtime)) {
         break;
       }
     }
 
-    if (pairingTask.activeAttempt != nullptr) {
-      pairingTask.activeAttempt->discardResult.store(true);
-      finalize_pairing_attempt(nullptr, std::move(pairingTask.activeAttempt));
-    }
-    while (!pairingTask.retiredAttempts.empty()) {
-      std::unique_ptr<PairingAttemptState> attempt = std::move(pairingTask.retiredAttempts.back());
-      pairingTask.retiredAttempts.pop_back();
-      if (attempt != nullptr) {
-        attempt->discardResult.store(true);
-      }
-      finalize_pairing_attempt(nullptr, std::move(attempt));
-    }
-    if (appListTask.thread != nullptr) {
-      int threadResult = 0;
-      SDL_WaitThread(appListTask.thread, &threadResult);
-      (void) threadResult;
-    }
-    if (appArtTask.thread != nullptr) {
-      int threadResult = 0;
-      SDL_WaitThread(appArtTask.thread, &threadResult);
-      (void) threadResult;
-    }
-    for (const std::unique_ptr<HostProbeTaskState::ProbeWorkerState> &worker : hostProbeTask.workers) {
-      if (worker == nullptr || worker->thread == nullptr) {
-        continue;
-      }
-
-      int threadResult = 0;
-      SDL_WaitThread(worker->thread, &threadResult);
-      (void) threadResult;
-    }
-
-    close_controller(controller);
-    clear_cover_art_texture_cache(&coverArtTextureCache);
-    clear_asset_texture_cache(&assetTextureCache);
-    clear_keypad_modal_layout_cache(&keypadModalLayoutCache);
-    destroy_texture(titleLogoTexture);
-    TTF_CloseFont(smallFont);
-    TTF_CloseFont(bodyFont);
-    TTF_CloseFont(titleFont);
-    SDL_DestroyRenderer(renderer);
-    IMG_Quit();
-    TTF_Quit();
+    finalize_shell_tasks(&runtime);
+    close_shell_resources(&resources);
     return 0;
   }
 
