@@ -23,8 +23,8 @@
 // local includes
 #include "src/app/settings_storage.h"
 #include "src/input/navigation_input.h"
-#include "src/logging/global_logger.h"
 #include "src/logging/log_file.h"
+#include "src/logging/logger.h"
 #include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 #include "src/os.h"
@@ -134,8 +134,8 @@ namespace {
   }
 
   int report_shell_failure(const char *category, const std::string &message) {
-    logging::logger.error(category, message);
-    logging::logger.warn(category, "Holding the failure screen for 5 seconds before exit.");
+    logging::error(category, message);
+    logging::warn(category, "Holding the failure screen for 5 seconds before exit.");
     Sleep(5000);
     return 1;
   }
@@ -1848,16 +1848,16 @@ namespace {
 
   void log_app_update(const app::ClientState &state, const app::AppUpdate &update) {
     if (!update.activatedItemId.empty()) {
-      logging::logger.info("ui", "Activated menu item: " + update.activatedItemId);
+      logging::info("ui", "Activated menu item: " + update.activatedItemId);
     }
     if (update.screenChanged) {
-      logging::logger.info("ui", std::string("Switched screen to ") + app::to_string(state.activeScreen));
+      logging::info("ui", std::string("Switched screen to ") + app::to_string(state.activeScreen));
     }
     if (update.overlayVisibilityChanged) {
-      logging::logger.info("overlay", state.overlayVisible ? "Overlay enabled" : "Overlay disabled");
+      logging::info("overlay", state.overlayVisible ? "Overlay enabled" : "Overlay disabled");
     }
     if (update.exitRequested) {
-      logging::logger.info("app", "Exit requested from shell");
+      logging::info("app", "Exit requested from shell");
     }
   }
 
@@ -1902,7 +1902,7 @@ namespace {
 
     const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
     for (const std::string &warning : loadedHosts.warnings) {
-      logging::logger.warn("hosts", warning);
+      logging::warn("hosts", warning);
     }
     app::replace_hosts(state, loadedHosts.hosts, state.statusMessage);
     return true;
@@ -1915,7 +1915,7 @@ namespace {
     } else if (state.activeHostLoaded) {
       const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
       for (const std::string &warning : loadedHosts.warnings) {
-        logging::logger.warn("hosts", warning);
+        logging::warn("hosts", warning);
       }
       hostsToSave = loadedHosts.hosts;
       if (app::HostRecord *host = find_persisted_host_record(hostsToSave, state.activeHost.address, state.activeHost.port); host != nullptr) {
@@ -1930,11 +1930,11 @@ namespace {
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hostsToSave);
     if (saveResult.success) {
       state.hostsDirty = false;
-      logging::logger.info("hosts", "Saved host records");
+      logging::info("hosts", "Saved host records");
       return true;
     }
 
-    logging::logger.error("hosts", saveResult.errorMessage);
+    logging::error("hosts", saveResult.errorMessage);
     return false;
   }
 
@@ -1962,11 +1962,11 @@ namespace {
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(persistent_settings_from_state(state));
     if (saveResult.success) {
       state.settingsDirty = false;
-      logging::logger.info("settings", "Saved Moonlight settings");
+      logging::info("settings", "Saved Moonlight settings");
       return;
     }
 
-    logging::logger.error("settings", saveResult.errorMessage);
+    logging::error("settings", saveResult.errorMessage);
   }
 
   void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {  // NOSONAR(cpp:S3776) host metadata updates intentionally stay grouped with pairing-state transitions
@@ -2067,7 +2067,7 @@ namespace {
 
     const startup::ListSavedFilesResult savedFiles = startup::list_saved_files();
     for (const std::string &warning : savedFiles.warnings) {
-      logging::logger.warn("storage", warning);
+      logging::warn("storage", warning);
     }
     app::replace_saved_files(state, savedFiles.files);
   }
@@ -2088,7 +2088,7 @@ namespace {
 
     if (std::string errorMessage; !startup::delete_saved_file(update.savedFileDeletePath, &errorMessage)) {
       state.statusMessage = errorMessage;
-      logging::logger.warn("storage", errorMessage);
+      logging::warn("storage", errorMessage);
       return;
     }
 
@@ -2098,7 +2098,7 @@ namespace {
     clear_cover_art_texture(coverArtTextureCache, deletedCoverArtCacheKey);
     state.savedFilesDirty = true;
     state.statusMessage = "Deleted saved file " + deletedDisplayName;
-    logging::logger.info("storage", state.statusMessage);
+    logging::info("storage", state.statusMessage);
   }
 
   void delete_host_data_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
@@ -2109,7 +2109,7 @@ namespace {
     std::size_t deletedCoverArtCount = 0U;
     for (const std::string &cacheKey : update.deletedHostCoverArtCacheKeys) {
       if (std::string errorMessage; !startup::delete_cover_art(cacheKey, &errorMessage)) {
-        logging::logger.warn("storage", errorMessage);
+        logging::warn("storage", errorMessage);
       } else {
         ++deletedCoverArtCount;
       }
@@ -2124,12 +2124,12 @@ namespace {
       if (!pairedHostsRemain) {
         std::string errorMessage;
         if (!startup::delete_client_identity(&errorMessage)) {
-          logging::logger.warn("storage", errorMessage);
+          logging::warn("storage", errorMessage);
         } else {
           deletedClientIdentity = true;
         }
       } else {
-        logging::logger.info("storage", "Retained the shared pairing identity because other paired hosts still exist");
+        logging::info("storage", "Retained the shared pairing identity because other paired hosts still exist");
       }
     }
 
@@ -2140,7 +2140,7 @@ namespace {
     if (deletedClientIdentity) {
       state.statusMessage += " and reset local pairing identity";
     }
-    logging::logger.info("storage", state.statusMessage);
+    logging::info("storage", state.statusMessage);
   }
 
   void factory_reset_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
@@ -2150,7 +2150,7 @@ namespace {
 
     if (std::string errorMessage; !startup::delete_all_saved_files(&errorMessage)) {
       state.statusMessage = errorMessage;
-      logging::logger.warn("storage", errorMessage);
+      logging::warn("storage", errorMessage);
       return;
     }
 
@@ -2161,7 +2161,7 @@ namespace {
     state.statusMessage = "Factory reset completed";
     clear_cover_art_texture_cache(coverArtTextureCache);
     app::set_log_file_path(state, logging::default_log_file_path());
-    logging::logger.info("storage", state.statusMessage);
+    logging::info("storage", state.statusMessage);
   }
 
   bool try_load_saved_pairing_identity(network::PairingIdentity *identity) {
@@ -2338,11 +2338,11 @@ namespace {
     reset_pairing_attempt(attempt.get());
 
     for (const PairingAttemptState::DeferredLogEntry &entry : deferredLogs) {
-      logging::logger.log(entry.level, "pairing", entry.message);
+      logging::log(entry.level, "pairing", entry.message);
     }
 
     if (discardResult || state == nullptr) {
-      logging::logger.info("pairing", "Ignored a completed pairing result after leaving the pairing screen or starting a new attempt");
+      logging::info("pairing", "Ignored a completed pairing result after leaving the pairing screen or starting a new attempt");
       return;
     }
 
@@ -2354,7 +2354,7 @@ namespace {
       result.message
     );
 
-    logging::logger.log(result.success || result.alreadyPaired ? logging::LogLevel::info : logging::LogLevel::warning, "pairing", result.message);
+    logging::log(result.success || result.alreadyPaired ? logging::LogLevel::info : logging::LogLevel::warning, "pairing", result.message);
     if (hostsChanged) {
       persist_hosts(*state);
     }
@@ -2526,7 +2526,7 @@ namespace {
     task->activeAttempt->cancelRequested.store(true);
     retire_active_pairing_attempt(task, true);
     state.statusMessage.clear();
-    logging::logger.info("pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
+    logging::info("pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
   }
 
   void test_host_connection_if_requested(app::ClientState &state, const app::AppUpdate &update) {
@@ -2539,7 +2539,7 @@ namespace {
 
     if (address.empty()) {
       app::apply_connection_test_result(state, false, "Connection test failed because the host address is invalid");
-      logging::logger.warn("hosts", state.statusMessage);
+      logging::warn("hosts", state.statusMessage);
       return;
     }
 
@@ -2561,7 +2561,7 @@ namespace {
       }
     }
     app::apply_connection_test_result(state, success, resultMessage);
-    logging::logger.log(success ? logging::LogLevel::info : logging::LogLevel::warning, "hosts", resultMessage);
+    logging::log(success ? logging::LogLevel::info : logging::LogLevel::warning, "hosts", resultMessage);
     if (state.hostsDirty) {
       persist_hosts(state);
     }
@@ -2593,7 +2593,7 @@ namespace {
         }
       }
       state.statusMessage = resultMessage;
-      logging::logger.warn("apps", resultMessage);
+      logging::warn("apps", resultMessage);
       return;
     }
 
@@ -2605,16 +2605,16 @@ namespace {
     host = app::selected_host(state);
     if (host == nullptr || host->pairingState != app::PairingState::paired) {
       state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again before opening apps.";
-      logging::logger.warn("apps", state.statusMessage);
+      logging::warn("apps", state.statusMessage);
       return;
     }
 
     if (app::begin_selected_host_app_browse(state, update.appsBrowseShowHidden)) {
-      logging::logger.info("apps", "Authorized host browse for " + host->displayName);
+      logging::info("apps", "Authorized host browse for " + host->displayName);
       return;
     }
 
-    logging::logger.warn("apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
+    logging::warn("apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
   }
 
   int run_host_probe_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2691,7 +2691,7 @@ namespace {
       return;
     }
 
-    logging::logger.debug(
+    logging::debug(
       "hosts",
       "Refreshed " + std::to_string(task->onlineCount + task->offlineCount) + " saved host(s): " + std::to_string(task->onlineCount) + " online, " + std::to_string(task->offlineCount) + " offline"
     );
@@ -2720,7 +2720,7 @@ namespace {
       worker->resultQueue = &task->resultQueue;
       worker->thread = SDL_CreateThread(run_host_probe_task, "probe-saved-host", worker.get());
       if (worker->thread == nullptr) {
-        logging::logger.error("hosts", "Failed to start the saved-host refresh worker for " + host.address + ": " + SDL_GetError());
+        logging::error("hosts", "Failed to start the saved-host refresh worker for " + host.address + ": " + SDL_GetError());
         ui::skip_host_probe_result_target(&task->resultQueue);
         continue;
       }
@@ -2746,7 +2746,7 @@ namespace {
 
     if (pairing_task_is_active(*task)) {
       retire_active_pairing_attempt(task, true);
-      logging::logger.info("pairing", "Discarded the previous background pairing attempt and started a fresh one");
+      logging::info("pairing", "Discarded the previous background pairing attempt and started a fresh one");
     }
 
     std::string reachabilityMessage;
@@ -2768,7 +2768,7 @@ namespace {
       state.pairingDraft.generatedPin.clear();
       state.pairingDraft.statusMessage = reachabilityMessage.empty() ? "The host could not be reached for pairing." : reachabilityMessage;
       state.statusMessage = state.pairingDraft.statusMessage;
-      logging::logger.warn("pairing", state.pairingDraft.statusMessage);
+      logging::warn("pairing", state.pairingDraft.statusMessage);
       return;
     }
 
@@ -2793,7 +2793,7 @@ namespace {
       const std::string createThreadError = std::string("Failed to start the background pairing task: ") + SDL_GetError();
       app::apply_pairing_result(state, update.pairingAddress, update.pairingPort, false, createThreadError);
       state.pairingDraft.generatedPin.clear();
-      logging::logger.error("pairing", createThreadError);
+      logging::error("pairing", createThreadError);
       return;
     }
 
@@ -2802,7 +2802,7 @@ namespace {
     state.pairingDraft.stage = app::PairingStage::in_progress;
     state.pairingDraft.statusMessage = "The host is reachable. Enter the code shown below on the host and keep this screen open for the result.";
     state.statusMessage.clear();
-    logging::logger.info("pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
+    logging::info("pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
   }
 
   int run_app_list_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2881,7 +2881,7 @@ namespace {
 
     if (success) {
       app::apply_app_list_result(state, address, port, std::move(apps), appListContentHash, true, message);
-      logging::logger.info("apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
+      logging::info("apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
       if (state.hostsDirty) {
         persist_hosts(state);
       }
@@ -2889,7 +2889,7 @@ namespace {
     }
 
     app::apply_app_list_result(state, address, port, {}, 0, false, message);
-    logging::logger.warn("apps", message);
+    logging::warn("apps", message);
   }
 
   void start_app_list_task_if_needed(app::ClientState &state, AppListTaskState *task, Uint32 now) {
@@ -2921,7 +2921,7 @@ namespace {
     task->thread = SDL_CreateThread(run_app_list_task, "fetch-app-list", task);
     if (task->thread == nullptr) {
       const std::string errorMessage = std::string("Failed to start the app-list fetch task: ") + SDL_GetError();
-      logging::logger.error("apps", errorMessage);
+      logging::error("apps", errorMessage);
       if (state.activeHostLoaded) {
         state.activeHost.appListState = app::HostAppListState::failed;
         state.activeHost.appListStatusMessage = errorMessage;
@@ -2998,10 +2998,10 @@ namespace {
     }
 
     if (!cachedAppIds.empty()) {
-      logging::logger.info("apps", "Cached cover art for " + std::to_string(cachedAppIds.size()) + " app(s)");
+      logging::info("apps", "Cached cover art for " + std::to_string(cachedAppIds.size()) + " app(s)");
     }
     if (failureCount > 0U) {
-      logging::logger.warn("apps", std::to_string(failureCount) + " app artwork request(s) fell back to placeholders");
+      logging::warn("apps", std::to_string(failureCount) + " app artwork request(s) fell back to placeholders");
     }
   }
 
@@ -3028,7 +3028,7 @@ namespace {
     task->apps = host->apps;
     task->thread = SDL_CreateThread(run_app_art_task, "fetch-app-art", task);
     if (task->thread == nullptr) {
-      logging::logger.error("apps", std::string("Failed to start the cover-art fetch task: ") + SDL_GetError());
+      logging::error("apps", std::string("Failed to start the cover-art fetch task: ") + SDL_GetError());
       reset_app_art_task(task);
     }
   }
@@ -3043,7 +3043,7 @@ namespace {
     app::set_log_file_path(state, loadedLog.filePath);
     if (!loadedLog.errorMessage.empty()) {
       app::apply_log_viewer_contents(state, {loadedLog.errorMessage}, loadedLog.errorMessage);
-      logging::logger.warn("logging", loadedLog.errorMessage);
+      logging::warn("logging", loadedLog.errorMessage);
       return;
     }
 
@@ -3056,7 +3056,7 @@ namespace {
 
     const std::string statusMessage = loadedLog.fileFound ? "Loaded recent log file lines" : "No log file has been written yet";
     app::apply_log_viewer_contents(state, std::move(lines), statusMessage);
-    logging::logger.info("logging", statusMessage + ": " + loadedLog.filePath);
+    logging::info("logging", statusMessage + ": " + loadedLog.filePath);
   }
 
   bool draw_shell(  // NOSONAR(cpp:S3776,cpp:S107) one-frame shell rendering is intentionally centralized to keep layout and failure handling consistent
@@ -3588,7 +3588,6 @@ namespace ui {
     const VIDEO_MODE &videoMode,
     app::ClientState &state
   ) {
-    logging::Logger *logger = logging::global_logger();
     if (window == nullptr) {
       return report_shell_failure("sdl", "Shell requires a valid SDL window");
     }
@@ -3639,7 +3638,7 @@ namespace ui {
       if (SDL_IsGameController(joystickIndex)) {
         controller = SDL_GameControllerOpen(joystickIndex);
         if (controller != nullptr) {
-          logging::logger.info("input", "Opened primary controller");
+          logging::info("input", "Opened primary controller");
           break;
         }
       }
@@ -3678,16 +3677,14 @@ namespace ui {
     reset_app_list_task(&appListTask);
     reset_app_art_task(&appArtTask);
     reset_host_probe_task(&hostProbeTask);
-    if (logger != nullptr) {
-      logger->set_minimum_level(logging::LogLevel::trace);
-      logger->set_file_minimum_level(state.loggingLevel);
-      logger->set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
-    }
-    logging::logger.info("app", "Entered interactive shell");
+    logging::set_minimum_level(logging::LogLevel::trace);
+    logging::set_file_minimum_level(state.loggingLevel);
+    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    logging::info("app", "Entered interactive shell");
     bool keypadRedrawRequested = true;
 
     const auto draw_current_shell = [&]() {
-      const std::vector<logging::LogEntry> retainedEntries = logger == nullptr ? std::vector<logging::LogEntry> {} : logger->snapshot(logging::LogLevel::info);
+      const std::vector<logging::LogEntry> retainedEntries = logging::snapshot(logging::LogLevel::info);
       if (const auto viewModel = build_shell_view_model(state, retainedEntries); draw_shell(renderer, videoMode, encoderSettings, titleLogoTexture, titleFont, bodyFont, smallFont, viewModel, &coverArtTextureCache, &assetTextureCache, &keypadModalLayoutCache)) {
         keypadRedrawRequested = false;
         return true;
@@ -3708,10 +3705,8 @@ namespace ui {
 
       const app::ScreenId previousScreen = state.activeScreen;
       const app::AppUpdate update = app::handle_command(state, command);
-      if (logger != nullptr) {
-        logger->set_file_minimum_level(state.loggingLevel);
-        logger->set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
-      }
+      logging::set_file_minimum_level(state.loggingLevel);
+      logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
       log_app_update(state, update);
       show_log_file_if_requested(state, update);
       cancel_pairing_if_requested(state, update, &pairingTask);
@@ -3756,7 +3751,7 @@ namespace ui {
         if (SDL_GetTicks() - comboStartTick >= EXIT_COMBO_HOLD_MILLISECONDS) {
           controllerExitComboTriggered = true;
           state.shouldExit = true;
-          logging::logger.info("app", "Exit requested from held Start+Back on the hosts screen");
+          logging::info("app", "Exit requested from held Start+Back on the hosts screen");
         }
       }
 
@@ -3794,7 +3789,7 @@ namespace ui {
               if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
                 controller = SDL_GameControllerOpen(event.cdevice.which);
                 if (controller != nullptr) {
-                  logging::logger.info("input", "Controller connected");
+                  logging::info("input", "Controller connected");
                 }
               }
               break;
@@ -3812,7 +3807,7 @@ namespace ui {
                 controllerExitComboTriggered = false;
                 controllerNavigationNeutralRequired = false;
                 reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-                logging::logger.warn("input", "Controller disconnected");
+                logging::warn("input", "Controller disconnected");
               }
               break;
             case SDL_CONTROLLERBUTTONDOWN:

@@ -6,6 +6,7 @@
 #include <deque>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace logging {
@@ -93,6 +94,8 @@ namespace logging {
    */
   using TimestampProvider = std::function<LogTimestamp()>;
 
+  class Logger;
+
   /**
    * @brief Return the display label for a log level.
    *
@@ -124,6 +127,157 @@ namespace logging {
    * @return A formatted log line.
    */
   std::string format_entry(const LogEntry &entry);
+
+  /**
+   * @brief Register the process-wide logger used by convenience logging helpers.
+   *
+   * @param logger Logger instance to expose globally, or nullptr to clear it.
+   */
+  void set_global_logger(Logger *logger);
+
+  /**
+   * @brief Return whether a global logger is currently available.
+   *
+   * @return true when the convenience logging helpers can emit entries.
+   */
+  [[nodiscard]] bool has_global_logger();
+
+  /**
+   * @brief Record a structured entry through the registered global logger.
+   *
+   * @param level Severity for the entry.
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool log(LogLevel level, std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Record a trace entry through the registered global logger.
+   *
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool trace(std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Record a debug entry through the registered global logger.
+   *
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool debug(std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Record an info entry through the registered global logger.
+   *
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool info(std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Record a warning entry through the registered global logger.
+   *
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool warn(std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Record an error entry through the registered global logger.
+   *
+   * @param category Subsystem name such as ui or streaming.
+   * @param message User-visible message text.
+   * @param location Source location for the entry.
+   * @return true if the entry was accepted by the registered logger.
+   */
+  bool error(std::string category, std::string message, LogSourceLocation location = LogSourceLocation::current());
+
+  /**
+   * @brief Update the retained in-memory minimum level on the registered global logger.
+   *
+   * @param minimumLevel Entries below this level are not kept in memory.
+   */
+  void set_minimum_level(LogLevel minimumLevel);
+
+  /**
+   * @brief Install or replace the runtime file sink on the registered global logger.
+   *
+   * @param sink Callback invoked for entries accepted by the file minimum level.
+   */
+  void set_file_sink(LogSink sink);
+
+  /**
+   * @brief Update the runtime file sink minimum level on the registered global logger.
+   *
+   * @param minimumLevel Entries below this level are not mirrored to the file sink.
+   */
+  void set_file_minimum_level(LogLevel minimumLevel);
+
+  /**
+   * @brief Update the debugger-console minimum level on the registered global logger.
+   *
+   * @param minimumLevel Entries below this level are not mirrored to DbgPrint().
+   */
+  void set_debugger_console_minimum_level(LogLevel minimumLevel);
+
+  /**
+   * @brief Enable or disable startup debug mirroring on the registered global logger.
+   *
+   * @param enabled True to mirror future entries to the pre-splash startup console.
+   */
+  void set_startup_debug_enabled(bool enabled);
+
+  /**
+   * @brief Return a filtered snapshot from the registered global logger.
+   *
+   * @param minimumLevel Minimum level to include in the returned snapshot.
+   * @return Filtered retained entries, or an empty vector when no logger is registered.
+   */
+  [[nodiscard]] std::vector<LogEntry> snapshot(LogLevel minimumLevel = LogLevel::trace);
+
+  /**
+   * @brief Format one startup console line without timestamps or source locations.
+   *
+   * @param level Structured log level to display.
+   * @param category Short subsystem category such as startup or sdl.
+   * @param message Human-readable console text.
+   * @return Formatted startup console line without a trailing newline.
+   */
+  [[nodiscard]] std::string format_startup_console_line(LogLevel level, std::string_view category, std::string_view message);
+
+  /**
+   * @brief Enable or disable startup console output.
+   *
+   * @param enabled True to allow future startup console writes.
+   */
+  void set_startup_console_enabled(bool enabled);
+
+  /**
+   * @brief Return whether startup console output is currently enabled.
+   *
+   * @return true when pre-splash console lines should still be emitted.
+   */
+  [[nodiscard]] bool startup_console_enabled();
+
+  /**
+   * @brief Print one startup console line when output is enabled.
+   *
+   * @param level Structured log level to display.
+   * @param category Short subsystem category such as startup or sdl.
+   * @param message Human-readable console text.
+   */
+  void print_startup_console_line(LogLevel level, std::string_view category, std::string_view message);
 
   /**
    * @brief Small in-memory logger with a ring buffer and optional sinks.

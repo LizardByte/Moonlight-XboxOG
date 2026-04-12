@@ -14,16 +14,25 @@
 #endif
 
 #if defined(NXDK)
+  #include <hal/debug.h>
   #include <xboxkrnl/xboxkrnl.h>
 #endif
 
-// local includes
-#include "src/logging/startup_debug.h"
-
 namespace {
+
+  logging::Logger *g_globalLogger = nullptr;
+  bool g_startupConsoleEnabled = true;
 
   bool is_enabled(logging::LogLevel candidateLevel, logging::LogLevel minimumLevel) {
     return static_cast<int>(candidateLevel) >= static_cast<int>(minimumLevel);
+  }
+
+  logging::Logger *registered_logger() {
+    return g_globalLogger;
+  }
+
+  logging::LogLevel startup_console_level(logging::LogLevel level) {
+    return level == logging::LogLevel::none ? logging::LogLevel::info : level;
   }
 
   std::string normalized_source_path(const char *filePath) {
@@ -177,6 +186,113 @@ namespace logging {
     return line;
   }
 
+  void set_global_logger(Logger *logger) {
+    g_globalLogger = logger;
+  }
+
+  bool has_global_logger() {
+    return registered_logger() != nullptr;
+  }
+
+  bool log(LogLevel level, std::string category, std::string message, LogSourceLocation location) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      return logger->log(level, std::move(category), std::move(message), location);
+    }
+
+    return false;
+  }
+
+  bool trace(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::trace, std::move(category), std::move(message), location);
+  }
+
+  bool debug(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::debug, std::move(category), std::move(message), location);
+  }
+
+  bool info(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::info, std::move(category), std::move(message), location);
+  }
+
+  bool warn(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::warning, std::move(category), std::move(message), location);
+  }
+
+  bool error(std::string category, std::string message, LogSourceLocation location) {
+    return log(LogLevel::error, std::move(category), std::move(message), location);
+  }
+
+  void set_minimum_level(LogLevel minimumLevel) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      logger->set_minimum_level(minimumLevel);
+    }
+  }
+
+  void set_file_sink(LogSink sink) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      logger->set_file_sink(std::move(sink));
+    }
+  }
+
+  void set_file_minimum_level(LogLevel minimumLevel) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      logger->set_file_minimum_level(minimumLevel);
+    }
+  }
+
+  void set_debugger_console_minimum_level(LogLevel minimumLevel) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      logger->set_debugger_console_minimum_level(minimumLevel);
+    }
+  }
+
+  void set_startup_debug_enabled(bool enabled) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      logger->set_startup_debug_enabled(enabled);
+    }
+  }
+
+  std::vector<LogEntry> snapshot(LogLevel minimumLevel) {
+    if (Logger *logger = registered_logger(); logger != nullptr) {
+      return logger->snapshot(minimumLevel);
+    }
+
+    return {};
+  }
+
+  std::string format_startup_console_line(LogLevel level, std::string_view category, std::string_view message) {
+    std::string line = std::string("[") + to_string(startup_console_level(level)) + "] ";
+    if (!category.empty()) {
+      line.append(category.data(), category.size());
+      line.append(": ");
+    }
+    line.append(message.data(), message.size());
+    return line;
+  }
+
+  void set_startup_console_enabled(bool enabled) {
+    g_startupConsoleEnabled = enabled;
+  }
+
+  bool startup_console_enabled() {
+    return g_startupConsoleEnabled;
+  }
+
+  void print_startup_console_line(LogLevel level, std::string_view category, std::string_view message) {
+    if (!startup_console_enabled()) {
+      return;
+    }
+
+#if defined(NXDK)
+    const std::string line = format_startup_console_line(level, category, message);
+    debugPrint("%s\n", line.c_str());
+#else
+    (void) level;
+    (void) category;
+    (void) message;
+#endif
+  }
+
   Logger::Logger(std::size_t capacity, TimestampProvider timestampProvider):
       capacity_(capacity == 0 ? 1 : capacity),
       timestampProvider_(timestampProvider ? std::move(timestampProvider) : TimestampProvider(current_local_timestamp)) {}
@@ -268,7 +384,7 @@ namespace logging {
     }
 
     if (startupDebugEnabled_) {
-      print_startup_log(entry.level, entry.category, entry.message);
+      print_startup_console_line(entry.level, entry.category, entry.message);
     }
     if (fileSink_ && is_enabled(level, fileMinimumLevel_)) {
       fileSink_(entry);

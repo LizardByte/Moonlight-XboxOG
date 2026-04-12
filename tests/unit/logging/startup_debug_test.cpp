@@ -1,5 +1,5 @@
 // test header include
-#include "src/logging/startup_debug.h"
+#include "src/logging/logger.h"
 
 // lib includes
 #include <gtest/gtest.h>
@@ -7,12 +7,13 @@
 namespace {
 
   TEST(StartupDebugTest, FormatsStructuredStartupConsoleLines) {
-    EXPECT_STREQ(logging::startup_status_block(logging::StartupConsoleStyle::pending), "[START ]");
-    EXPECT_STREQ(logging::startup_status_block(logging::StartupConsoleStyle::trace), "[TRACE ]");
-    EXPECT_STREQ(logging::startup_status_block(logging::StartupConsoleStyle::error), "[ERROR ]");
     EXPECT_EQ(
-      logging::format_startup_console_line(logging::StartupConsoleStyle::warning, "network", "Runtime networking is unavailable"),
-      "[ WARN ] network: Runtime networking is unavailable"
+      logging::format_startup_console_line(logging::LogLevel::warning, "network", "Runtime networking is unavailable"),
+      "[WARN] network: Runtime networking is unavailable"
+    );
+    EXPECT_EQ(
+      logging::format_startup_console_line(logging::LogLevel::info, "memory", "Total physical memory: 64 MiB (16384 pages)"),
+      "[INFO] memory: Total physical memory: 64 MiB (16384 pages)"
     );
   }
 

@@ -14,7 +14,7 @@
 #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // local includes
-#include "src/logging/global_logger.h"
+#include "src/logging/logger.h"
 #include "src/os.h"
 #include "src/splash/splash_layout.h"
 
@@ -25,15 +25,15 @@ namespace {
   constexpr Uint8 SPLASH_BACKGROUND_BLUE = 0x64;
 
   void printSDLErrorAndReboot() {
-    logging::logger.error("splash", std::string("SDL error: ") + SDL_GetError());
-    logging::logger.warn("splash", "Rebooting in 5 seconds.");
+    logging::error("splash", std::string("SDL error: ") + SDL_GetError());
+    logging::warn("splash", "Rebooting in 5 seconds.");
     Sleep(5000);
     XReboot();
   }
 
   void printIMGErrorAndReboot() {
-    logging::logger.error("splash", std::string("SDL_image error: ") + IMG_GetError());
-    logging::logger.warn("splash", "Rebooting in 5 seconds.");
+    logging::error("splash", std::string("SDL_image error: ") + IMG_GetError());
+    logging::warn("splash", "Rebooting in 5 seconds.");
     Sleep(5000);
     XReboot();
   }
@@ -139,20 +139,20 @@ namespace {
     const SDL_Rect targetDestination = calculateLogoDestination(screenSurface, sourceSurface->w, sourceSurface->h, videoMode);
     SDL_Surface *scaledSurface = SDL_CreateRGBSurfaceWithFormat(0, targetDestination.w, targetDestination.h, 32, SDL_PIXELFORMAT_ARGB8888);
     if (scaledSurface == nullptr) {
-      logging::logger.error("splash", std::string("Failed to create scaled splash asset surface: ") + SDL_GetError());
+      logging::error("splash", std::string("Failed to create scaled splash asset surface: ") + SDL_GetError());
       SDL_FreeSurface(sourceSurface);
       return nullptr;
     }
 
     if (SDL_LockSurface(sourceSurface) < 0) {
-      logging::logger.error("splash", std::string("Failed to lock source splash asset surface: ") + SDL_GetError());
+      logging::error("splash", std::string("Failed to lock source splash asset surface: ") + SDL_GetError());
       SDL_FreeSurface(sourceSurface);
       SDL_FreeSurface(scaledSurface);
       return nullptr;
     }
 
     if (SDL_LockSurface(scaledSurface) < 0) {
-      logging::logger.error("splash", std::string("Failed to lock scaled splash asset surface: ") + SDL_GetError());
+      logging::error("splash", std::string("Failed to lock scaled splash asset surface: ") + SDL_GetError());
       SDL_UnlockSurface(sourceSurface);
       SDL_FreeSurface(sourceSurface);
       SDL_FreeSurface(scaledSurface);
@@ -172,7 +172,7 @@ namespace {
     SDL_FreeSurface(sourceSurface);
 
     if (SDL_SetSurfaceBlendMode(scaledSurface, SDL_BLENDMODE_BLEND) < 0) {
-      logging::logger.error("splash", std::string("Failed to enable alpha blending for scaled splash asset: ") + SDL_GetError());
+      logging::error("splash", std::string("Failed to enable alpha blending for scaled splash asset: ") + SDL_GetError());
       SDL_FreeSurface(scaledSurface);
       return nullptr;
     }
@@ -187,7 +187,7 @@ namespace {
 
     SDL_Surface *normalizedSurface = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ARGB8888, 0);
     if (normalizedSurface == nullptr) {
-      logging::logger.error(
+      logging::error(
         "splash",
         std::string("Failed to normalize splash asset surface format ") + SDL_GetPixelFormatName(surface->format->format) + ": " + SDL_GetError()
       );
@@ -198,7 +198,7 @@ namespace {
     SDL_FreeSurface(surface);
 
     if (SDL_SetSurfaceBlendMode(normalizedSurface, SDL_BLENDMODE_BLEND) < 0) {
-      logging::logger.error("splash", std::string("Failed to enable alpha blending for splash asset: ") + SDL_GetError());
+      logging::error("splash", std::string("Failed to enable alpha blending for splash asset: ") + SDL_GetError());
       SDL_FreeSurface(normalizedSurface);
       return nullptr;
     }
@@ -213,10 +213,10 @@ namespace {
         return normalizedSurface;
       }
 
-      logging::logger.error("splash", "Failed to prepare splash asset " + assetPath + " for rendering.");
+      logging::error("splash", "Failed to prepare splash asset " + assetPath + " for rendering.");
     }
 
-    logging::logger.error("splash", "Failed to load splash asset " + assetPath + ": " + IMG_GetError());
+    logging::error("splash", "Failed to load splash asset " + assetPath + ": " + IMG_GetError());
 
     return nullptr;
   }

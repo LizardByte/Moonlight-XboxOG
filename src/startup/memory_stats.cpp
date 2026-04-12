@@ -2,7 +2,7 @@
 #include "src/startup/memory_stats.h"
 
 // local includes
-#include "src/logging/global_logger.h"
+#include "src/logging/logger.h"
 
 // nxdk includes
 #include <xboxkrnl/xboxkrnl.h>
@@ -38,7 +38,7 @@ namespace startup {
 
   void log_memory_statistics() {
     for (const std::string &line : format_memory_statistics_lines()) {
-      logging::logger.info("memory", line);
+      logging::info("memory", line);
     }
   }
 

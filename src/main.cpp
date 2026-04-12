@@ -13,10 +13,8 @@
 // local includes
 #include "src/app/client_state.h"
 #include "src/app/settings_storage.h"
-#include "src/logging/global_logger.h"
 #include "src/logging/log_file.h"
 #include "src/logging/logger.h"
-#include "src/logging/startup_debug.h"
 #include "src/network/runtime_network.h"
 #include "src/splash/splash_screen.h"
 #include "src/startup/host_storage.h"
@@ -45,31 +43,31 @@ namespace {
     apply_persisted_settings(state, loadResult.settings);
 
     for (const std::string &warning : loadResult.warnings) {
-      logging::logger.warn("settings", warning);
+      logging::warn("settings", warning);
     }
 
     if (!loadResult.fileFound) {
-      logging::logger.info("settings", "No persisted settings file found. Using defaults.");
+      logging::info("settings", "No persisted settings file found. Using defaults.");
       return;
     }
 
-    logging::logger.info("settings", "Loaded persisted Moonlight settings");
+    logging::info("settings", "Loaded persisted Moonlight settings");
     if (!loadResult.cleanupRequired) {
       return;
     }
 
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(loadResult.settings);
     if (saveResult.success) {
-      logging::logger.info("settings", "Removed obsolete settings keys from the persisted configuration");
+      logging::info("settings", "Removed obsolete settings keys from the persisted configuration");
       return;
     }
 
-    logging::logger.warn("settings", saveResult.errorMessage.empty() ? "Failed to rewrite the settings file after cleaning obsolete keys" : saveResult.errorMessage);
+    logging::warn("settings", saveResult.errorMessage.empty() ? "Failed to rewrite the settings file after cleaning obsolete keys" : saveResult.errorMessage);
   }
 
   int report_startup_failure(const char *category, const std::string &message) {
-    logging::logger.error(category, message);
-    logging::print_startup_console_line(logging::StartupConsoleStyle::warning, category, "Holding failure screen for 5 seconds before exit.");
+    logging::error(category, message);
+    logging::print_startup_console_line(logging::LogLevel::warning, category, "Holding failure screen for 5 seconds before exit.");
     Sleep(5000);
     return 1;
   }
@@ -79,17 +77,17 @@ namespace {
       return;
     }
 
-    logging::print_startup_console_line(logging::StartupConsoleStyle::info, "startup", message);
+    logging::print_startup_console_line(logging::LogLevel::info, "startup", message);
   }
 
   void debug_print_video_mode_selection(const startup::VideoModeSelection &selection) {
     logging::print_startup_console_line(
-      logging::StartupConsoleStyle::info,
+      logging::LogLevel::info,
       "video",
       "Detected " + std::to_string(selection.availableVideoModes.size()) + " video mode(s)"
     );
     for (const std::string &line : startup::format_video_mode_lines(selection)) {
-      logging::print_startup_console_line(logging::StartupConsoleStyle::info, "video", line);
+      logging::print_startup_console_line(logging::LogLevel::info, "video", line);
     }
   }
 
@@ -105,7 +103,7 @@ namespace {
       (encoderSettings & VIDEO_MODE_720P) != 0 ? "on" : "off",
       (encoderSettings & VIDEO_MODE_1080I) != 0 ? "on" : "off"
     );
-    logging::print_startup_console_line(logging::StartupConsoleStyle::info, "video", messageBuffer.data());
+    logging::print_startup_console_line(logging::LogLevel::info, "video", messageBuffer.data());
   }
 
   int run_startup_task(void *context) {
@@ -133,15 +131,15 @@ namespace {
     }
 
     for (const std::string &warning : task->loadedHosts.warnings) {
-      logging::logger.warn("hosts", warning);
+      logging::warn("hosts", warning);
     }
     if (task->loadedHosts.fileFound) {
       app::replace_hosts(clientState, task->loadedHosts.hosts, "Loaded " + std::to_string(task->loadedHosts.hosts.size()) + " saved host(s)");
-      logging::logger.info("hosts", "Loaded " + std::to_string(task->loadedHosts.hosts.size()) + " saved host record(s)");
+      logging::info("hosts", "Loaded " + std::to_string(task->loadedHosts.hosts.size()) + " saved host record(s)");
     }
 
     for (const std::string &line : network::format_runtime_network_status_lines(task->runtimeNetworkStatus)) {
-      logging::logger.log(task->runtimeNetworkStatus.ready ? logging::LogLevel::info : logging::LogLevel::warning, "network", line);
+      logging::log(task->runtimeNetworkStatus.ready ? logging::LogLevel::info : logging::LogLevel::warning, "network", line);
     }
     if (!task->runtimeNetworkStatus.ready) {
       clientState.statusMessage = task->runtimeNetworkStatus.summary;
@@ -153,12 +151,12 @@ namespace {
 int main() {
   logging::Logger logger;
   logging::set_global_logger(&logger);
-  logger.set_minimum_level(logging::LogLevel::trace);
+  logging::set_minimum_level(logging::LogLevel::trace);
 
   app::ClientState clientState = app::create_initial_state();
   load_persisted_settings(clientState);
-  logger.set_file_minimum_level(clientState.loggingLevel);
-  logger.set_debugger_console_minimum_level(clientState.xemuConsoleLoggingLevel);
+  logging::set_file_minimum_level(clientState.loggingLevel);
+  logging::set_debugger_console_minimum_level(clientState.xemuConsoleLoggingLevel);
 
   const std::string logFilePath = logging::default_log_file_path();
   logging::RuntimeLogFileSink runtimeLogFile(logFilePath);
@@ -167,17 +165,17 @@ int main() {
   std::string logFileResetError;
   if (!runtimeLogFile.reset(&logFileResetError)) {
     logging::print_startup_console_line(
-      logging::StartupConsoleStyle::warning,
+      logging::LogLevel::warning,
       "logging",
       logFileResetError.empty() ? "Failed to reset the runtime log file." : logFileResetError
     );
   }
-  logger.set_file_sink([&runtimeLogFile](const logging::LogEntry &entry) {
+  logging::set_file_sink([&runtimeLogFile](const logging::LogEntry &entry) {
     std::string ignoredError;
     runtimeLogFile.consume(entry, &ignoredError);
   });
 
-  logging::logger.info("app", std::string("Initial screen: ") + app::to_string(clientState.activeScreen));
+  logging::info("app", std::string("Initial screen: ") + app::to_string(clientState.activeScreen));
   debug_print_startup_checkpoint("Runtime logging initialized");
   debug_print_encoder_settings(XVideoGetEncoderSettings());
 
@@ -225,9 +223,9 @@ int main() {
     debug_print_startup_checkpoint("Background startup task created");
   }
 
-  logging::logger.info("app", "Showing splash screen");
+  logging::info("app", "Showing splash screen");
   debug_print_startup_checkpoint("About to show splash screen");
-  logger.set_startup_debug_enabled(false);
+  logging::set_startup_debug_enabled(false);
   logging::set_startup_console_enabled(false);
   splash::show_splash_screen(window, bestVideoMode, [&startupTask]() {
     return !startupTask.completed.load();
@@ -236,16 +234,16 @@ int main() {
   finish_startup_task(clientState, &startupTask);
   startup::log_video_modes(videoModeSelection);
 
-  logging::logger.info("app", "Starting interactive shell");
+  logging::info("app", "Starting interactive shell");
   const int exitCode = ui::run_shell(window, bestVideoMode, clientState);
 
   if (clientState.hostsDirty) {
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(clientState.hosts);
     if (saveResult.success) {
-      logging::logger.info("hosts", "Saved host records before exit");
+      logging::info("hosts", "Saved host records before exit");
       clientState.hostsDirty = false;
     } else {
-      logging::logger.error("hosts", saveResult.errorMessage);
+      logging::error("hosts", saveResult.errorMessage);
     }
   }
 

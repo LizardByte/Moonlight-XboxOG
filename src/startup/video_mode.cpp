@@ -2,7 +2,7 @@
 #include "src/startup/video_mode.h"
 
 // local includes
-#include "src/logging/global_logger.h"
+#include "src/logging/logger.h"
 
 namespace startup {
 
@@ -85,7 +85,7 @@ namespace startup {
 
   void log_video_modes(const VideoModeSelection &selection) {
     for (const std::string &line : format_video_mode_lines(selection)) {
-      logging::logger.info("video", line);
+      logging::info("video", line);
     }
   }
 

@@ -1,5 +1,4 @@
 // test header include
-#include "src/logging/global_logger.h"
 #include "src/logging/logger.h"
 
 // standard includes
@@ -97,14 +96,14 @@ namespace {
     EXPECT_EQ(logging::format_entry(localLogger.entries().front()), "[INFO] [tests/unit/logging/logger_test.cpp:" + std::to_string(expectedLine) + "] ui: opened");
   }
 
-  TEST(LoggerTest, GlobalLoggerProxyCapturesTheCallsiteLocation) {
+  TEST(LoggerTest, NamespaceLevelGlobalLoggingCapturesTheCallsiteLocation) {
     logging::Logger localLogger;
     localLogger.set_minimum_level(logging::LogLevel::info);
     localLogger.set_startup_debug_enabled(false);
     logging::set_global_logger(&localLogger);
 
     const int expectedLine = __LINE__ + 1;
-    EXPECT_TRUE(logging::logger.info("ui", "opened globally"));
+    EXPECT_TRUE(logging::info("ui", "opened globally"));
 
     ASSERT_EQ(localLogger.entries().size(), 1U);
     EXPECT_EQ(localLogger.entries().front().sourceLocation.line, expectedLine);
@@ -113,10 +112,10 @@ namespace {
     logging::set_global_logger(nullptr);
   }
 
-  TEST(LoggerTest, GlobalLoggerProxyReturnsFalseWhenNoLoggerIsRegistered) {
+  TEST(LoggerTest, NamespaceLevelGlobalLoggingReturnsFalseWhenNoLoggerIsRegistered) {
     logging::set_global_logger(nullptr);
 
-    EXPECT_FALSE(logging::logger.info("ui", "ignored"));
+    EXPECT_FALSE(logging::info("ui", "ignored"));
   }
 
   TEST(LoggerTest, DispatchesTheDedicatedRuntimeFileSinkIndependentlyFromTheRetainedBufferLevel) {
