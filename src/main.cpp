@@ -32,10 +32,10 @@ namespace {
   };
 
   void apply_persisted_settings(app::ClientState &state, const app::AppSettings &settings) {
-    state.loggingLevel = settings.loggingLevel;
-    state.xemuConsoleLoggingLevel = settings.xemuConsoleLoggingLevel;
-    state.logViewerPlacement = settings.logViewerPlacement;
-    state.settingsDirty = false;
+    state.settings.loggingLevel = settings.loggingLevel;
+    state.settings.xemuConsoleLoggingLevel = settings.xemuConsoleLoggingLevel;
+    state.settings.logViewerPlacement = settings.logViewerPlacement;
+    state.settings.dirty = false;
   }
 
   void load_persisted_settings(app::ClientState &state) {
@@ -142,7 +142,7 @@ namespace {
       logging::log(task->runtimeNetworkStatus.ready ? logging::LogLevel::info : logging::LogLevel::warning, "network", line);
     }
     if (!task->runtimeNetworkStatus.ready) {
-      clientState.statusMessage = task->runtimeNetworkStatus.summary;
+      clientState.shell.statusMessage = task->runtimeNetworkStatus.summary;
     }
   }
 
@@ -155,8 +155,8 @@ int main() {
 
   app::ClientState clientState = app::create_initial_state();
   load_persisted_settings(clientState);
-  logging::set_file_minimum_level(clientState.loggingLevel);
-  logging::set_debugger_console_minimum_level(clientState.xemuConsoleLoggingLevel);
+  logging::set_file_minimum_level(clientState.settings.loggingLevel);
+  logging::set_debugger_console_minimum_level(clientState.settings.xemuConsoleLoggingLevel);
 
   const std::string logFilePath = logging::default_log_file_path();
   logging::RuntimeLogFileSink runtimeLogFile(logFilePath);
@@ -174,7 +174,7 @@ int main() {
     runtimeLogFile.consume(entry, &ignoredError);
   });
 
-  logging::info("app", std::string("Initial screen: ") + app::to_string(clientState.activeScreen));
+  logging::info("app", std::string("Initial screen: ") + app::to_string(clientState.shell.activeScreen));
   debug_print_startup_checkpoint("Runtime logging initialized");
   debug_print_encoder_settings(XVideoGetEncoderSettings());
 
@@ -236,11 +236,11 @@ int main() {
   logging::info("app", "Starting interactive shell");
   const int exitCode = ui::run_shell(window, bestVideoMode, clientState);
 
-  if (clientState.hostsDirty) {
-    const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(clientState.hosts);
+  if (clientState.hosts.dirty) {
+    const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(clientState.hosts.items);
     if (saveResult.success) {
       logging::info("hosts", "Saved host records before exit");
-      clientState.hostsDirty = false;
+      clientState.hosts.dirty = false;
     } else {
       logging::error("hosts", saveResult.errorMessage);
     }

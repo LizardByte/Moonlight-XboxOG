@@ -858,22 +858,22 @@ namespace {
     int modalInnerWidth,
     KeypadModalLayoutCache *cache
   ) {
-    if (cache != nullptr && cache->modalInnerWidth == modalInnerWidth && cache->lines == viewModel.keypadModalLines) {
+    if (cache != nullptr && cache->modalInnerWidth == modalInnerWidth && cache->lines == viewModel.keypad.lines) {
       return cache->modalTextHeight;
     }
 
     if (cache != nullptr) {
-      if (cache->lineTextures.size() > viewModel.keypadModalLines.size()) {
-        for (std::size_t index = viewModel.keypadModalLines.size(); index < cache->lineTextures.size(); ++index) {
+      if (cache->lineTextures.size() > viewModel.keypad.lines.size()) {
+        for (std::size_t index = viewModel.keypad.lines.size(); index < cache->lineTextures.size(); ++index) {
           clear_cached_text_texture(&cache->lineTextures[index]);
         }
       }
-      cache->lineTextures.resize(viewModel.keypadModalLines.size());
+      cache->lineTextures.resize(viewModel.keypad.lines.size());
     }
 
     int modalTextHeight = 0;
-    for (std::size_t index = 0; index < viewModel.keypadModalLines.size(); ++index) {
-      const std::string &line = viewModel.keypadModalLines[index];
+    for (std::size_t index = 0; index < viewModel.keypad.lines.size(); ++index) {
+      const std::string &line = viewModel.keypad.lines[index];
       if (cache != nullptr) {
         if (!ensure_wrapped_text_texture(renderer, font, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalInnerWidth, &cache->lineTextures[index])) {
           modalTextHeight += measure_wrapped_text_height(font, line, modalInnerWidth) + 6;
@@ -889,7 +889,7 @@ namespace {
     if (cache != nullptr) {
       cache->modalInnerWidth = modalInnerWidth;
       cache->modalTextHeight = modalTextHeight;
-      cache->lines = viewModel.keypadModalLines;
+      cache->lines = viewModel.keypad.lines;
     }
 
     return modalTextHeight;
@@ -1065,7 +1065,7 @@ namespace {
     const int dockedWidth = std::max(420, (screenWidth - (outerMargin * 3)) / 2);
     const int height = screenHeight - (outerMargin * 2);
 
-    switch (viewModel.logViewerPlacement) {
+    switch (viewModel.logViewer.placement) {
       case app::LogViewerPlacement::left:
         return {outerMargin, outerMargin, dockedWidth, height};
       case app::LogViewerPlacement::right:
@@ -1084,21 +1084,21 @@ namespace {
 
   LogViewerLayout build_log_viewer_layout(const ui::ShellViewModel &viewModel, TTF_Font *font, int availableWidth, int availableHeight, std::size_t clampedOffset) {
     LogViewerLayout layout {};
-    if (viewModel.logViewerLines.empty()) {
+    if (viewModel.logViewer.lines.empty()) {
       layout.visibleLines.push_back(nullptr);
       return layout;
     }
 
     int usedHeight = 0;
-    std::size_t endIndex = viewModel.logViewerLines.size() > clampedOffset ? viewModel.logViewerLines.size() - clampedOffset : 0U;
+    std::size_t endIndex = viewModel.logViewer.lines.size() > clampedOffset ? viewModel.logViewer.lines.size() - clampedOffset : 0U;
     layout.firstVisibleIndex = endIndex;
     while (endIndex > 0U) {
-      const std::string renderedLine = truncate_text_for_render(viewModel.logViewerLines[endIndex - 1U], LOG_VIEWER_MAX_RENDER_CHARACTERS);
+      const std::string renderedLine = truncate_text_for_render(viewModel.logViewer.lines[endIndex - 1U], LOG_VIEWER_MAX_RENDER_CHARACTERS);
       const int lineHeight = measure_wrapped_text_height(font, renderedLine, std::max(1, availableWidth - 12)) + 4;
       if (!layout.visibleLines.empty() && usedHeight + lineHeight > availableHeight - 8) {
         break;
       }
-      layout.visibleLines.push_back(&viewModel.logViewerLines[endIndex - 1U]);
+      layout.visibleLines.push_back(&viewModel.logViewer.lines[endIndex - 1U]);
       usedHeight += lineHeight;
       --endIndex;
     }
@@ -1130,7 +1130,7 @@ namespace {
       }
     }
 
-    if (viewModel.logViewerScrollOffset > 0U) {
+    if (viewModel.logViewer.scrollOffset > 0U) {
       return render_text_line_simple(renderer, smallFont, "Newer lines below", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, textRect.x + 6, std::max(textRect.y + 6, textRect.y + textRect.h - TTF_FontLineSkip(smallFont) - 6), std::max(1, textRect.w - 12));
     }
     return true;
@@ -1172,12 +1172,12 @@ namespace {
     fill_rect(renderer, modalRect, PANEL_RED, PANEL_GREEN, PANEL_BLUE, 0xF4);
     draw_rect(renderer, modalRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
 
-    if (!render_text_line_simple(renderer, bodyFont, viewModel.modalTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.x + 18, modalRect.y + 16, modalRect.w - 36)) {
+    if (!render_text_line_simple(renderer, bodyFont, viewModel.modal.title, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.x + 18, modalRect.y + 16, modalRect.w - 36)) {
       return false;
     }
 
     int pathHeight = 0;
-    if (!render_text_line_simple(renderer, smallFont, "Path: " + viewModel.logViewerPath, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 18, modalRect.y + 56, modalRect.w - 36, &pathHeight)) {
+    if (!render_text_line_simple(renderer, smallFont, "Path: " + viewModel.logViewer.path, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 18, modalRect.y + 56, modalRect.w - 36, &pathHeight)) {
       return false;
     }
 
@@ -1204,13 +1204,13 @@ namespace {
     };
     fill_rect(renderer, contentRect, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0x70);
 
-    const std::size_t maxOffset = viewModel.logViewerLines.size() > 1U ? viewModel.logViewerLines.size() - 1U : 0U;
-    const std::size_t clampedOffset = std::min(viewModel.logViewerScrollOffset, maxOffset);
+    const std::size_t maxOffset = viewModel.logViewer.lines.size() > 1U ? viewModel.logViewer.lines.size() - 1U : 0U;
+    const std::size_t clampedOffset = std::min(viewModel.logViewer.scrollOffset, maxOffset);
 
     constexpr int logViewerScrollbarWidth = 10;
     constexpr int logViewerScrollbarGap = 12;
     LogViewerLayout logViewerLayout = build_log_viewer_layout(viewModel, smallFont, contentRect.w, contentRect.h, clampedOffset);
-    const bool overflow = !viewModel.logViewerLines.empty() && viewModel.logViewerLines.size() > logViewerLayout.visibleLines.size();
+    const bool overflow = !viewModel.logViewer.lines.empty() && viewModel.logViewer.lines.size() > logViewerLayout.visibleLines.size();
     if (overflow) {
       logViewerLayout = build_log_viewer_layout(viewModel, smallFont, std::max(1, contentRect.w - logViewerScrollbarWidth - logViewerScrollbarGap), contentRect.h, clampedOffset);
     }
@@ -1229,7 +1229,7 @@ namespace {
       render_vertical_scrollbar(
         renderer,
         {contentRect.x + contentRect.w - logViewerScrollbarWidth, contentRect.y, logViewerScrollbarWidth, contentRect.h},
-        static_cast<int>(viewModel.logViewerLines.size()),
+        static_cast<int>(viewModel.logViewer.lines.size()),
         static_cast<int>(std::max<std::size_t>(1U, logViewerLayout.visibleLines.size())),
         static_cast<int>(logViewerLayout.firstVisibleIndex)
       );
@@ -1890,16 +1890,16 @@ namespace {
   }
 
   void log_app_update(const app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.activatedItemId.empty()) {
-      logging::info("ui", "Activated menu item: " + update.activatedItemId);
+    if (!update.navigation.activatedItemId.empty()) {
+      logging::info("ui", "Activated menu item: " + update.navigation.activatedItemId);
     }
-    if (update.screenChanged) {
-      logging::info("ui", std::string("Switched screen to ") + app::to_string(state.activeScreen));
+    if (update.navigation.screenChanged) {
+      logging::info("ui", std::string("Switched screen to ") + app::to_string(state.shell.activeScreen));
     }
-    if (update.overlayVisibilityChanged) {
-      logging::info("overlay", state.overlayVisible ? "Overlay enabled" : "Overlay disabled");
+    if (update.navigation.overlayVisibilityChanged) {
+      logging::info("overlay", state.shell.overlayVisible ? "Overlay enabled" : "Overlay disabled");
     }
-    if (update.exitRequested) {
+    if (update.navigation.exitRequested) {
       logging::info("app", "Exit requested from shell");
     }
   }
@@ -1939,7 +1939,7 @@ namespace {
   }
 
   bool ensure_hosts_loaded_for_active_screen(app::ClientState &state) {
-    if (state.activeScreen != app::ScreenId::hosts || state.hostsLoaded) {
+    if (state.shell.activeScreen != app::ScreenId::hosts || state.hosts.loaded) {
       return true;
     }
 
@@ -1947,32 +1947,32 @@ namespace {
     for (const std::string &warning : loadedHosts.warnings) {
       logging::warn("hosts", warning);
     }
-    app::replace_hosts(state, loadedHosts.hosts, state.statusMessage);
+    app::replace_hosts(state, loadedHosts.hosts, state.shell.statusMessage);
     return true;
   }
 
   bool persist_hosts(app::ClientState &state) {
     std::vector<app::HostRecord> hostsToSave;
-    if (state.hostsLoaded) {
-      hostsToSave = state.hosts;
-    } else if (state.activeHostLoaded) {
+    if (state.hosts.loaded) {
+      hostsToSave = state.hosts.items;
+    } else if (state.hosts.activeLoaded) {
       const startup::LoadSavedHostsResult loadedHosts = startup::load_saved_hosts();
       for (const std::string &warning : loadedHosts.warnings) {
         logging::warn("hosts", warning);
       }
       hostsToSave = loadedHosts.hosts;
-      if (app::HostRecord *host = find_persisted_host_record(hostsToSave, state.activeHost.address, state.activeHost.port); host != nullptr) {
-        merge_host_for_persistence(host, state.activeHost);
+      if (app::HostRecord *host = find_persisted_host_record(hostsToSave, state.hosts.active.address, state.hosts.active.port); host != nullptr) {
+        merge_host_for_persistence(host, state.hosts.active);
       } else {
-        hostsToSave.push_back(state.activeHost);
+        hostsToSave.push_back(state.hosts.active);
       }
     } else {
-      hostsToSave = state.hosts;
+      hostsToSave = state.hosts.items;
     }
 
     const startup::SaveSavedHostsResult saveResult = startup::save_saved_hosts(hostsToSave);
     if (saveResult.success) {
-      state.hostsDirty = false;
+      state.hosts.dirty = false;
       logging::info("hosts", "Saved host records");
       return true;
     }
@@ -1982,7 +1982,7 @@ namespace {
   }
 
   void persist_hosts_if_needed(app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.hostsChanged) {
+    if (!update.persistence.hostsChanged) {
       return;
     }
 
@@ -1991,20 +1991,20 @@ namespace {
 
   app::AppSettings persistent_settings_from_state(const app::ClientState &state) {
     return {
-      state.loggingLevel,
-      state.xemuConsoleLoggingLevel,
-      state.logViewerPlacement,
+      state.settings.loggingLevel,
+      state.settings.xemuConsoleLoggingLevel,
+      state.settings.logViewerPlacement,
     };
   }
 
   void persist_settings_if_needed(app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.settingsChanged || !state.settingsDirty) {
+    if (!update.persistence.settingsChanged || !state.settings.dirty) {
       return;
     }
 
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(persistent_settings_from_state(state));
     if (saveResult.success) {
-      state.settingsDirty = false;
+      state.settings.dirty = false;
       logging::info("settings", "Saved Moonlight settings");
       return;
     }
@@ -2061,9 +2061,9 @@ namespace {
     host->appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again.";
     host->appListContentHash = 0;
     host->lastAppListRefreshTick = 0;
-    state.selectedAppIndex = 0U;
-    if (state.activeScreen == app::ScreenId::apps && state.activeHostLoaded && host == &state.activeHost) {
-      state.statusMessage = host->appListStatusMessage;
+    state.apps.selectedAppIndex = 0U;
+    if (state.shell.activeScreen == app::ScreenId::apps && state.hosts.activeLoaded && host == &state.hosts.active) {
+      state.shell.statusMessage = host->appListStatusMessage;
     }
     return true;
   }
@@ -2072,10 +2072,10 @@ namespace {
     auto apply_to_host = [&](app::HostRecord &host) {
       bool persistedMetadataChanged = update_host_metadata_from_server_info(&host, address, serverInfo);
       persistedMetadataChanged = update_host_pairing_from_server_info(state, &host, address, port, serverInfo) || persistedMetadataChanged;
-      state.hostsDirty = state.hostsDirty || persistedMetadataChanged;
+      state.hosts.dirty = state.hosts.dirty || persistedMetadataChanged;
     };
 
-    for (app::HostRecord &host : state.hosts) {
+    for (app::HostRecord &host : state.hosts.items) {
       if (!app::host_matches_endpoint(host, address, port)) {
         continue;
       }
@@ -2083,13 +2083,13 @@ namespace {
       return;
     }
 
-    if (state.activeHostLoaded && app::host_matches_endpoint(state.activeHost, address, port)) {
-      apply_to_host(state.activeHost);
+    if (state.hosts.activeLoaded && app::host_matches_endpoint(state.hosts.active, address, port)) {
+      apply_to_host(state.hosts.active);
     }
   }
 
   std::string display_name_for_saved_file(const app::ClientState &state, const std::string &path) {
-    for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
+    for (const startup::SavedFileEntry &savedFile : state.settings.savedFiles) {
       if (savedFile.path == path) {
         return savedFile.displayName;
       }
@@ -2118,7 +2118,7 @@ namespace {
       return;
     }
 
-    for (app::HostRecord &host : state.hosts) {
+    for (app::HostRecord &host : state.hosts.items) {
       for (app::HostAppRecord &appRecord : host.apps) {
         if (appRecord.boxArtCacheKey == cacheKey) {
           appRecord.boxArtCached = false;
@@ -2128,7 +2128,7 @@ namespace {
   }
 
   void refresh_saved_files_if_needed(app::ClientState &state) {
-    if (state.activeScreen != app::ScreenId::settings || !state.savedFilesDirty) {
+    if (state.shell.activeScreen != app::ScreenId::settings || !state.settings.savedFilesDirty) {
       return;
     }
 
@@ -2149,32 +2149,32 @@ namespace {
   }
 
   void delete_saved_file_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
-    if (!update.savedFileDeleteRequested) {
+    if (!update.persistence.savedFileDeleteRequested) {
       return;
     }
 
-    if (std::string errorMessage; !startup::delete_saved_file(update.savedFileDeletePath, &errorMessage)) {
-      state.statusMessage = errorMessage;
+    if (std::string errorMessage; !startup::delete_saved_file(update.persistence.savedFileDeletePath, &errorMessage)) {
+      state.shell.statusMessage = errorMessage;
       logging::warn("storage", errorMessage);
       return;
     }
 
-    const std::string deletedDisplayName = display_name_for_saved_file(state, update.savedFileDeletePath);
-    const std::string deletedCoverArtCacheKey = cover_art_cache_key_from_path(update.savedFileDeletePath);
+    const std::string deletedDisplayName = display_name_for_saved_file(state, update.persistence.savedFileDeletePath);
+    const std::string deletedCoverArtCacheKey = cover_art_cache_key_from_path(update.persistence.savedFileDeletePath);
     clear_deleted_cover_art_flag(state, deletedCoverArtCacheKey);
     clear_cover_art_texture(coverArtTextureCache, deletedCoverArtCacheKey);
-    state.savedFilesDirty = true;
-    state.statusMessage = "Deleted saved file " + deletedDisplayName;
-    logging::info("storage", state.statusMessage);
+    state.settings.savedFilesDirty = true;
+    state.shell.statusMessage = "Deleted saved file " + deletedDisplayName;
+    logging::info("storage", state.shell.statusMessage);
   }
 
   void delete_host_data_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
-    if (!update.hostDeleteCleanupRequested) {
+    if (!update.persistence.hostDeleteCleanupRequested) {
       return;
     }
 
     std::size_t deletedCoverArtCount = 0U;
-    for (const std::string &cacheKey : update.deletedHostCoverArtCacheKeys) {
+    for (const std::string &cacheKey : update.persistence.deletedHostCoverArtCacheKeys) {
       if (std::string errorMessage; !startup::delete_cover_art(cacheKey, &errorMessage)) {
         logging::warn("storage", errorMessage);
       } else {
@@ -2184,7 +2184,7 @@ namespace {
     }
 
     bool deletedClientIdentity = false;
-    if (update.deletedHostWasPaired) {
+    if (update.persistence.deletedHostWasPaired) {
       const bool pairedHostsRemain = std::any_of(state.hosts.begin(), state.hosts.end(), [](const app::HostRecord &host) {
         return host.pairingState == app::PairingState::paired;
       });
@@ -2200,35 +2200,35 @@ namespace {
       }
     }
 
-    state.statusMessage = "Deleted saved host";
+    state.shell.statusMessage = "Deleted saved host";
     if (deletedCoverArtCount > 0U) {
-      state.statusMessage += " and cleared " + std::to_string(deletedCoverArtCount) + " cached asset" + (deletedCoverArtCount == 1U ? std::string {} : "s");
+      state.shell.statusMessage += " and cleared " + std::to_string(deletedCoverArtCount) + " cached asset" + (deletedCoverArtCount == 1U ? std::string {} : "s");
     }
     if (deletedClientIdentity) {
-      state.statusMessage += " and reset local pairing identity";
+      state.shell.statusMessage += " and reset local pairing identity";
     }
-    logging::info("storage", state.statusMessage);
+    logging::info("storage", state.shell.statusMessage);
   }
 
   void factory_reset_if_requested(app::ClientState &state, const app::AppUpdate &update, CoverArtTextureCache *coverArtTextureCache) {
-    if (!update.factoryResetRequested) {
+    if (!update.persistence.factoryResetRequested) {
       return;
     }
 
     if (std::string errorMessage; !startup::delete_all_saved_files(&errorMessage)) {
-      state.statusMessage = errorMessage;
+      state.shell.statusMessage = errorMessage;
       logging::warn("storage", errorMessage);
       return;
     }
 
     state.hosts.clear();
     state = app::create_initial_state();
-    state.savedFiles.clear();
-    state.savedFilesDirty = true;
-    state.statusMessage = "Factory reset completed";
+    state.settings.savedFiles.clear();
+    state.settings.savedFilesDirty = true;
+    state.shell.statusMessage = "Factory reset completed";
     clear_cover_art_texture_cache(coverArtTextureCache);
     app::set_log_file_path(state, logging::default_log_file_path());
-    logging::info("storage", state.statusMessage);
+    logging::info("storage", state.shell.statusMessage);
   }
 
   bool try_load_saved_pairing_identity(network::PairingIdentity *identity) {
@@ -2585,28 +2585,28 @@ namespace {
   }
 
   void cancel_pairing_if_requested(app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
-    if (task == nullptr || !update.pairingCancelledRequested || task->activeAttempt == nullptr || task->activeAttempt->thread == nullptr) {
+    if (task == nullptr || !update.requests.pairingCancelledRequested || task->activeAttempt == nullptr || task->activeAttempt->thread == nullptr) {
       return;
     }
 
     task->activeAttempt->discardResult.store(true);
     task->activeAttempt->cancelRequested.store(true);
     retire_active_pairing_attempt(task, true);
-    state.statusMessage.clear();
+    state.shell.statusMessage.clear();
     logging::info("pairing", "Cancelled the in-flight pairing attempt after leaving the pairing screen");
   }
 
   void test_host_connection_if_requested(app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.connectionTestRequested) {
+    if (!update.requests.connectionTestRequested) {
       return;
     }
 
-    const std::string address = update.connectionTestAddress;
-    const uint16_t port = update.connectionTestPort == 0 ? app::DEFAULT_HOST_PORT : update.connectionTestPort;
+    const std::string address = update.requests.connectionTestAddress;
+    const uint16_t port = update.requests.connectionTestPort == 0 ? app::DEFAULT_HOST_PORT : update.requests.connectionTestPort;
 
     if (address.empty()) {
       app::apply_connection_test_result(state, false, "Connection test failed because the host address is invalid");
-      logging::warn("hosts", state.statusMessage);
+      logging::warn("hosts", state.shell.statusMessage);
       return;
     }
 
@@ -2619,7 +2619,7 @@ namespace {
     if (success) {
       apply_server_info_to_host(state, address, port, serverInfo);
     } else {
-      for (app::HostRecord &host : state.hosts) {
+      for (app::HostRecord &host : state.hosts.items) {
         if (host.address == address && app::effective_host_port(host.port) == port) {
           host.reachability = app::HostReachability::offline;
           host.manualAddress = address;
@@ -2629,13 +2629,13 @@ namespace {
     }
     app::apply_connection_test_result(state, success, resultMessage);
     logging::log(success ? logging::LogLevel::info : logging::LogLevel::warning, "hosts", resultMessage);
-    if (state.hostsDirty) {
+    if (state.hosts.dirty) {
       persist_hosts(state);
     }
   }
 
   void browse_host_apps_if_requested(app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.appsBrowseRequested) {
+    if (!update.requests.appsBrowseRequested) {
       return;
     }
 
@@ -2652,36 +2652,36 @@ namespace {
     std::string resultMessage;
     network::HostPairingServerInfo serverInfo {};
     if (!test_tcp_host_connection(address, port, clientIdentityPointer, &resultMessage, &serverInfo)) {
-      for (app::HostRecord &mutableHost : state.hosts) {
+      for (app::HostRecord &mutableHost : state.hosts.items) {
         if (mutableHost.address == address && app::effective_host_port(mutableHost.port) == app::effective_host_port(port)) {
           mutableHost.reachability = app::HostReachability::offline;
           mutableHost.manualAddress = address;
           break;
         }
       }
-      state.statusMessage = resultMessage;
+      state.shell.statusMessage = resultMessage;
       logging::warn("apps", resultMessage);
       return;
     }
 
     apply_server_info_to_host(state, address, port, serverInfo);
-    if (state.hostsDirty) {
+    if (state.hosts.dirty) {
       persist_hosts(state);
     }
 
     host = app::selected_host(state);
     if (host == nullptr || host->pairingState != app::PairingState::paired) {
-      state.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again before opening apps.";
-      logging::warn("apps", state.statusMessage);
+      state.shell.statusMessage = host != nullptr && !host->appListStatusMessage.empty() ? host->appListStatusMessage : "This host is no longer paired. Pair it again before opening apps.";
+      logging::warn("apps", state.shell.statusMessage);
       return;
     }
 
-    if (app::begin_selected_host_app_browse(state, update.appsBrowseShowHidden)) {
+    if (app::begin_selected_host_app_browse(state, update.requests.appsBrowseShowHidden)) {
       logging::info("apps", "Authorized host browse for " + host->displayName);
       return;
     }
 
-    logging::warn("apps", state.statusMessage.empty() ? "Failed to enter the apps screen" : state.statusMessage);
+    logging::warn("apps", state.shell.statusMessage.empty() ? "Failed to enter the apps screen" : state.shell.statusMessage);
   }
 
   int run_host_probe_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2712,15 +2712,15 @@ namespace {
     const std::vector<ui::HostProbeResult> results = ui::drain_host_probe_results(&task->resultQueue);
     for (const ui::HostProbeResult &result : results) {
       if (result.success) {
-        if (state.activeScreen == app::ScreenId::hosts && state.hostsLoaded) {
+        if (state.shell.activeScreen == app::ScreenId::hosts && state.hosts.loaded) {
           apply_server_info_to_host(state, result.address, result.port, result.serverInfo);
-          task->metadataChanged = task->metadataChanged || state.hostsDirty;
+          task->metadataChanged = task->metadataChanged || state.hosts.dirty;
         }
         ++task->onlineCount;
         continue;
       }
 
-      if (state.activeScreen == app::ScreenId::hosts && state.hostsLoaded) {
+      if (state.shell.activeScreen == app::ScreenId::hosts && state.hosts.loaded) {
         mark_host_offline(state, result.address, result.port);
       }
       ++task->offlineCount;
@@ -2769,7 +2769,7 @@ namespace {
   }
 
   void start_host_probe_task_if_needed(const app::ClientState &state, HostProbeTaskState *task, Uint32 now, Uint32 *nextHostProbeTick) {
-    if (task == nullptr || host_probe_task_is_active(*task) || state.activeScreen != app::ScreenId::hosts || !state.hostsLoaded || !network::runtime_network_ready()) {
+    if (task == nullptr || host_probe_task_is_active(*task) || state.shell.activeScreen != app::ScreenId::hosts || !state.hosts.loaded || !network::runtime_network_ready()) {
       return;
     }
     if (nextHostProbeTick != nullptr && *nextHostProbeTick != 0U && now < *nextHostProbeTick) {
@@ -2778,8 +2778,8 @@ namespace {
 
     reset_host_probe_task(task);
     task->clientIdentityAvailable = try_load_saved_pairing_identity(&task->clientIdentity);
-    ui::begin_host_probe_result_round(&task->resultQueue, state.hosts.size());
-    for (const app::HostRecord &host : state.hosts) {
+    ui::begin_host_probe_result_round(&task->resultQueue, state.hosts.items.size());
+    for (const app::HostRecord &host : state.hosts.items) {
       auto worker = std::make_unique<HostProbeTaskState::ProbeWorkerState>();
       worker->address = host.address;
       worker->port = app::effective_host_port(host.port);
@@ -2805,7 +2805,7 @@ namespace {
   }
 
   void pair_host_if_requested(app::ClientState &state, const app::AppUpdate &update, PairingTaskState *task) {
-    if (!update.pairingRequested || task == nullptr) {
+    if (!update.requests.pairingRequested || task == nullptr) {
       return;
     }
 
@@ -2819,37 +2819,37 @@ namespace {
     std::string reachabilityMessage;
     network::HostPairingServerInfo serverInfo {};
     network::PairingIdentity clientIdentity {};
-    if (const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr; !test_tcp_host_connection(update.pairingAddress, update.pairingPort, clientIdentityPointer, &reachabilityMessage, &serverInfo)) {
-      for (app::HostRecord &host : state.hosts) {
-        if (host.address == update.pairingAddress && app::effective_host_port(host.port) == app::effective_host_port(update.pairingPort)) {
+    if (const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr; !test_tcp_host_connection(update.requests.pairingAddress, update.requests.pairingPort, clientIdentityPointer, &reachabilityMessage, &serverInfo)) {
+      for (app::HostRecord &host : state.hosts.items) {
+        if (host.address == update.requests.pairingAddress && app::effective_host_port(host.port) == app::effective_host_port(update.requests.pairingPort)) {
           host.reachability = app::HostReachability::offline;
-          host.manualAddress = update.pairingAddress;
+          host.manualAddress = update.requests.pairingAddress;
           break;
         }
       }
-      if (state.activeHostLoaded && app::host_matches_endpoint(state.activeHost, update.pairingAddress, update.pairingPort)) {
-        state.activeHost.reachability = app::HostReachability::offline;
-        state.activeHost.manualAddress = update.pairingAddress;
+      if (state.hosts.activeLoaded && app::host_matches_endpoint(state.hosts.active, update.requests.pairingAddress, update.requests.pairingPort)) {
+        state.hosts.active.reachability = app::HostReachability::offline;
+        state.hosts.active.manualAddress = update.requests.pairingAddress;
       }
       state.pairingDraft.stage = app::PairingStage::failed;
       state.pairingDraft.generatedPin.clear();
       state.pairingDraft.statusMessage = reachabilityMessage.empty() ? "The host could not be reached for pairing." : reachabilityMessage;
-      state.statusMessage = state.pairingDraft.statusMessage;
+      state.shell.statusMessage = state.pairingDraft.statusMessage;
       logging::warn("pairing", state.pairingDraft.statusMessage);
       return;
     }
 
-    apply_server_info_to_host(state, update.pairingAddress, update.pairingPort, serverInfo);
-    if (state.hostsDirty) {
+    apply_server_info_to_host(state, update.requests.pairingAddress, update.requests.pairingPort, serverInfo);
+    if (state.hosts.dirty) {
       persist_hosts(state);
     }
 
     auto attempt = std::make_unique<PairingAttemptState>();
     reset_pairing_attempt(attempt.get());
     attempt->request = {
-      update.pairingAddress,
-      update.pairingPort,
-      update.pairingPin,
+      update.requests.pairingAddress,
+      update.requests.pairingPort,
+      update.requests.pairingPin,
       "MoonlightXboxOG",
       {},
     };
@@ -2858,7 +2858,7 @@ namespace {
     if (attempt->thread == nullptr) {
       reset_pairing_attempt(attempt.get());
       const std::string createThreadError = std::string("Failed to start the background pairing task: ") + SDL_GetError();
-      app::apply_pairing_result(state, update.pairingAddress, update.pairingPort, false, createThreadError);
+      app::apply_pairing_result(state, update.requests.pairingAddress, update.requests.pairingPort, false, createThreadError);
       state.pairingDraft.generatedPin.clear();
       logging::error("pairing", createThreadError);
       return;
@@ -2868,8 +2868,8 @@ namespace {
 
     state.pairingDraft.stage = app::PairingStage::in_progress;
     state.pairingDraft.statusMessage = "The host is reachable. Enter the code shown below on the host and keep this screen open for the result.";
-    state.statusMessage.clear();
-    logging::info("pairing", "Started background pairing with " + update.pairingAddress + ":" + std::to_string(update.pairingPort));
+    state.shell.statusMessage.clear();
+    logging::info("pairing", "Started background pairing with " + update.requests.pairingAddress + ":" + std::to_string(update.requests.pairingPort));
   }
 
   int run_app_list_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
@@ -2949,7 +2949,7 @@ namespace {
     if (success) {
       app::apply_app_list_result(state, address, port, std::move(apps), appListContentHash, true, message);
       logging::info("apps", "Fetched app list from " + address + ":" + std::to_string(serverInfo.httpPort));
-      if (state.hostsDirty) {
+      if (state.hosts.dirty) {
         persist_hosts(state);
       }
       return;
@@ -2960,7 +2960,7 @@ namespace {
   }
 
   void start_app_list_task_if_needed(app::ClientState &state, AppListTaskState *task, Uint32 now) {
-    if (task == nullptr || app_list_task_is_active(*task) || state.activeScreen != app::ScreenId::apps) {
+    if (task == nullptr || app_list_task_is_active(*task) || state.shell.activeScreen != app::ScreenId::apps) {
       return;
     }
 
@@ -2974,11 +2974,11 @@ namespace {
         return;
       }
 
-      if (state.activeHostLoaded) {
-        app::HostRecord &mutableHost = state.activeHost;
+      if (state.hosts.activeLoaded) {
+        app::HostRecord &mutableHost = state.hosts.active;
         mutableHost.appListState = app::HostAppListState::loading;
         mutableHost.appListStatusMessage = (mutableHost.apps.empty() ? "Loading apps for " : "Refreshing apps for ") + mutableHost.displayName + "...";
-        state.statusMessage.clear();
+        state.shell.statusMessage.clear();
       }
     }
 
@@ -2989,17 +2989,17 @@ namespace {
     if (task->thread == nullptr) {
       const std::string errorMessage = std::string("Failed to start the app-list fetch task: ") + SDL_GetError();
       logging::error("apps", errorMessage);
-      if (state.activeHostLoaded) {
-        state.activeHost.appListState = app::HostAppListState::failed;
-        state.activeHost.appListStatusMessage = errorMessage;
-        state.statusMessage = errorMessage;
+      if (state.hosts.activeLoaded) {
+        state.hosts.active.appListState = app::HostAppListState::failed;
+        state.hosts.active.appListStatusMessage = errorMessage;
+        state.shell.statusMessage = errorMessage;
       }
       reset_app_list_task(task);
       return;
     }
 
-    if (state.activeHostLoaded) {
-      state.activeHost.lastAppListRefreshTick = now;
+    if (state.hosts.activeLoaded) {
+      state.hosts.active.lastAppListRefreshTick = now;
     }
   }
 
@@ -3073,7 +3073,7 @@ namespace {
   }
 
   void start_app_art_task_if_needed(const app::ClientState &state, AppArtTaskState *task) {
-    if (task == nullptr || app_art_task_is_active(*task) || state.activeScreen != app::ScreenId::apps) {
+    if (task == nullptr || app_art_task_is_active(*task) || state.shell.activeScreen != app::ScreenId::apps) {
       return;
     }
 
@@ -3101,11 +3101,11 @@ namespace {
   }
 
   void show_log_file_if_requested(app::ClientState &state, const app::AppUpdate &update) {
-    if (!update.logViewRequested) {
+    if (!update.requests.logViewRequested) {
       return;
     }
 
-    const std::string filePath = state.logFilePath.empty() ? logging::default_log_file_path() : state.logFilePath;
+    const std::string filePath = state.settings.logFilePath.empty() ? logging::default_log_file_path() : state.settings.logFilePath;
     const logging::LoadLogFileResult loadedLog = logging::load_log_file(filePath, LOG_VIEWER_MAX_LOADED_LINES);
     app::set_log_file_path(state, loadedLog.filePath);
     if (!loadedLog.errorMessage.empty()) {
@@ -3192,7 +3192,7 @@ namespace {
     if (!render_action_rows(
           renderer,
           bodyFont,
-          viewModel.detailMenuRows,
+          viewModel.content.detailMenuRows,
           optionsRect,
           std::max(34, TTF_FontLineSkip(bodyFont) + 12)
         )) {
@@ -3208,15 +3208,15 @@ namespace {
     }
 
     int descriptionY = descriptionRect.y + descriptionHeaderHeight + 10;
-    if (!viewModel.selectedMenuRowLabel.empty()) {
+    if (!viewModel.content.selectedMenuRowLabel.empty()) {
       int drawnHeight = 0;
-      if (!render_text_line(renderer, bodyFont, viewModel.selectedMenuRowLabel, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20, &drawnHeight)) {
+      if (!render_text_line(renderer, bodyFont, viewModel.content.selectedMenuRowLabel, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20, &drawnHeight)) {
         return false;
       }
       descriptionY += drawnHeight + 6;
     }
 
-    const std::string descriptionText = viewModel.selectedMenuRowDescription.empty() ? std::string("No description is available for the selected setting.") : viewModel.selectedMenuRowDescription;
+    const std::string descriptionText = viewModel.content.selectedMenuRowDescription.empty() ? std::string("No description is available for the selected setting.") : viewModel.content.selectedMenuRowDescription;
     return render_text_line(renderer, smallFont, descriptionText, {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20);
   }
 
@@ -3228,29 +3228,29 @@ namespace {
     CoverArtTextureCache *textureCache,
     const AssetTextureCache *assetCache
   ) {
-    const int columnCount = std::max(1, static_cast<int>(viewModel.appColumnCount));
+    const int columnCount = std::max(1, static_cast<int>(viewModel.content.appColumnCount));
     const int tileGap = 16;
     const int gridPadding = 10;
-    const GridViewport viewport = calculate_grid_viewport(viewModel.appTiles.size(), viewModel.appColumnCount, selected_app_tile_index(viewModel.appTiles), std::max(1, gridRect.h - (gridPadding * 2)), 220, tileGap);
+    const GridViewport viewport = calculate_grid_viewport(viewModel.content.appTiles.size(), viewModel.content.appColumnCount, selected_app_tile_index(viewModel.content.appTiles), std::max(1, gridRect.h - (gridPadding * 2)), 220, tileGap);
     const int scrollbarGap = viewport.scrollbarWidth > 0 ? 12 : 0;
     const int gridInnerWidth = std::max(1, gridRect.w - (gridPadding * 2) - viewport.scrollbarWidth - scrollbarGap);
     const int cellWidth = std::max(1, (gridInnerWidth - (tileGap * (columnCount - 1))) / columnCount);
     const int cellHeight = std::max(1, (gridRect.h - (gridPadding * 2) - (tileGap * std::max(0, viewport.visibleRowCount - 1))) / std::max(1, viewport.visibleRowCount));
     const int tileWidth = std::max(1, std::min(cellWidth, (cellHeight * 2) / 3));
     const int tileHeight = std::max(1, std::min(cellHeight, (tileWidth * 3) / 2));
-    const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.appColumnCount;
-    const std::size_t endIndex = std::min(viewModel.appTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.appColumnCount);
+    const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.content.appColumnCount;
+    const std::size_t endIndex = std::min(viewModel.content.appTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.content.appColumnCount);
 
     for (std::size_t index = startIndex; index < endIndex; ++index) {
-      const int row = static_cast<int>(index / viewModel.appColumnCount) - viewport.startRow;
-      const auto column = static_cast<int>(index % viewModel.appColumnCount);
+      const int row = static_cast<int>(index / viewModel.content.appColumnCount) - viewport.startRow;
+      const auto column = static_cast<int>(index % viewModel.content.appColumnCount);
       const SDL_Rect tileRect {
         gridRect.x + gridPadding + (column * (cellWidth + tileGap)) + std::max(0, (cellWidth - tileWidth) / 2),
         gridRect.y + gridPadding + (row * (cellHeight + tileGap)) + std::max(0, (cellHeight - tileHeight) / 2),
         tileWidth,
         tileHeight,
       };
-      if (!render_app_cover(renderer, smallFont, viewModel.appTiles[index], tileRect, textureCache, assetCache)) {
+      if (!render_app_cover(renderer, smallFont, viewModel.content.appTiles[index], tileRect, textureCache, assetCache)) {
         return false;
       }
     }
@@ -3267,11 +3267,11 @@ namespace {
 
   bool render_apps_empty_state(SDL_Renderer *renderer, TTF_Font *smallFont, const ui::ShellViewModel &viewModel, const SDL_Rect &gridRect) {
     const int lineGap = 8;
-    const int textHeight = measure_body_lines_height(smallFont, viewModel.bodyLines, gridRect.w - 48, lineGap);
+    const int textHeight = measure_body_lines_height(smallFont, viewModel.content.bodyLines, gridRect.w - 48, lineGap);
     return render_body_lines(
       renderer,
       smallFont,
-      viewModel.bodyLines,
+      viewModel.content.bodyLines,
       {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, gridRect.x + 24, gridRect.y + std::max(16, (gridRect.h - textHeight) / 2), gridRect.w - 48, lineGap}
     );
   }
@@ -3349,21 +3349,21 @@ namespace {
       }
     }
 
-    if (!render_text_line(renderer, titleFont, viewModel.title, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, titleTextX, titleTextY, titleTextWidth)) {
+    if (!render_text_line(renderer, titleFont, viewModel.frame.title, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, titleTextX, titleTextY, titleTextWidth)) {
       return false;
     }
 
     const int pageTitleX = headerRect.x + (headerRect.w / 3);
     const int pageTitleY = headerRect.y + 18;
-    if (const bool renderedPageTitle = viewModel.screen == app::ScreenId::apps ? render_text_line_simple(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3) : render_text_line(renderer, bodyFont, viewModel.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3); !viewModel.pageTitle.empty() && !renderedPageTitle) {
+    if (const bool renderedPageTitle = viewModel.frame.screen == app::ScreenId::apps ? render_text_line_simple(renderer, bodyFont, viewModel.frame.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3) : render_text_line(renderer, bodyFont, viewModel.frame.pageTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, pageTitleX, pageTitleY, headerRect.w / 3); !viewModel.frame.pageTitle.empty() && !renderedPageTitle) {
       return false;
     }
 
-    if (viewModel.screen == app::ScreenId::hosts) {
+    if (viewModel.frame.screen == app::ScreenId::hosts) {
       const int buttonWidth = std::max(132, headerRect.w / 7);
       const int buttonHeight = std::max(40, headerRect.h / 2);
-      int buttonX = headerRect.x + headerRect.w - 16 - ((buttonWidth + 12) * static_cast<int>(viewModel.toolbarButtons.size()));
-      for (const ui::ShellToolbarButton &button : viewModel.toolbarButtons) {
+      int buttonX = headerRect.x + headerRect.w - 16 - ((buttonWidth + 12) * static_cast<int>(viewModel.content.toolbarButtons.size()));
+      for (const ui::ShellToolbarButton &button : viewModel.content.toolbarButtons) {
         if (const SDL_Rect buttonRect {buttonX, headerRect.y + 18, buttonWidth, buttonHeight}; !render_toolbar_button(renderer, bodyFont, smallFont, assetCache, button, buttonRect)) {
           return false;
         }
@@ -3372,8 +3372,8 @@ namespace {
     }
 
     int infoY = contentRect.y + 16;
-    if (viewModel.screen == app::ScreenId::hosts) {
-      for (const std::string &line : viewModel.bodyLines) {
+    if (viewModel.frame.screen == app::ScreenId::hosts) {
+      for (const std::string &line : viewModel.content.bodyLines) {
         int drawnHeight = 0;
         if (!render_text_line(renderer, smallFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentRect.x + 16, infoY, contentRect.w - 32, &drawnHeight)) {
           return false;
@@ -3382,29 +3382,29 @@ namespace {
       }
     }
 
-    if (viewModel.screen == app::ScreenId::hosts) {
+    if (viewModel.frame.screen == app::ScreenId::hosts) {
       const int gridTop = infoY + 8;
       const int gridHeight = std::max(1, (contentRect.y + contentRect.h - gridTop) - 12);
-      const int columnCount = std::max(1, static_cast<int>(viewModel.hostColumnCount));
+      const int columnCount = std::max(1, static_cast<int>(viewModel.content.hostColumnCount));
       const int tileGap = 16;
       const SDL_Rect gridRect {contentRect.x + 16, gridTop, contentRect.w - 32, gridHeight};
-      const GridViewport viewport = calculate_grid_viewport(viewModel.hostTiles.size(), viewModel.hostColumnCount, selected_host_tile_index(viewModel.hostTiles), gridRect.h, 188, tileGap);
+      const GridViewport viewport = calculate_grid_viewport(viewModel.content.hostTiles.size(), viewModel.content.hostColumnCount, selected_host_tile_index(viewModel.content.hostTiles), gridRect.h, 188, tileGap);
       const int scrollbarGap = viewport.scrollbarWidth > 0 ? 12 : 0;
       const int gridInnerWidth = std::max(1, gridRect.w - viewport.scrollbarWidth - scrollbarGap);
       const int tileWidth = std::max(1, (gridInnerWidth - (tileGap * (columnCount - 1))) / columnCount);
       const int tileHeight = std::max(1, (gridRect.h - (tileGap * std::max(0, viewport.visibleRowCount - 1))) / std::max(1, viewport.visibleRowCount));
-      const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.hostColumnCount;
-      const std::size_t endIndex = std::min(viewModel.hostTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.hostColumnCount);
+      const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.content.hostColumnCount;
+      const std::size_t endIndex = std::min(viewModel.content.hostTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.content.hostColumnCount);
       for (std::size_t index = startIndex; index < endIndex; ++index) {
-        const int row = static_cast<int>(index / viewModel.hostColumnCount) - viewport.startRow;
-        const auto column = static_cast<int>(index % viewModel.hostColumnCount);
+        const int row = static_cast<int>(index / viewModel.content.hostColumnCount) - viewport.startRow;
+        const auto column = static_cast<int>(index % viewModel.content.hostColumnCount);
         const SDL_Rect tileRect {
           gridRect.x + (column * (tileWidth + tileGap)),
           gridRect.y + (row * (tileHeight + tileGap)),
           tileWidth,
           tileHeight,
         };
-        const ui::ShellHostTile &tile = viewModel.hostTiles[index];
+        const ui::ShellHostTile &tile = viewModel.content.hostTiles[index];
         const bool online = tile.reachability == app::HostReachability::online;
         fill_rect(renderer, tileRect, online ? PANEL_RED + 8 : PANEL_RED, online ? PANEL_GREEN + 8 : PANEL_GREEN, online ? PANEL_BLUE + 8 : PANEL_BLUE);
         draw_rect(renderer, tileRect, tile.selected ? ACCENT_RED : MUTED_RED, tile.selected ? ACCENT_GREEN : MUTED_GREEN, tile.selected ? ACCENT_BLUE : MUTED_BLUE);
@@ -3443,7 +3443,7 @@ namespace {
       if (viewport.scrollbarWidth > 0) {
         render_grid_scrollbar(renderer, {gridRect.x + gridRect.w - viewport.scrollbarWidth, gridRect.y, viewport.scrollbarWidth, gridRect.h}, viewport);
       }
-    } else if (viewModel.screen == app::ScreenId::apps) {
+    } else if (viewModel.frame.screen == app::ScreenId::apps) {
       const SDL_Rect gridRect {
         contentRect.x + 16,
         contentRect.y + 16,
@@ -3451,16 +3451,16 @@ namespace {
         contentRect.h - 28,
       };
 
-      if (!viewModel.appTiles.empty()) {
+      if (!viewModel.content.appTiles.empty()) {
         if (!render_app_tiles_grid(renderer, smallFont, viewModel, gridRect, textureCache, assetCache)) {
           return false;
         }
-      } else if (!viewModel.bodyLines.empty() && !render_apps_empty_state(renderer, smallFont, viewModel, gridRect)) {
+      } else if (!viewModel.content.bodyLines.empty() && !render_apps_empty_state(renderer, smallFont, viewModel, gridRect)) {
         return false;
       }
     } else {
-      const bool settingsScreen = viewModel.screen == app::ScreenId::settings;
-      const bool hasDetailMenu = settingsScreen && !viewModel.detailMenuRows.empty();
+      const bool settingsScreen = viewModel.frame.screen == app::ScreenId::settings;
+      const bool hasDetailMenu = settingsScreen && !viewModel.content.detailMenuRows.empty();
       const int panelInset = std::max(12, screenWidth / 96);
       const int panelPadding = std::max(14, screenWidth / 96);
       const SDL_Rect panelArea {
@@ -3477,18 +3477,18 @@ namespace {
       draw_rect(
         renderer,
         menuPanel,
-        viewModel.leftPanelActive ? ACCENT_RED : TEXT_RED,
-        viewModel.leftPanelActive ? ACCENT_GREEN : TEXT_GREEN,
-        viewModel.leftPanelActive ? ACCENT_BLUE : TEXT_BLUE,
-        viewModel.leftPanelActive ? 0xD8 : 0x48
+        viewModel.content.leftPanelActive ? ACCENT_RED : TEXT_RED,
+        viewModel.content.leftPanelActive ? ACCENT_GREEN : TEXT_GREEN,
+        viewModel.content.leftPanelActive ? ACCENT_BLUE : TEXT_BLUE,
+        viewModel.content.leftPanelActive ? 0xD8 : 0x48
       );
       draw_rect(
         renderer,
         bodyPanel,
-        viewModel.rightPanelActive ? ACCENT_RED : TEXT_RED,
-        viewModel.rightPanelActive ? ACCENT_GREEN : TEXT_GREEN,
-        viewModel.rightPanelActive ? ACCENT_BLUE : TEXT_BLUE,
-        viewModel.rightPanelActive ? 0xD8 : 0x48
+        viewModel.content.rightPanelActive ? ACCENT_RED : TEXT_RED,
+        viewModel.content.rightPanelActive ? ACCENT_GREEN : TEXT_GREEN,
+        viewModel.content.rightPanelActive ? ACCENT_BLUE : TEXT_BLUE,
+        viewModel.content.rightPanelActive ? 0xD8 : 0x48
       );
 
       const SDL_Rect menuHeaderRect {menuPanel.x + panelPadding, menuPanel.y + panelPadding, menuPanel.w - (panelPadding * 2), std::max(34, TTF_FontLineSkip(smallFont) + 10)};
@@ -3500,7 +3500,7 @@ namespace {
       if (!render_action_rows(
             renderer,
             bodyFont,
-            viewModel.menuRows,
+            viewModel.content.menuRows,
             {menuPanel.x + panelPadding, menuHeaderRect.y + menuHeaderRect.h + 12, menuPanel.w - (panelPadding * 2), menuPanel.h - (menuHeaderRect.h + (panelPadding * 2) + 12)},
             std::max(36, screenHeight / 13)
           )) {
@@ -3515,7 +3515,7 @@ namespace {
         if (!render_body_lines(
               renderer,
               bodyFont,
-              viewModel.bodyLines,
+              viewModel.content.bodyLines,
               {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyPanel.y + panelPadding, bodyPanel.w - (panelPadding * 2), 8}
             )) {
           return false;
@@ -3523,15 +3523,15 @@ namespace {
       }
     }
 
-    if (!render_footer_actions(renderer, smallFont, assetCache, viewModel.footerActions, footerRect)) {
+    if (!render_footer_actions(renderer, smallFont, assetCache, viewModel.frame.footerActions, footerRect)) {
       return false;
     }
 
-    if (viewModel.notificationVisible && !viewModel.notification.message.empty() && !render_notification(renderer, bodyFont, smallFont, assetCache, viewModel.notification, screenWidth, footerRect.y, outerMargin)) {
+    if (viewModel.notification.visible && !viewModel.notification.content.message.empty() && !render_notification(renderer, bodyFont, smallFont, assetCache, viewModel.notification.content, screenWidth, footerRect.y, outerMargin)) {
       return false;
     }
 
-    if (viewModel.overlayVisible) {
+    if (viewModel.overlay.visible) {
       const int overlayX = (screenWidth / 2) + (panelGap / 2);
       const SDL_Rect overlayRect {
         overlayX,
@@ -3543,12 +3543,12 @@ namespace {
       fill_rect(renderer, overlayRect, 0x00, 0x00, 0x00, 0xD8);
       draw_rect(renderer, overlayRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF);
 
-      if (!render_text_line(renderer, bodyFont, viewModel.overlayTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, overlayRect.x + 16, overlayRect.y + 16, overlayRect.w - 32)) {
+      if (!render_text_line(renderer, bodyFont, viewModel.overlay.title, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, overlayRect.x + 16, overlayRect.y + 16, overlayRect.w - 32)) {
         return false;
       }
 
       int overlayY = overlayRect.y + 54;
-      for (const std::string &line : viewModel.overlayLines) {
+      for (const std::string &line : viewModel.overlay.lines) {
         int drawnHeight = 0;
         if (!render_text_line(renderer, smallFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, overlayRect.x + 16, overlayY, overlayRect.w - 32, &drawnHeight)) {
           return false;
@@ -3557,7 +3557,7 @@ namespace {
       }
     }
 
-    if (viewModel.modalVisible && viewModel.logViewerVisible) {
+    if (viewModel.modal.visible && viewModel.logViewer.visible) {
       if (!render_log_viewer_modal(renderer, bodyFont, smallFont, assetCache, viewModel, screenWidth, screenHeight, outerMargin)) {
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         fill_rect(renderer, {0, 0, screenWidth, screenHeight}, 0x00, 0x00, 0x00, 0xA6);
@@ -3573,7 +3573,7 @@ namespace {
         render_text_line_simple(renderer, smallFont, "The full log viewer could not be rendered safely.", {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 54, modalRect.w - 32);
         render_text_line_simple(renderer, smallFont, "Press B to close.", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 54 + TTF_FontLineSkip(smallFont) + 8, modalRect.w - 32);
       }
-    } else if (viewModel.modalVisible) {
+    } else if (viewModel.modal.visible) {
       SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
       fill_rect(renderer, {0, 0, screenWidth, screenHeight}, 0x00, 0x00, 0x00, 0xA6);
       const SDL_Rect modalRect {
@@ -3584,12 +3584,12 @@ namespace {
       };
       fill_rect(renderer, modalRect, PANEL_RED, PANEL_GREEN, PANEL_BLUE, 0xF2);
       draw_rect(renderer, modalRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
-      if (!render_text_line(renderer, bodyFont, viewModel.modalTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 16, modalRect.w - 32)) {
+      if (!render_text_line(renderer, bodyFont, viewModel.modal.title, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.x + 16, modalRect.y + 16, modalRect.w - 32)) {
         return false;
       }
 
       int modalY = modalRect.y + 54;
-      for (const std::string &line : viewModel.modalLines) {
+      for (const std::string &line : viewModel.modal.lines) {
         int drawnHeight = 0;
         if (!render_text_line(renderer, smallFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, modalRect.x + 16, modalY, modalRect.w - 32, &drawnHeight)) {
           return false;
@@ -3597,27 +3597,27 @@ namespace {
         modalY += drawnHeight + 6;
       }
 
-      if (!viewModel.modalActions.empty()) {
-        if (!render_action_rows(renderer, bodyFont, viewModel.modalActions, {modalRect.x + 16, modalY + 8, modalRect.w - 32, modalRect.h - (modalY - modalRect.y) - 24}, std::max(34, TTF_FontLineSkip(bodyFont) + 12))) {
+      if (!viewModel.modal.actions.empty()) {
+        if (!render_action_rows(renderer, bodyFont, viewModel.modal.actions, {modalRect.x + 16, modalY + 8, modalRect.w - 32, modalRect.h - (modalY - modalRect.y) - 24}, std::max(34, TTF_FontLineSkip(bodyFont) + 12))) {
           return false;
         }
-      } else if (!viewModel.modalFooterActions.empty()) {
+      } else if (!viewModel.modal.footerActions.empty()) {
         const SDL_Rect modalFooterRect {modalRect.x + 16, modalRect.y + modalRect.h - 56, modalRect.w - 32, 40};
-        if (!render_footer_actions(renderer, smallFont, assetCache, viewModel.modalFooterActions, modalFooterRect)) {
+        if (!render_footer_actions(renderer, smallFont, assetCache, viewModel.modal.footerActions, modalFooterRect)) {
           return false;
         }
       }
     }
 
-    if (viewModel.keypadModalVisible) {
+    if (viewModel.keypad.visible) {
       SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
       const SDL_Rect scrimRect {0, 0, screenWidth, screenHeight};
       fill_rect(renderer, scrimRect, 0x00, 0x00, 0x00, 0x9C);
 
       const int modalWidth = std::min(screenWidth - (outerMargin * 2), std::max(360, screenWidth / 2));
       const int buttonGap = 10;
-      const int buttonColumnCount = std::max(1, static_cast<int>(viewModel.keypadModalColumnCount));
-      const int buttonRowCount = std::max(1, static_cast<int>((viewModel.keypadModalButtons.size() + viewModel.keypadModalColumnCount - 1) / viewModel.keypadModalColumnCount));
+      const int buttonColumnCount = std::max(1, static_cast<int>(viewModel.keypad.columnCount));
+      const int buttonRowCount = std::max(1, static_cast<int>((viewModel.keypad.buttons.size() + viewModel.keypad.columnCount - 1) / viewModel.keypad.columnCount));
       const int preferredButtonHeight = std::max(40, TTF_FontLineSkip(bodyFont) + 16);
       const int modalInnerWidth = modalWidth - 32;
       const int modalTextHeight = keypad_modal_text_height(renderer, smallFont, viewModel, modalInnerWidth, keypadModalLayoutCache);
@@ -3635,15 +3635,15 @@ namespace {
       draw_rect(renderer, modalRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE);
 
       if (
-        !ensure_wrapped_text_texture(renderer, bodyFont, viewModel.keypadModalTitle, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.w - 32, &keypadModalLayoutCache->titleTexture) ||
+        !ensure_wrapped_text_texture(renderer, bodyFont, viewModel.keypad.title, {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, modalRect.w - 32, &keypadModalLayoutCache->titleTexture) ||
         !render_cached_text_texture(renderer, keypadModalLayoutCache->titleTexture, modalRect.x + 16, modalRect.y + 16)
       ) {
         return false;
       }
 
       int modalY = modalRect.y + 52;
-      keypadModalLayoutCache->lineTextures.resize(viewModel.keypadModalLines.size());
-      for (std::size_t index = 0; index < viewModel.keypadModalLines.size(); ++index) {
+      keypadModalLayoutCache->lineTextures.resize(viewModel.keypad.lines.size());
+      for (std::size_t index = 0; index < viewModel.keypad.lines.size(); ++index) {
         int drawnHeight = 0;
         if (!render_cached_text_texture(renderer, keypadModalLayoutCache->lineTextures[index], modalRect.x + 16, modalY, &drawnHeight)) {
           return false;
@@ -3656,23 +3656,23 @@ namespace {
       const int buttonWidth = (modalRect.w - 32 - (buttonGap * (buttonColumnCount - 1))) / buttonColumnCount;
       const int buttonHeight = std::max(34, (buttonAreaHeight - (buttonGap * std::max(0, buttonRowCount - 1))) / buttonRowCount);
 
-      if (keypadModalLayoutCache->buttonLabelTextures.size() > viewModel.keypadModalButtons.size()) {
-        for (std::size_t index = viewModel.keypadModalButtons.size(); index < keypadModalLayoutCache->buttonLabelTextures.size(); ++index) {
+      if (keypadModalLayoutCache->buttonLabelTextures.size() > viewModel.keypad.buttons.size()) {
+        for (std::size_t index = viewModel.keypad.buttons.size(); index < keypadModalLayoutCache->buttonLabelTextures.size(); ++index) {
           clear_cached_text_texture(&keypadModalLayoutCache->buttonLabelTextures[index]);
         }
       }
-      keypadModalLayoutCache->buttonLabelTextures.resize(viewModel.keypadModalButtons.size());
+      keypadModalLayoutCache->buttonLabelTextures.resize(viewModel.keypad.buttons.size());
 
-      for (std::size_t index = 0; index < viewModel.keypadModalButtons.size(); ++index) {
-        const auto row = static_cast<int>(index / viewModel.keypadModalColumnCount);
-        const auto column = static_cast<int>(index % viewModel.keypadModalColumnCount);
+      for (std::size_t index = 0; index < viewModel.keypad.buttons.size(); ++index) {
+        const auto row = static_cast<int>(index / viewModel.keypad.columnCount);
+        const auto column = static_cast<int>(index % viewModel.keypad.columnCount);
         const SDL_Rect buttonRect {
           modalRect.x + 16 + (column * (buttonWidth + buttonGap)),
           buttonAreaTop + (row * (buttonHeight + buttonGap)),
           buttonWidth,
           buttonHeight,
         };
-        const ui::ShellModalButton &button = viewModel.keypadModalButtons[index];
+        const ui::ShellModalButton &button = viewModel.keypad.buttons[index];
 
         if (button.selected) {
           fill_rect(renderer, buttonRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0x55);
@@ -3711,7 +3711,7 @@ namespace {
   }
 
   bool hosts_screen_exit_combo_allowed(const app::ClientState &state) {
-    return state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts;
+    return state.shell.activeScreen == app::ScreenId::home || state.shell.activeScreen == app::ScreenId::hosts;
   }
 
   void update_trigger_repeat_tick(input::UiCommand command, Uint32 now, Uint32 *leftTriggerRepeatTick, Uint32 *rightTriggerRepeatTick) {
@@ -3787,7 +3787,7 @@ namespace {
     }
 
     inputState->controllerExitComboTriggered = true;
-    state.shouldExit = true;
+    state.shell.shouldExit = true;
     logging::info("app", "Exit requested from held Start+Back on the hosts screen");
   }
 
@@ -3933,7 +3933,7 @@ namespace {
   ) {
     switch (event.type) {
       case SDL_QUIT:
-        state.shouldExit = true;
+        state.shell.shouldExit = true;
         return input::UiCommand::none;
       case SDL_CONTROLLERDEVICEADDED:
         handle_controller_device_added(controller, event.cdevice);
@@ -4230,8 +4230,8 @@ namespace {
     reset_app_art_task(&runtime->appArtTask);
     reset_host_probe_task(&runtime->hostProbeTask);
     logging::set_minimum_level(logging::LogLevel::trace);
-    logging::set_file_minimum_level(state.loggingLevel);
-    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    logging::set_file_minimum_level(state.settings.loggingLevel);
+    logging::set_debugger_console_minimum_level(state.settings.xemuConsoleLoggingLevel);
     logging::info("app", "Entered interactive shell");
   }
 
@@ -4258,7 +4258,7 @@ namespace {
 
     report_shell_failure("render", std::string("Shell render failed: ") + SDL_GetError());
     runtime->running = false;
-    state.shouldExit = true;
+    state.shell.shouldExit = true;
     return false;
   }
 
@@ -4319,10 +4319,10 @@ namespace {
 
     runtime->keypadRedrawRequested = true;
 
-    const app::ScreenId previousScreen = state.activeScreen;
+    const app::ScreenId previousScreen = state.shell.activeScreen;
     const app::AppUpdate update = app::handle_command(state, command);
-    logging::set_file_minimum_level(state.loggingLevel);
-    logging::set_debugger_console_minimum_level(state.xemuConsoleLoggingLevel);
+    logging::set_file_minimum_level(state.settings.loggingLevel);
+    logging::set_debugger_console_minimum_level(state.settings.xemuConsoleLoggingLevel);
     log_app_update(state, update);
     show_log_file_if_requested(state, update);
     cancel_pairing_if_requested(state, update, &runtime->pairingTask);
@@ -4336,14 +4336,14 @@ namespace {
     persist_settings_if_needed(state, update);
     persist_hosts_if_needed(state, update);
 
-    if (previousScreen != state.activeScreen) {
-      release_page_resources_for_screen(previousScreen, state.activeScreen, &resources->coverArtTextureCache, &resources->keypadModalLayoutCache);
+    if (previousScreen != state.shell.activeScreen) {
+      release_page_resources_for_screen(previousScreen, state.shell.activeScreen, &resources->coverArtTextureCache, &resources->keypadModalLayoutCache);
       ensure_hosts_loaded_for_active_screen(state);
     }
-    if ((previousScreen != state.activeScreen || update.screenChanged) && !draw_current_shell_frame(videoMode, state, resources, runtime)) {
+    if ((previousScreen != state.shell.activeScreen || update.navigation.screenChanged) && !draw_current_shell_frame(videoMode, state, resources, runtime)) {
       return;
     }
-    if (state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
+    if (state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
       clear_keypad_modal_layout_cache(&resources->keypadModalLayoutCache);
     }
   }
@@ -4381,12 +4381,12 @@ namespace {
     finish_shell_background_tasks(state, resources, runtime);
     start_shell_background_tasks_if_needed(state, runtime, SDL_GetTicks());
 
-    if ((state.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) &&
+    if ((state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) &&
         !draw_current_shell_frame(videoMode, state, resources, runtime)) {
       return false;
     }
 
-    return runtime->running && !state.shouldExit;
+    return runtime->running && !state.shell.shouldExit;
   }
 
   /**
@@ -4445,7 +4445,7 @@ namespace ui {
     ShellRuntimeState runtime {};
     initialize_shell_runtime(state, &runtime);
 
-    while (runtime.running && !state.shouldExit) {
+    while (runtime.running && !state.shell.shouldExit) {
       if (!run_shell_frame(videoMode, state, &resources, &runtime)) {
         break;
       }

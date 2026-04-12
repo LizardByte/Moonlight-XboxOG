@@ -92,20 +92,25 @@ namespace ui {
   };
 
   /**
-   * @brief Render-ready shell state derived from the app model.
+   * @brief Shell-wide frame metadata shared across all render paths.
    */
-  struct ShellViewModel {  ///< NOSONAR(cpp:S1820) single-frame render snapshot intentionally groups all shell sections
+  struct ShellFrameView {
     app::ScreenId screen = app::ScreenId::hosts;  ///< Active screen being rendered.
     std::string title;  ///< Shell-wide title.
     std::string pageTitle;  ///< Primary page heading.
     std::string statusMessage;  ///< Status line shown near the footer.
-    bool notificationVisible = false;  ///< True when a transient notification should be rendered.
-    ShellNotification notification;  ///< Notification content when visible.
+    std::vector<ShellFooterAction> footerActions;  ///< Footer actions shown for the current screen.
+  };
+
+  /**
+   * @brief Main page content shown behind overlays and modals.
+   */
+  struct ShellPageContentView {
     std::vector<ShellToolbarButton> toolbarButtons;  ///< Toolbar buttons for the hosts page.
     std::vector<ShellHostTile> hostTiles;  ///< Host tiles shown on the hosts page.
-    std::size_t hostColumnCount = 3;  ///< Number of columns used to lay out host tiles.
+    std::size_t hostColumnCount = 3U;  ///< Number of columns used to lay out host tiles.
     std::vector<ShellAppTile> appTiles;  ///< App tiles shown on the apps page.
-    std::size_t appColumnCount = 4;  ///< Number of columns used to lay out app tiles.
+    std::size_t appColumnCount = 4U;  ///< Number of columns used to lay out app tiles.
     std::vector<std::string> bodyLines;  ///< Generic body lines for text-driven screens.
     std::vector<ShellActionRow> menuRows;  ///< Primary action rows for the active screen.
     std::vector<ShellActionRow> detailMenuRows;  ///< Secondary action rows for details or settings.
@@ -113,25 +118,69 @@ namespace ui {
     std::string selectedMenuRowDescription;  ///< Description of the currently selected row, when available.
     bool leftPanelActive = false;  ///< True when the left navigation panel should use the active accent border.
     bool rightPanelActive = false;  ///< True when the right content panel should use the active accent border.
-    std::vector<ShellFooterAction> footerActions;  ///< Footer actions shown for the current screen.
-    bool overlayVisible = false;  ///< True when the diagnostics overlay should be rendered.
-    std::string overlayTitle;  ///< Diagnostics overlay title.
-    std::vector<std::string> overlayLines;  ///< Diagnostics overlay body lines.
-    bool modalVisible = false;  ///< True when a modal dialog should be rendered.
-    std::string modalTitle;  ///< Modal dialog title.
-    std::vector<std::string> modalLines;  ///< Modal dialog body lines.
-    std::vector<ShellActionRow> modalActions;  ///< Modal action rows.
-    std::vector<ShellFooterAction> modalFooterActions;  ///< Footer actions displayed while a modal is open.
-    bool logViewerVisible = false;  ///< True when the log viewer should be rendered.
-    std::string logViewerPath;  ///< Path of the currently loaded log file.
-    std::vector<std::string> logViewerLines;  ///< Loaded log lines shown in the viewer.
-    std::size_t logViewerScrollOffset = 0U;  ///< Vertical scroll offset inside the log viewer.
-    app::LogViewerPlacement logViewerPlacement = app::LogViewerPlacement::full;  ///< Placement of the log viewer pane.
-    bool keypadModalVisible = false;  ///< True when the keypad modal should be rendered.
-    std::string keypadModalTitle;  ///< Title shown at the top of the keypad modal.
-    std::vector<std::string> keypadModalLines;  ///< Instruction and draft lines shown in the keypad modal.
-    std::vector<ShellModalButton> keypadModalButtons;  ///< Buttons rendered inside the keypad modal.
-    std::size_t keypadModalColumnCount = 0;  ///< Number of columns used to lay out keypad buttons.
+  };
+
+  /**
+   * @brief Transient notification view rendered above the main shell content.
+   */
+  struct ShellNotificationView {
+    bool visible = false;  ///< True when a transient notification should be rendered.
+    ShellNotification content;  ///< Notification content when visible.
+  };
+
+  /**
+   * @brief Diagnostics overlay view rendered above the shell content.
+   */
+  struct ShellOverlayView {
+    bool visible = false;  ///< True when the diagnostics overlay should be rendered.
+    std::string title;  ///< Diagnostics overlay title.
+    std::vector<std::string> lines;  ///< Diagnostics overlay body lines.
+  };
+
+  /**
+   * @brief Modal dialog view rendered on top of the current shell page.
+   */
+  struct ShellModalView {
+    bool visible = false;  ///< True when a modal dialog should be rendered.
+    std::string title;  ///< Modal dialog title.
+    std::vector<std::string> lines;  ///< Modal dialog body lines.
+    std::vector<ShellActionRow> actions;  ///< Modal action rows.
+    std::vector<ShellFooterAction> footerActions;  ///< Footer actions displayed while a modal is open.
+  };
+
+  /**
+   * @brief Embedded log viewer state surfaced by the log-file modal.
+   */
+  struct ShellLogViewerView {
+    bool visible = false;  ///< True when the log viewer should be rendered.
+    std::string path;  ///< Path of the currently loaded log file.
+    std::vector<std::string> lines;  ///< Loaded log lines shown in the viewer.
+    std::size_t scrollOffset = 0U;  ///< Vertical scroll offset inside the log viewer.
+    app::LogViewerPlacement placement = app::LogViewerPlacement::full;  ///< Placement of the log viewer pane.
+  };
+
+  /**
+   * @brief Add-host keypad modal view rendered above the split add-host screen.
+   */
+  struct ShellKeypadModalView {
+    bool visible = false;  ///< True when the keypad modal should be rendered.
+    std::string title;  ///< Title shown at the top of the keypad modal.
+    std::vector<std::string> lines;  ///< Instruction and draft lines shown in the keypad modal.
+    std::vector<ShellModalButton> buttons;  ///< Buttons rendered inside the keypad modal.
+    std::size_t columnCount = 0U;  ///< Number of columns used to lay out keypad buttons.
+  };
+
+  /**
+   * @brief Render-ready shell state derived from the app model.
+   */
+  struct ShellViewModel {
+    ShellFrameView frame;  ///< Shell-wide frame metadata.
+    ShellNotificationView notification;  ///< Transient notification rendered above the page.
+    ShellPageContentView content;  ///< Main page content for the active screen.
+    ShellOverlayView overlay;  ///< Diagnostics overlay content.
+    ShellModalView modal;  ///< Modal dialog content.
+    ShellLogViewerView logViewer;  ///< Embedded log viewer surfaced by the log modal.
+    ShellKeypadModalView keypad;  ///< Add-host keypad modal content.
   };
 
   /**

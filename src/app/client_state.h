@@ -144,79 +144,245 @@ namespace app {
   };
 
   /**
-   * @brief Serializable app state for the menu-driven client shell.
+   * @brief Shell-wide state that is not owned by a specific workflow screen.
    */
-  struct ClientState {  ///< NOSONAR(cpp:S1820) app shell state intentionally keeps the full workflow snapshot together
-    ScreenId activeScreen;  ///< Screen currently shown by the shell.
-    bool overlayVisible;  ///< True when the diagnostics overlay is visible.
-    bool shouldExit;  ///< True when the application should terminate.
-    bool hostsDirty;  ///< True when the host list changed and should be saved.
-    bool hostsLoaded;  ///< True when the hosts page list is currently loaded in memory.
-    std::size_t overlayScrollOffset;  ///< Scroll offset used by long overlay content.
-    HostsFocusArea hostsFocusArea;  ///< Focused region on the hosts page.
-    std::size_t selectedToolbarButtonIndex;  ///< Zero-based selection inside the hosts toolbar.
-    std::size_t selectedHostIndex;  ///< Zero-based selection inside the saved host list.
-    std::size_t selectedAppIndex;  ///< Zero-based selection inside the visible app list.
-    std::size_t appsScrollPage;  ///< Horizontal page offset for paged app browsing.
-    bool showHiddenApps;  ///< True when hidden apps should remain visible in the apps screen.
-    ui::MenuModel menu;  ///< Primary vertical menu model for the active screen.
-    ui::MenuModel detailMenu;  ///< Secondary detail or actions menu.
-    std::vector<HostRecord> hosts;  ///< Saved hosts currently tracked by the shell.
-    HostRecord activeHost;  ///< Host snapshot kept for host-specific non-host screens after unloading the hosts page.
-    bool activeHostLoaded = false;  ///< True when activeHost contains a valid host snapshot.
-    std::string selectedHostAddress;  ///< Last selected host address used to restore hosts-page selection after reload.
-    uint16_t selectedHostPort = 0;  ///< Last selected host port override used to restore hosts-page selection after reload.
-    AddHostDraft addHostDraft;  ///< Draft state for the add-host workflow.
-    PairingDraft pairingDraft;  ///< Draft state for the active pairing workflow.
-    ModalState modal;  ///< Context modal currently stacked over the shell.
-    SettingsFocusArea settingsFocusArea = SettingsFocusArea::categories;  ///< Focused pane within the settings screen.
-    SettingsCategory selectedSettingsCategory = SettingsCategory::logging;  ///< Settings category selected in the left pane.
-    ConfirmationDialogState confirmation;  ///< Confirmation dialog content for destructive actions.
+  struct ShellState {
+    ScreenId activeScreen = ScreenId::hosts;  ///< Screen currently shown by the shell.
+    bool overlayVisible = false;  ///< True when the diagnostics overlay is visible.
+    bool shouldExit = false;  ///< True when the application should terminate.
+    std::size_t overlayScrollOffset = 0U;  ///< Scroll offset used by long overlay content.
     std::string statusMessage;  ///< Primary user-visible status line.
+  };
+
+  /**
+   * @brief State owned by the saved-host browser and retained host snapshot.
+   */
+  struct HostsState {
+    bool dirty = false;  ///< True when the host list changed and should be saved.
+    bool loaded = false;  ///< True when the hosts page list is currently loaded in memory.
+    HostsFocusArea focusArea = HostsFocusArea::toolbar;  ///< Focused region on the hosts page.
+    std::size_t selectedToolbarButtonIndex = 0U;  ///< Zero-based selection inside the hosts toolbar.
+    std::size_t selectedHostIndex = 0U;  ///< Zero-based selection inside the saved host list.
+    std::vector<HostRecord> items;  ///< Saved hosts currently tracked by the shell.
+    HostRecord active;  ///< Host snapshot kept for host-specific non-host screens after unloading the hosts page.
+    bool activeLoaded = false;  ///< True when active contains a valid host snapshot.
+    std::string selectedAddress;  ///< Last selected host address used to restore hosts-page selection after reload.
+    uint16_t selectedPort = 0;  ///< Last selected host port override used to restore hosts-page selection after reload.
+    std::vector<std::string> pairingResetEndpoints;  ///< Endpoints whose pairing material should be cleared during reset.
+
+    /**
+     * @brief Return whether the saved-host collection is empty.
+     *
+     * @return True when no saved hosts are currently loaded.
+     */
+    bool empty() const {
+      return items.empty();
+    }
+
+    /**
+     * @brief Return the number of saved hosts currently tracked by the shell.
+     *
+     * @return Number of host records stored in the collection.
+     */
+    std::size_t size() const {
+      return items.size();
+    }
+
+    /**
+     * @brief Return an iterator to the first saved host.
+     *
+     * @return Mutable iterator to the first element.
+     */
+    auto begin() {
+      return items.begin();
+    }
+
+    /**
+     * @brief Return an iterator one past the last saved host.
+     *
+     * @return Mutable iterator to the end of the collection.
+     */
+    auto end() {
+      return items.end();
+    }
+
+    /**
+     * @brief Return a const iterator to the first saved host.
+     *
+     * @return Const iterator to the first element.
+     */
+    auto begin() const {
+      return items.begin();
+    }
+
+    /**
+     * @brief Return a const iterator one past the last saved host.
+     *
+     * @return Const iterator to the end of the collection.
+     */
+    auto end() const {
+      return items.end();
+    }
+
+    /**
+     * @brief Remove every saved host from the collection.
+     */
+    void clear() {
+      items.clear();
+    }
+
+    /**
+     * @brief Return the first saved host.
+     *
+     * @return Reference to the first host record.
+     */
+    HostRecord &front() {
+      return items.front();
+    }
+
+    /**
+     * @brief Return the first saved host.
+     *
+     * @return Const reference to the first host record.
+     */
+    const HostRecord &front() const {
+      return items.front();
+    }
+
+    /**
+     * @brief Return the last saved host.
+     *
+     * @return Reference to the last host record.
+     */
+    HostRecord &back() {
+      return items.back();
+    }
+
+    /**
+     * @brief Return the last saved host.
+     *
+     * @return Const reference to the last host record.
+     */
+    const HostRecord &back() const {
+      return items.back();
+    }
+
+    /**
+     * @brief Return the saved host at the requested index.
+     *
+     * @param index Zero-based host index.
+     * @return Reference to the host record at @p index.
+     */
+    HostRecord &operator[](std::size_t index) {
+      return items[index];
+    }
+
+    /**
+     * @brief Return the saved host at the requested index.
+     *
+     * @param index Zero-based host index.
+     * @return Const reference to the host record at @p index.
+     */
+    const HostRecord &operator[](std::size_t index) const {
+      return items[index];
+    }
+  };
+
+  /**
+   * @brief State owned by the per-host apps browser.
+   */
+  struct AppsState {
+    std::size_t selectedAppIndex = 0U;  ///< Zero-based selection inside the visible app list.
+    std::size_t scrollPage = 0U;  ///< Horizontal page offset for paged app browsing.
+    bool showHiddenApps = false;  ///< True when hidden apps should remain visible in the apps screen.
+  };
+
+  /**
+   * @brief State owned by the settings, log viewer, and saved-file workflows.
+   */
+  struct SettingsState {
+    SettingsFocusArea focusArea = SettingsFocusArea::categories;  ///< Focused pane within the settings screen.
+    SettingsCategory selectedCategory = SettingsCategory::logging;  ///< Settings category selected in the left pane.
     std::string logFilePath;  ///< Path currently loaded into the log viewer.
     std::vector<std::string> logViewerLines;  ///< Loaded log file lines shown in the log viewer.
     std::size_t logViewerScrollOffset = 0U;  ///< Zero-based vertical scroll offset inside the log viewer.
     LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;  ///< Log viewer pane placement relative to the shell.
     logging::LogLevel loggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written to the persisted log file.
     logging::LogLevel xemuConsoleLoggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level mirrored through DbgPrint() to xemu's serial console.
-    bool settingsDirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.
+    bool dirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.
     std::vector<startup::SavedFileEntry> savedFiles;  ///< Saved-file catalog shown on the reset settings page.
     bool savedFilesDirty = true;  ///< True when the saved-file catalog should be refreshed.
-    std::vector<std::string> pairingResetEndpoints;  ///< Endpoints whose pairing material should be cleared during reset.
+  };
+
+  /**
+   * @brief Serializable app state for the menu-driven client shell.
+   */
+  struct ClientState {
+    ShellState shell;  ///< Shell-wide status and overlay state.
+    HostsState hosts;  ///< Saved-host browsing state and retained host snapshot.
+    AppsState apps;  ///< Apps-screen selection and paging state.
+    ui::MenuModel menu;  ///< Primary vertical menu model for the active screen.
+    ui::MenuModel detailMenu;  ///< Secondary detail or actions menu.
+    AddHostDraft addHostDraft;  ///< Draft state for the add-host workflow.
+    PairingDraft pairingDraft;  ///< Draft state for the active pairing workflow.
+    ModalState modal;  ///< Context modal currently stacked over the shell.
+    SettingsState settings;  ///< Settings, log viewer, and saved-file workflow state.
+    ConfirmationDialogState confirmation;  ///< Confirmation dialog content for destructive actions.
+  };
+
+  /**
+   * @brief Navigation and modal effects emitted by one command update.
+   */
+  struct AppNavigationUpdate {
+    bool screenChanged = false;  ///< True when the active screen changed.
+    bool overlayChanged = false;  ///< True when overlay content changed.
+    bool overlayVisibilityChanged = false;  ///< True when overlay visibility toggled.
+    bool exitRequested = false;  ///< True when the shell requested application exit.
+    bool modalOpened = false;  ///< True when a modal became active during the update.
+    bool modalClosed = false;  ///< True when the active modal was dismissed during the update.
+    std::string activatedItemId;  ///< Stable identifier for the activated menu item, when any.
+  };
+
+  /**
+   * @brief Network and browsing requests emitted by one command update.
+   */
+  struct AppRequestUpdate {
+    bool connectionTestRequested = false;  ///< True when a manual host connection test should run.
+    std::string connectionTestAddress;  ///< Host address that should be tested.
+    uint16_t connectionTestPort = 0;  ///< Host port that should be tested.
+    bool pairingRequested = false;  ///< True when manual pairing should begin.
+    bool pairingCancelledRequested = false;  ///< True when an in-progress pairing request should be cancelled.
+    std::string pairingAddress;  ///< Host address targeted by pairing.
+    uint16_t pairingPort = 0;  ///< Host port targeted by pairing.
+    std::string pairingPin;  ///< Generated client PIN that should be shown to the user.
+    bool appsBrowseRequested = false;  ///< True when app browsing for the selected host should begin.
+    bool appsBrowseShowHidden = false;  ///< Hidden-app visibility requested for the app browse action.
+    bool logViewRequested = false;  ///< True when the log viewer should be refreshed from disk.
+  };
+
+  /**
+   * @brief Persistence and cleanup side effects emitted by one command update.
+   */
+  struct AppPersistenceUpdate {
+    bool hostsChanged = false;  ///< True when the host list changed and should be persisted.
+    bool settingsChanged = false;  ///< True when persisted TOML-backed settings changed.
+    bool savedFileDeleteRequested = false;  ///< True when one managed file should be deleted.
+    std::string savedFileDeletePath;  ///< Managed file path requested for deletion.
+    bool factoryResetRequested = false;  ///< True when a full saved-data reset should run.
+    bool hostDeleteCleanupRequested = false;  ///< True when host deletion follow-up cleanup should run.
+    bool deletedHostWasPaired = false;  ///< True when the deleted host previously had pairing credentials.
+    std::string deletedHostAddress;  ///< Address of the host removed from storage.
+    uint16_t deletedHostPort = 0;  ///< Port of the host removed from storage.
+    std::vector<std::string> deletedHostCoverArtCacheKeys;  ///< Cover-art cache keys to remove for the deleted host.
   };
 
   /**
    * @brief Result of updating the client shell with a UI command.
    */
-  struct AppUpdate {  ///< NOSONAR(cpp:S1820) command results intentionally bundle all one-frame side effects
-    bool screenChanged;  ///< True when the active screen changed.
-    bool overlayChanged;  ///< True when overlay content changed.
-    bool overlayVisibilityChanged;  ///< True when overlay visibility toggled.
-    bool exitRequested;  ///< True when the shell requested application exit.
-    bool hostsChanged;  ///< True when the host list changed and should be persisted.
-    bool settingsChanged;  ///< True when persisted TOML-backed settings changed.
-    bool connectionTestRequested;  ///< True when a manual host connection test should run.
-    bool pairingRequested;  ///< True when manual pairing should begin.
-    bool pairingCancelledRequested;  ///< True when an in-progress pairing request should be cancelled.
-    bool appsBrowseRequested;  ///< True when app browsing for the selected host should begin.
-    bool appsBrowseShowHidden;  ///< Hidden-app visibility requested for the app browse action.
-    bool logViewRequested;  ///< True when the log viewer should be refreshed from disk.
-    bool savedFileDeleteRequested;  ///< True when one managed file should be deleted.
-    bool factoryResetRequested;  ///< True when a full saved-data reset should run.
-    bool hostDeleteCleanupRequested;  ///< True when host deletion follow-up cleanup should run.
-    bool modalOpened;  ///< True when a modal became active during the update.
-    bool modalClosed;  ///< True when the active modal was dismissed during the update.
-    bool deletedHostWasPaired;  ///< True when the deleted host previously had pairing credentials.
-    std::string activatedItemId;  ///< Stable identifier for the activated menu item, when any.
-    std::string connectionTestAddress;  ///< Host address that should be tested.
-    uint16_t connectionTestPort;  ///< Host port that should be tested.
-    std::string pairingAddress;  ///< Host address targeted by pairing.
-    uint16_t pairingPort;  ///< Host port targeted by pairing.
-    std::string pairingPin;  ///< Generated client PIN that should be shown to the user.
-    std::string savedFileDeletePath;  ///< Managed file path requested for deletion.
-    std::string deletedHostAddress;  ///< Address of the host removed from storage.
-    uint16_t deletedHostPort;  ///< Port of the host removed from storage.
-    std::vector<std::string> deletedHostCoverArtCacheKeys;  ///< Cover-art cache keys to remove for the deleted host.
+  struct AppUpdate {
+    AppNavigationUpdate navigation;  ///< Navigation and modal changes emitted by the command.
+    AppRequestUpdate requests;  ///< Network and browsing requests emitted by the command.
+    AppPersistenceUpdate persistence;  ///< Persistence and cleanup work emitted by the command.
   };
 
   /**
