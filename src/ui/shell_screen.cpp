@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -1023,7 +1024,7 @@ namespace {
     const ui::ShellAppTile &tile,
     const SDL_Rect &rect,
     CoverArtTextureCache *textureCache,
-    AssetTextureCache *assetCache
+    const AssetTextureCache *assetCache
   ) {
     fill_rect(renderer, rect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0xFF);
     if (SDL_Texture *texture = tile.boxArtCached ? load_cover_art_texture(renderer, textureCache, tile.boxArtCacheKey) : nullptr; texture != nullptr) {
@@ -1214,13 +1215,13 @@ namespace {
       logViewerLayout = build_log_viewer_layout(viewModel, smallFont, std::max(1, contentRect.w - logViewerScrollbarWidth - logViewerScrollbarGap), contentRect.h, clampedOffset);
     }
 
-    const SDL_Rect textRect {
-      contentRect.x,
-      contentRect.y,
-      std::max(1, contentRect.w - (overflow ? logViewerScrollbarWidth + logViewerScrollbarGap : 0)),
-      contentRect.h,
-    };
-    if (!render_log_viewer_lines(renderer, smallFont, viewModel, textRect, logViewerLayout)) {
+    if (const SDL_Rect textRect {
+          contentRect.x,
+          contentRect.y,
+          std::max(1, contentRect.w - (overflow ? logViewerScrollbarWidth + logViewerScrollbarGap : 0)),
+          contentRect.h,
+        };
+        !render_log_viewer_lines(renderer, smallFont, viewModel, textRect, logViewerLayout)) {
       return false;
     }
 
@@ -1407,8 +1408,7 @@ namespace {
         break;
       }
 
-      const SDL_Rect chipRect {cursorX, chipY, layout.chipWidth, chipHeight};
-      if (!render_footer_action_chip(renderer, font, assetCache, action, layout, chipRect)) {
+      if (const SDL_Rect chipRect {cursorX, chipY, layout.chipWidth, chipHeight}; !render_footer_action_chip(renderer, font, assetCache, action, layout, chipRect)) {
         return false;
       }
 
@@ -3137,25 +3137,87 @@ namespace {
     return textHeight;
   }
 
+  struct BodyLinesRenderLayout {
+    SDL_Color color {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF};
+    int x = 0;
+    int y = 0;
+    int maxWidth = 0;
+    int lineGap = 0;
+  };
+
   bool render_body_lines(
     SDL_Renderer *renderer,
     TTF_Font *font,
     const std::vector<std::string> &lines,
-    const SDL_Color &color,
-    int x,
-    int y,
-    int maxWidth,
-    int lineGap
+    const BodyLinesRenderLayout &layout
   ) {
-    int cursorY = y;
+    int cursorY = layout.y;
     for (const std::string &line : lines) {
       int drawnHeight = 0;
-      if (!render_text_line(renderer, font, line, color, x, cursorY, maxWidth, &drawnHeight)) {
+      if (!render_text_line(renderer, font, line, layout.color, layout.x, cursorY, layout.maxWidth, &drawnHeight)) {
         return false;
       }
-      cursorY += drawnHeight + lineGap;
+      cursorY += drawnHeight + layout.lineGap;
     }
     return true;
+  }
+
+  bool render_settings_detail_panel(
+    SDL_Renderer *renderer,
+    TTF_Font *bodyFont,
+    TTF_Font *smallFont,
+    const ui::ShellViewModel &viewModel,
+    const SDL_Rect &bodyPanel,
+    int panelPadding
+  ) {
+    const int optionsHeaderY = bodyPanel.y + panelPadding;
+    const int optionsTopY = optionsHeaderY + 28;
+    const int descriptionGap = 16;
+    const int descriptionHeaderHeight = std::max(26, TTF_FontLineSkip(smallFont));
+    const int minimumDescriptionHeight = std::max(96, (TTF_FontLineSkip(smallFont) * 3) + descriptionHeaderHeight + 20);
+    const int availableOptionsHeight = bodyPanel.h - ((panelPadding * 2) + 28 + descriptionGap + descriptionHeaderHeight + minimumDescriptionHeight);
+    const int optionsHeight = std::max(std::max(120, bodyPanel.h / 2), availableOptionsHeight);
+    const SDL_Rect optionsRect {bodyPanel.x + panelPadding, optionsTopY, bodyPanel.w - (panelPadding * 2), std::max(96, optionsHeight)};
+    const int descriptionTopY = optionsRect.y + optionsRect.h + descriptionGap;
+    const SDL_Rect descriptionRect {
+      bodyPanel.x + panelPadding,
+      descriptionTopY,
+      bodyPanel.w - (panelPadding * 2),
+      std::max(72, bodyPanel.y + bodyPanel.h - panelPadding - descriptionTopY)
+    };
+
+    if (!render_text_line_simple(renderer, smallFont, "Options", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, bodyPanel.x + panelPadding, optionsHeaderY, bodyPanel.w - (panelPadding * 2))) {
+      return false;
+    }
+    if (!render_action_rows(
+          renderer,
+          bodyFont,
+          viewModel.detailMenuRows,
+          optionsRect,
+          std::max(34, TTF_FontLineSkip(bodyFont) + 12)
+        )) {
+      return false;
+    }
+
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    fill_rect(renderer, descriptionRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0x88);
+    draw_rect(renderer, descriptionRect, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x40);
+
+    if (!render_text_line_simple(renderer, smallFont, "Description", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionRect.y + 8, descriptionRect.w - 20)) {
+      return false;
+    }
+
+    int descriptionY = descriptionRect.y + descriptionHeaderHeight + 10;
+    if (!viewModel.selectedMenuRowLabel.empty()) {
+      int drawnHeight = 0;
+      if (!render_text_line(renderer, bodyFont, viewModel.selectedMenuRowLabel, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20, &drawnHeight)) {
+        return false;
+      }
+      descriptionY += drawnHeight + 6;
+    }
+
+    const std::string descriptionText = viewModel.selectedMenuRowDescription.empty() ? std::string("No description is available for the selected setting.") : viewModel.selectedMenuRowDescription;
+    return render_text_line(renderer, smallFont, descriptionText, {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20);
   }
 
   bool render_app_tiles_grid(
@@ -3206,7 +3268,12 @@ namespace {
   bool render_apps_empty_state(SDL_Renderer *renderer, TTF_Font *smallFont, const ui::ShellViewModel &viewModel, const SDL_Rect &gridRect) {
     const int lineGap = 8;
     const int textHeight = measure_body_lines_height(smallFont, viewModel.bodyLines, gridRect.w - 48, lineGap);
-    return render_body_lines(renderer, smallFont, viewModel.bodyLines, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, gridRect.x + 24, gridRect.y + std::max(16, (gridRect.h - textHeight) / 2), gridRect.w - 48, lineGap);
+    return render_body_lines(
+      renderer,
+      smallFont,
+      viewModel.bodyLines,
+      {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, gridRect.x + 24, gridRect.y + std::max(16, (gridRect.h - textHeight) / 2), gridRect.w - 48, lineGap}
+    );
   }
 
   bool draw_shell(  // NOSONAR(cpp:S107) one-frame shell rendering keeps layout dependencies explicit
@@ -3388,10 +3455,8 @@ namespace {
         if (!render_app_tiles_grid(renderer, smallFont, viewModel, gridRect, textureCache, assetCache)) {
           return false;
         }
-      } else if (!viewModel.bodyLines.empty()) {
-        if (!render_apps_empty_state(renderer, smallFont, viewModel, gridRect)) {
-          return false;
-        }
+      } else if (!viewModel.bodyLines.empty() && !render_apps_empty_state(renderer, smallFont, viewModel, gridRect)) {
+        return false;
       }
     } else {
       const bool settingsScreen = viewModel.screen == app::ScreenId::settings;
@@ -3443,58 +3508,16 @@ namespace {
       }
 
       if (hasDetailMenu) {
-        const int optionsHeaderY = bodyPanel.y + panelPadding;
-        const int optionsTopY = optionsHeaderY + 28;
-        const int descriptionGap = 16;
-        const int descriptionHeaderHeight = std::max(26, TTF_FontLineSkip(smallFont));
-        const int minimumDescriptionHeight = std::max(96, (TTF_FontLineSkip(smallFont) * 3) + descriptionHeaderHeight + 20);
-        const int availableOptionsHeight = bodyPanel.h - ((panelPadding * 2) + 28 + descriptionGap + descriptionHeaderHeight + minimumDescriptionHeight);
-        const int optionsHeight = std::max(std::max(120, bodyPanel.h / 2), availableOptionsHeight);
-        const SDL_Rect optionsRect {bodyPanel.x + panelPadding, optionsTopY, bodyPanel.w - (panelPadding * 2), std::max(96, optionsHeight)};
-        const int descriptionTopY = optionsRect.y + optionsRect.h + descriptionGap;
-        const SDL_Rect descriptionRect {
-          bodyPanel.x + panelPadding,
-          descriptionTopY,
-          bodyPanel.w - (panelPadding * 2),
-          std::max(72, bodyPanel.y + bodyPanel.h - panelPadding - descriptionTopY)
-        };
-
-        if (!render_text_line_simple(renderer, smallFont, "Options", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, bodyPanel.x + panelPadding, optionsHeaderY, bodyPanel.w - (panelPadding * 2))) {
-          return false;
-        }
-        if (!render_action_rows(
-              renderer,
-              bodyFont,
-              viewModel.detailMenuRows,
-              optionsRect,
-              std::max(34, TTF_FontLineSkip(bodyFont) + 12)
-            )) {
-          return false;
-        }
-
-        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        fill_rect(renderer, descriptionRect, PANEL_ALT_RED, PANEL_ALT_GREEN, PANEL_ALT_BLUE, 0x88);
-        draw_rect(renderer, descriptionRect, TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0x40);
-
-        if (!render_text_line_simple(renderer, smallFont, "Description", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionRect.y + 8, descriptionRect.w - 20)) {
-          return false;
-        }
-
-        int descriptionY = descriptionRect.y + descriptionHeaderHeight + 10;
-        if (!viewModel.selectedMenuRowLabel.empty()) {
-          int drawnHeight = 0;
-          if (!render_text_line(renderer, bodyFont, viewModel.selectedMenuRowLabel, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20, &drawnHeight)) {
-            return false;
-          }
-          descriptionY += drawnHeight + 6;
-        }
-
-        const std::string descriptionText = viewModel.selectedMenuRowDescription.empty() ? std::string("No description is available for the selected setting.") : viewModel.selectedMenuRowDescription;
-        if (!render_text_line(renderer, smallFont, descriptionText, {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, descriptionRect.x + 10, descriptionY, descriptionRect.w - 20)) {
+        if (!render_settings_detail_panel(renderer, bodyFont, smallFont, viewModel, bodyPanel, panelPadding)) {
           return false;
         }
       } else {
-        if (!render_body_lines(renderer, bodyFont, viewModel.bodyLines, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyPanel.y + panelPadding, bodyPanel.w - (panelPadding * 2), 8)) {
+        if (!render_body_lines(
+              renderer,
+              bodyFont,
+              viewModel.bodyLines,
+              {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyPanel.y + panelPadding, bodyPanel.w - (panelPadding * 2), 8}
+            )) {
           return false;
         }
       }
@@ -3679,11 +3702,11 @@ namespace {
     }
   }
 
-  bool should_open_added_controller(SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
+  bool should_open_added_controller(const SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
     return controller == nullptr && SDL_IsGameController(event.which);
   }
 
-  bool should_close_removed_controller(SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
+  bool should_close_removed_controller(const SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
     return controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.which);
   }
 
@@ -3708,6 +3731,306 @@ namespace {
       return input::UiCommand::none;
     }
     return translate_keyboard_key(event.keysym.sym, event.keysym.mod);
+  }
+
+  struct ShellInputState {
+    bool leftTriggerPressed = false;
+    bool rightTriggerPressed = false;
+    bool leftShoulderPressed = false;
+    bool rightShoulderPressed = false;
+    bool controllerStartPressed = false;
+    bool controllerBackPressed = false;
+    bool controllerExitComboArmed = false;
+    bool controllerExitComboTriggered = false;
+    Uint32 controllerStartDownTick = 0U;
+    Uint32 controllerBackDownTick = 0U;
+    Uint32 leftShoulderRepeatTick = 0U;
+    Uint32 rightShoulderRepeatTick = 0U;
+    Uint32 leftTriggerRepeatTick = 0U;
+    Uint32 rightTriggerRepeatTick = 0U;
+    ControllerNavigationHoldState moveUpHoldState {};
+    ControllerNavigationHoldState moveDownHoldState {};
+    ControllerNavigationHoldState moveLeftHoldState {};
+    ControllerNavigationHoldState moveRightHoldState {};
+    bool controllerNavigationNeutralRequired = false;
+  };
+
+  void reset_shell_input_state(ShellInputState *inputState) {
+    if (inputState == nullptr) {
+      return;
+    }
+
+    *inputState = {};
+  }
+
+  void disarm_controller_exit_combo(ShellInputState *inputState) {
+    if (inputState == nullptr) {
+      return;
+    }
+
+    inputState->controllerExitComboArmed = false;
+    inputState->controllerExitComboTriggered = false;
+  }
+
+  void update_exit_combo_hold(app::ClientState &state, ShellInputState *inputState) {
+    if (inputState == nullptr || inputState->controllerExitComboTriggered) {
+      return;
+    }
+
+    if (!inputState->controllerStartPressed || !inputState->controllerBackPressed || !hosts_screen_exit_combo_allowed(state)) {
+      return;
+    }
+
+    inputState->controllerExitComboArmed = true;
+    if (const Uint32 comboStartTick = inputState->controllerStartDownTick > inputState->controllerBackDownTick ? inputState->controllerStartDownTick : inputState->controllerBackDownTick; SDL_GetTicks() - comboStartTick < EXIT_COMBO_HOLD_MILLISECONDS) {
+      return;
+    }
+
+    inputState->controllerExitComboTriggered = true;
+    state.shouldExit = true;
+    logging::info("app", "Exit requested from held Start+Back on the hosts screen");
+  }
+
+  void process_log_viewer_repeat_commands(
+    const app::ClientState &state,
+    Uint32 now,
+    ShellInputState *inputState,
+    const std::function<void(input::UiCommand)> &processCommand
+  ) {
+    if (inputState == nullptr || state.modal.id != app::ModalId::log_viewer) {
+      return;
+    }
+
+    if (inputState->leftShoulderPressed && now - inputState->leftShoulderRepeatTick >= LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS) {
+      inputState->leftShoulderRepeatTick = now;
+      processCommand(input::UiCommand::previous_page);
+    }
+    if (inputState->rightShoulderPressed && now - inputState->rightShoulderRepeatTick >= LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS) {
+      inputState->rightShoulderRepeatTick = now;
+      processCommand(input::UiCommand::next_page);
+    }
+    if (inputState->leftTriggerPressed && now - inputState->leftTriggerRepeatTick >= LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS) {
+      inputState->leftTriggerRepeatTick = now;
+      processCommand(input::UiCommand::fast_previous_page);
+    }
+    if (inputState->rightTriggerPressed && now - inputState->rightTriggerRepeatTick >= LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS) {
+      inputState->rightTriggerRepeatTick = now;
+      processCommand(input::UiCommand::fast_next_page);
+    }
+  }
+
+  void handle_controller_device_added(SDL_GameController **controller, const SDL_ControllerDeviceEvent &event) {
+    if (controller == nullptr || !should_open_added_controller(*controller, event)) {
+      return;
+    }
+
+    *controller = SDL_GameControllerOpen(event.which);
+    if (*controller != nullptr) {
+      logging::info("input", "Controller connected");
+    }
+  }
+
+  void handle_controller_device_removed(SDL_GameController **controller, const SDL_ControllerDeviceEvent &event, ShellInputState *inputState) {
+    if (controller == nullptr || !should_close_removed_controller(*controller, event)) {
+      return;
+    }
+
+    close_controller(*controller);
+    *controller = nullptr;
+    reset_shell_input_state(inputState);
+    logging::warn("input", "Controller disconnected");
+  }
+
+  input::UiCommand handle_controller_button_down_event(const SDL_ControllerButtonEvent &event, const app::ClientState &state, ShellInputState *inputState) {
+    if (inputState == nullptr) {
+      return input::UiCommand::none;
+    }
+
+    const Uint32 controllerButtonDownTick = SDL_GetTicks();
+    if (event.button == SDL_CONTROLLER_BUTTON_START) {
+      if (!inputState->controllerStartPressed) {
+        inputState->controllerStartPressed = true;
+        inputState->controllerStartDownTick = controllerButtonDownTick;
+      }
+    } else if (event.button == SDL_CONTROLLER_BUTTON_BACK) {
+      if (!inputState->controllerBackPressed) {
+        inputState->controllerBackPressed = true;
+        inputState->controllerBackDownTick = controllerButtonDownTick;
+      }
+    } else {
+      if (event.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+        inputState->leftShoulderPressed = true;
+        inputState->leftShoulderRepeatTick = controllerButtonDownTick;
+      } else if (event.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+        inputState->rightShoulderPressed = true;
+        inputState->rightShoulderRepeatTick = controllerButtonDownTick;
+      }
+
+      const input::UiCommand command = translate_controller_button(event.button);
+      if (is_navigation_command(command)) {
+        seed_controller_navigation_hold_state(
+          controllerButtonDownTick,
+          command,
+          &inputState->moveUpHoldState,
+          &inputState->moveDownHoldState,
+          &inputState->moveLeftHoldState,
+          &inputState->moveRightHoldState
+        );
+      }
+      if (inputState->controllerStartPressed && inputState->controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
+        inputState->controllerExitComboArmed = true;
+      }
+      return command;
+    }
+
+    if (inputState->controllerStartPressed && inputState->controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
+      inputState->controllerExitComboArmed = true;
+    }
+    return input::UiCommand::none;
+  }
+
+  input::UiCommand handle_controller_button_up_event(const SDL_ControllerButtonEvent &event, ShellInputState *inputState) {
+    if (inputState == nullptr) {
+      return input::UiCommand::none;
+    }
+
+    input::UiCommand command = input::UiCommand::none;
+    if (event.button == SDL_CONTROLLER_BUTTON_START && inputState->controllerStartPressed) {
+      inputState->controllerStartPressed = false;
+      if (!inputState->controllerExitComboArmed && !inputState->controllerExitComboTriggered) {
+        command = input::map_gamepad_button_to_ui_command(input::GamepadButton::start);
+      }
+    } else if (event.button == SDL_CONTROLLER_BUTTON_BACK && inputState->controllerBackPressed) {
+      inputState->controllerBackPressed = false;
+      if (!inputState->controllerExitComboArmed && !inputState->controllerExitComboTriggered) {
+        command = input::map_gamepad_button_to_ui_command(input::GamepadButton::back);
+      }
+    } else if (event.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
+      inputState->leftShoulderPressed = false;
+    } else if (event.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
+      inputState->rightShoulderPressed = false;
+    }
+
+    if (!inputState->controllerStartPressed && !inputState->controllerBackPressed) {
+      disarm_controller_exit_combo(inputState);
+    }
+    release_controller_navigation_hold_state(
+      translate_controller_button(event.button),
+      &inputState->moveUpHoldState,
+      &inputState->moveDownHoldState,
+      &inputState->moveLeftHoldState,
+      &inputState->moveRightHoldState
+    );
+    return command;
+  }
+
+  input::UiCommand handle_shell_event(
+    app::ClientState &state,
+    const SDL_Event &event,
+    SDL_GameController **controller,
+    ShellInputState *inputState
+  ) {
+    switch (event.type) {
+      case SDL_QUIT:
+        state.shouldExit = true;
+        return input::UiCommand::none;
+      case SDL_CONTROLLERDEVICEADDED:
+        handle_controller_device_added(controller, event.cdevice);
+        return input::UiCommand::none;
+      case SDL_CONTROLLERDEVICEREMOVED:
+        handle_controller_device_removed(controller, event.cdevice, inputState);
+        return input::UiCommand::none;
+      case SDL_CONTROLLERBUTTONDOWN:
+        return handle_controller_button_down_event(event.cbutton, state, inputState);
+      case SDL_CONTROLLERBUTTONUP:
+        return handle_controller_button_up_event(event.cbutton, inputState);
+      case SDL_CONTROLLERAXISMOTION:
+        if (inputState == nullptr) {
+          return input::UiCommand::none;
+        }
+
+        return translate_trigger_axis(event.caxis, &inputState->leftTriggerPressed, &inputState->rightTriggerPressed);
+      case SDL_KEYDOWN:
+        return translate_unrepeated_keydown(event.key);
+      default:
+        return input::UiCommand::none;
+    }
+  }
+
+  void process_polled_shell_events(
+    app::ClientState &state,
+    SDL_GameController **controller,
+    ShellInputState *inputState,
+    const std::function<void(input::UiCommand)> &processCommand,
+    bool *skipPolledControllerNavigation
+  ) {
+    SDL_Event event;
+    if (skipPolledControllerNavigation != nullptr) {
+      *skipPolledControllerNavigation = false;
+    }
+    if (SDL_WaitEventTimeout(&event, SHELL_EVENT_WAIT_TIMEOUT_MILLISECONDS) == 0) {
+      return;
+    }
+
+    do {
+      const input::UiCommand command = handle_shell_event(state, event, controller, inputState);
+      if (event.type == SDL_CONTROLLERAXISMOTION && inputState != nullptr) {
+        update_trigger_repeat_tick(command, SDL_GetTicks(), &inputState->leftTriggerRepeatTick, &inputState->rightTriggerRepeatTick);
+      }
+
+      processCommand(command);
+      if (command == input::UiCommand::none || is_navigation_command(command) || inputState == nullptr) {
+        continue;
+      }
+
+      inputState->controllerNavigationNeutralRequired = true;
+      if (skipPolledControllerNavigation != nullptr) {
+        *skipPolledControllerNavigation = true;
+      }
+      reset_controller_navigation_hold_states(
+        &inputState->moveUpHoldState,
+        &inputState->moveDownHoldState,
+        &inputState->moveLeftHoldState,
+        &inputState->moveRightHoldState
+      );
+    } while (SDL_PollEvent(&event));
+  }
+
+  void process_controller_navigation(
+    SDL_GameController *controller,
+    ShellInputState *inputState,
+    bool skipPolledControllerNavigation,
+    const std::function<void(input::UiCommand)> &processCommand
+  ) {
+    if (inputState == nullptr) {
+      return;
+    }
+
+    if (inputState->controllerNavigationNeutralRequired) {
+      if (is_controller_navigation_active(controller)) {
+        reset_controller_navigation_hold_states(
+          &inputState->moveUpHoldState,
+          &inputState->moveDownHoldState,
+          &inputState->moveLeftHoldState,
+          &inputState->moveRightHoldState
+        );
+      } else {
+        inputState->controllerNavigationNeutralRequired = false;
+      }
+    }
+
+    if (skipPolledControllerNavigation || inputState->controllerNavigationNeutralRequired) {
+      return;
+    }
+
+    processCommand(poll_controller_navigation(
+      controller,
+      SDL_GetTicks(),
+      &inputState->moveUpHoldState,
+      &inputState->moveDownHoldState,
+      &inputState->moveLeftHoldState,
+      &inputState->moveRightHoldState
+    ));
   }
 
 }  // namespace
@@ -3776,26 +4099,8 @@ namespace ui {
     }
 
     bool running = true;
-    bool leftTriggerPressed = false;
-    bool rightTriggerPressed = false;
-    bool leftShoulderPressed = false;
-    bool rightShoulderPressed = false;
-    bool controllerStartPressed = false;
-    bool controllerBackPressed = false;
-    bool controllerExitComboArmed = false;
-    bool controllerExitComboTriggered = false;
-    Uint32 controllerStartDownTick = 0;
-    Uint32 controllerBackDownTick = 0;
+    ShellInputState inputState {};
     Uint32 nextHostProbeTick = 0;
-    Uint32 leftShoulderRepeatTick = 0;
-    Uint32 rightShoulderRepeatTick = 0;
-    Uint32 leftTriggerRepeatTick = 0;
-    Uint32 rightTriggerRepeatTick = 0;
-    ControllerNavigationHoldState moveUpHoldState {};
-    ControllerNavigationHoldState moveDownHoldState {};
-    ControllerNavigationHoldState moveLeftHoldState {};
-    ControllerNavigationHoldState moveRightHoldState {};
-    bool controllerNavigationNeutralRequired = false;
     PairingTaskState pairingTask {};
     AppListTaskState appListTask {};
     AppArtTaskState appArtTask {};
@@ -3874,168 +4179,12 @@ namespace ui {
       start_app_list_task_if_needed(state, &appListTask, SDL_GetTicks());
       start_app_art_task_if_needed(state, &appArtTask);
 
-      if (!controllerExitComboTriggered && controllerStartPressed && controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
-        controllerExitComboArmed = true;
-        const Uint32 comboStartTick = controllerStartDownTick > controllerBackDownTick ? controllerStartDownTick : controllerBackDownTick;
-        if (SDL_GetTicks() - comboStartTick >= EXIT_COMBO_HOLD_MILLISECONDS) {
-          controllerExitComboTriggered = true;
-          state.shouldExit = true;
-          logging::info("app", "Exit requested from held Start+Back on the hosts screen");
-        }
-      }
+      update_exit_combo_hold(state, &inputState);
+      process_log_viewer_repeat_commands(state, SDL_GetTicks(), &inputState, process_command);
 
-      if (state.modal.id == app::ModalId::log_viewer) {
-        const Uint32 now = SDL_GetTicks();
-        if (leftShoulderPressed && now - leftShoulderRepeatTick >= LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS) {
-          leftShoulderRepeatTick = now;
-          process_command(input::UiCommand::previous_page);
-        }
-        if (rightShoulderPressed && now - rightShoulderRepeatTick >= LOG_VIEWER_SCROLL_REPEAT_MILLISECONDS) {
-          rightShoulderRepeatTick = now;
-          process_command(input::UiCommand::next_page);
-        }
-        if (leftTriggerPressed && now - leftTriggerRepeatTick >= LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS) {
-          leftTriggerRepeatTick = now;
-          process_command(input::UiCommand::fast_previous_page);
-        }
-        if (rightTriggerPressed && now - rightTriggerRepeatTick >= LOG_VIEWER_FAST_SCROLL_REPEAT_MILLISECONDS) {
-          rightTriggerRepeatTick = now;
-          process_command(input::UiCommand::fast_next_page);
-        }
-      }
-
-      SDL_Event event;
       bool skipPolledControllerNavigation = false;
-      if (SDL_WaitEventTimeout(&event, SHELL_EVENT_WAIT_TIMEOUT_MILLISECONDS) != 0) {
-        do {
-          input::UiCommand command = input::UiCommand::none;
-
-          switch (event.type) {
-            case SDL_QUIT:
-              state.shouldExit = true;
-              break;
-            case SDL_CONTROLLERDEVICEADDED:
-              if (should_open_added_controller(controller, event.cdevice)) {
-                controller = SDL_GameControllerOpen(event.cdevice.which);
-                if (controller != nullptr) {
-                  logging::info("input", "Controller connected");
-                }
-              }
-              break;
-            case SDL_CONTROLLERDEVICEREMOVED:
-              if (should_close_removed_controller(controller, event.cdevice)) {
-                close_controller(controller);
-                controller = nullptr;
-                leftTriggerPressed = false;
-                rightTriggerPressed = false;
-                leftShoulderPressed = false;
-                rightShoulderPressed = false;
-                controllerStartPressed = false;
-                controllerBackPressed = false;
-                controllerExitComboArmed = false;
-                controllerExitComboTriggered = false;
-                controllerNavigationNeutralRequired = false;
-                reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-                logging::warn("input", "Controller disconnected");
-              }
-              break;
-            case SDL_CONTROLLERBUTTONDOWN:
-              {
-                const Uint32 controllerButtonDownTick = SDL_GetTicks();
-                if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
-                  if (!controllerStartPressed) {
-                    controllerStartPressed = true;
-                    controllerStartDownTick = controllerButtonDownTick;
-                  }
-                } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK) {
-                  if (!controllerBackPressed) {
-                    controllerBackPressed = true;
-                    controllerBackDownTick = controllerButtonDownTick;
-                  }
-                } else {
-                  if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
-                    leftShoulderPressed = true;
-                    leftShoulderRepeatTick = controllerButtonDownTick;
-                  } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
-                    rightShoulderPressed = true;
-                    rightShoulderRepeatTick = controllerButtonDownTick;
-                  }
-
-                  command = translate_controller_button(event.cbutton.button);
-                  if (is_navigation_command(command)) {
-                    seed_controller_navigation_hold_state(
-                      controllerButtonDownTick,
-                      command,
-                      &moveUpHoldState,
-                      &moveDownHoldState,
-                      &moveLeftHoldState,
-                      &moveRightHoldState
-                    );
-                  }
-                }
-
-                if (controllerStartPressed && controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
-                  controllerExitComboArmed = true;
-                }
-                break;
-              }
-            case SDL_CONTROLLERBUTTONUP:
-              if (event.cbutton.button == SDL_CONTROLLER_BUTTON_START && controllerStartPressed) {
-                controllerStartPressed = false;
-                if (!controllerExitComboArmed && !controllerExitComboTriggered) {
-                  command = input::map_gamepad_button_to_ui_command(input::GamepadButton::start);
-                }
-                if (!controllerStartPressed && !controllerBackPressed) {
-                  controllerExitComboArmed = false;
-                  controllerExitComboTriggered = false;
-                }
-              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_BACK && controllerBackPressed) {
-                controllerBackPressed = false;
-                if (!controllerExitComboArmed && !controllerExitComboTriggered) {
-                  command = input::map_gamepad_button_to_ui_command(input::GamepadButton::back);
-                }
-                if (!controllerStartPressed && !controllerBackPressed) {
-                  controllerExitComboArmed = false;
-                  controllerExitComboTriggered = false;
-                }
-              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) {
-                leftShoulderPressed = false;
-              } else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) {
-                rightShoulderPressed = false;
-              }
-              release_controller_navigation_hold_state(translate_controller_button(event.cbutton.button), &moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-              break;
-            case SDL_CONTROLLERAXISMOTION:
-              command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
-              update_trigger_repeat_tick(command, SDL_GetTicks(), &leftTriggerRepeatTick, &rightTriggerRepeatTick);
-              break;
-            case SDL_KEYDOWN:
-              command = translate_unrepeated_keydown(event.key);
-              break;
-            default:
-              break;
-          }
-
-          process_command(command);
-          if (command != input::UiCommand::none && !is_navigation_command(command)) {
-            controllerNavigationNeutralRequired = true;
-            skipPolledControllerNavigation = true;
-            reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-          }
-        } while (SDL_PollEvent(&event));
-      }
-
-      if (controllerNavigationNeutralRequired) {
-        if (is_controller_navigation_active(controller)) {
-          reset_controller_navigation_hold_states(&moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState);
-        } else {
-          controllerNavigationNeutralRequired = false;
-        }
-      }
-
-      if (!skipPolledControllerNavigation && !controllerNavigationNeutralRequired) {
-        process_command(poll_controller_navigation(controller, SDL_GetTicks(), &moveUpHoldState, &moveDownHoldState, &moveLeftHoldState, &moveRightHoldState));
-      }
+      process_polled_shell_events(state, &controller, &inputState, process_command, &skipPolledControllerNavigation);
+      process_controller_navigation(controller, &inputState, skipPolledControllerNavigation, process_command);
 
       finish_pairing_task_if_ready(state, &pairingTask);
       finish_app_list_task_if_ready(state, &appListTask);

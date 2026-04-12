@@ -2,6 +2,7 @@
 #include "src/logging/logger.h"
 
 // standard includes
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -20,15 +21,22 @@
 
 namespace {
 
-  logging::Logger *g_globalLogger = nullptr;
-  bool g_startupConsoleEnabled = true;
+  logging::Logger *&global_logger_slot() {
+    static logging::Logger *globalLogger = nullptr;
+    return globalLogger;
+  }
+
+  bool &startup_console_enabled_slot() {
+    static bool startupConsoleEnabled = true;
+    return startupConsoleEnabled;
+  }
 
   bool is_enabled(logging::LogLevel candidateLevel, logging::LogLevel minimumLevel) {
     return static_cast<int>(candidateLevel) >= static_cast<int>(minimumLevel);
   }
 
   logging::Logger *registered_logger() {
-    return g_globalLogger;
+    return global_logger_slot();
   }
 
   logging::LogLevel startup_console_level(logging::LogLevel level) {
@@ -187,7 +195,7 @@ namespace logging {
   }
 
   void set_global_logger(Logger *logger) {
-    g_globalLogger = logger;
+    global_logger_slot() = logger;
   }
 
   bool has_global_logger() {
@@ -253,7 +261,7 @@ namespace logging {
   }
 
   std::vector<LogEntry> snapshot(LogLevel minimumLevel) {
-    if (Logger *logger = registered_logger(); logger != nullptr) {
+    if (const Logger *logger = registered_logger(); logger != nullptr) {
       return logger->snapshot(minimumLevel);
     }
 
@@ -271,11 +279,11 @@ namespace logging {
   }
 
   void set_startup_console_enabled(bool enabled) {
-    g_startupConsoleEnabled = enabled;
+    startup_console_enabled_slot() = enabled;
   }
 
   bool startup_console_enabled() {
-    return g_startupConsoleEnabled;
+    return startup_console_enabled_slot();
   }
 
   void print_startup_console_line(LogLevel level, std::string_view category, std::string_view message) {
@@ -351,13 +359,9 @@ namespace logging {
       return true;
     }
 
-    for (const RegisteredSink &registeredSink : sinks_) {
-      if (registeredSink.sink && is_enabled(level, registeredSink.minimumLevel)) {
-        return true;
-      }
-    }
-
-    return false;
+    return std::any_of(sinks_.begin(), sinks_.end(), [level](const RegisteredSink &registeredSink) {
+      return registeredSink.sink && is_enabled(level, registeredSink.minimumLevel);
+    });
   }
 
   bool Logger::log(LogLevel level, std::string category, std::string message, LogSourceLocation location) {

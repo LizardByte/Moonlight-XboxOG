@@ -6,9 +6,9 @@
 
 namespace app {
 
-  PairingDraft create_pairing_draft(const std::string &targetAddress, uint16_t targetPort, std::string generatedPin) {
+  PairingDraft create_pairing_draft(std::string_view targetAddress, uint16_t targetPort, std::string generatedPin) {
     PairingDraft draft {
-      targetAddress,
+      std::string(targetAddress),
       targetPort,
       std::move(generatedPin),
       PairingStage::idle,
@@ -17,7 +17,7 @@ namespace app {
     return draft;
   }
 
-  bool is_valid_pairing_pin(const std::string &pin) {
+  bool is_valid_pairing_pin(std::string_view pin) {
     if (pin.size() != 4) {
       return false;
     }

@@ -81,7 +81,12 @@ target_compile_options(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_COMPILE_OPTIONS}
         $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>
 )
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE XBOX NXDK)
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+        PRIVATE
+        XBOX
+        NXDK
+        TOML_EXCEPTIONS=0
+        TOML_ENABLE_WINDOWS_COMPAT=0)
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 if(BUILD_DOCS)

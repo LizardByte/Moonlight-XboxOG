@@ -5,28 +5,21 @@
 #include <string>
 
 // nxdk includes
-#if defined(__has_include)
-  #if __has_include(<nxdk/xbe.h>)
-    #include <nxdk/xbe.h>
-    #include <winnt.h>
-    #define MOONLIGHT_HAS_NXDK_XBE 1
-  #endif
+#if defined(__has_include) && __has_include(<nxdk/xbe.h>)
+  #include <nxdk/xbe.h>
   #if __has_include(<nxdk/mount.h>)
     #include <nxdk/mount.h>
-    #define MOONLIGHT_HAS_NXDK_MOUNT 1
   #endif
-#endif
-
-#ifdef MOONLIGHT_HAS_NXDK_XBE
   #include <array>
   #include <cstdio>
+  #include <winnt.h>
 #endif
 
 namespace startup {
 
   std::string title_scoped_storage_root() {
-#ifdef MOONLIGHT_HAS_NXDK_XBE
-  #ifdef MOONLIGHT_HAS_NXDK_MOUNT
+#if defined(__has_include) && __has_include(<nxdk/xbe.h>)
+  #if __has_include(<nxdk/mount.h>)
     if (!nxIsDriveMounted('E') && !nxMountDrive('E', "\\Device\\Harddisk0\\Partition1\\")) {
       return {};
     }

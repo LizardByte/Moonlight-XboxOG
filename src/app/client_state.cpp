@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -627,8 +628,7 @@ namespace {
     }
 
     const std::size_t targetRowStart = static_cast<std::size_t>(targetRow) * ADD_HOST_KEYPAD_COLUMN_COUNT;
-    const std::size_t targetRowWidth = std::min<std::size_t>(ADD_HOST_KEYPAD_COLUMN_COUNT, layout.buttonCount - targetRowStart);
-    if (columnDelta != 0 && targetRowWidth > 0U) {
+    if (const std::size_t targetRowWidth = std::min<std::size_t>(ADD_HOST_KEYPAD_COLUMN_COUNT, layout.buttonCount - targetRowStart); columnDelta != 0 && targetRowWidth > 0U) {
       targetColumn = wrap_index(targetColumn + columnDelta, static_cast<int>(targetRowWidth));
     }
 
@@ -848,7 +848,7 @@ namespace {
   }
 
   bool enter_apps_screen(app::ClientState &state, bool showHiddenApps) {
-    app::HostRecord *host = state.hosts.empty() ? nullptr : &state.hosts[state.selectedHostIndex];
+    const app::HostRecord *host = state.hosts.empty() ? nullptr : &state.hosts[state.selectedHostIndex];
     if (host == nullptr) {
       return false;
     }
@@ -1130,8 +1130,7 @@ namespace {
    */
   bool handle_app_actions_modal_activation(app::ClientState &state, app::AppUpdate *update) {
     const app::HostRecord *host = app::apps_host(state);
-    const app::HostAppRecord *selectedApp = app::selected_app(state);
-    if (host == nullptr || selectedApp == nullptr) {
+    if (const app::HostAppRecord *selectedApp = app::selected_app(state); host == nullptr || selectedApp == nullptr) {
       close_modal_and_mark_closed(state, update);
       return true;
     }
@@ -1400,8 +1399,7 @@ namespace app {
    * @return Pointer to the matching host, or null when no host matches.
    */
   HostRecord *find_app_list_result_host(ClientState &state, const std::string &address, uint16_t port) {
-    HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
-    if (host != nullptr) {
+    if (HostRecord *host = find_host_by_endpoint(state.hosts, address, port); host != nullptr) {
       return host;
     }
     if (state.activeScreen == ScreenId::apps && state.activeHostLoaded && host_matches_endpoint(state.activeHost, address, port)) {
@@ -1552,8 +1550,7 @@ namespace app {
     }
 
     bool persistedAppCacheChanged = false;
-    const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash;
-    if (appListChanged) {
+    if (const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash; appListChanged) {
       host->apps = merge_host_app_records(*host, std::move(apps));
       persistedAppCacheChanged = true;
     } else {
@@ -1737,8 +1734,7 @@ namespace app {
         return true;
       case input::UiCommand::activate:
         {
-          char character = '\0';
-          if (selected_add_host_keypad_character(state, &character)) {
+          if (char character = '\0'; selected_add_host_keypad_character(state, &character)) {
             append_to_active_add_host_field(state, character);
           }
           return true;
@@ -2065,7 +2061,7 @@ namespace app {
    * @param state Client state containing the add-host draft.
    * @param validationError Validation message to display.
    */
-  void apply_add_host_validation_error(ClientState &state, const std::string &validationError) {
+  void apply_add_host_validation_error(ClientState &state, std::string_view validationError) {
     state.addHostDraft.validationMessage = validationError;
     state.statusMessage = validationError;
   }
@@ -2077,7 +2073,7 @@ namespace app {
    * @param activatedItemId Activated menu item identifier.
    * @param update Update structure that receives side effects.
    */
-  void handle_add_host_menu_activation(ClientState &state, const std::string &activatedItemId, AppUpdate *update) {
+  void handle_add_host_menu_activation(ClientState &state, std::string_view activatedItemId, AppUpdate *update) {
     if (update == nullptr) {
       return;
     }

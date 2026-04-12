@@ -110,11 +110,8 @@ namespace {
     const std::string searchPattern = join_path(rootPath, "*");
     HANDLE handle = FindFirstFileA(searchPattern.c_str(), &findData);
     if (handle == INVALID_HANDLE_VALUE) {
-      const DWORD errorCode = GetLastError();
-      if (errorCode != ERROR_FILE_NOT_FOUND && errorCode != ERROR_PATH_NOT_FOUND) {
-        if (warnings != nullptr) {
-          warnings->push_back("Failed to enumerate saved files in '" + rootPath + "': error " + std::to_string(static_cast<unsigned long>(errorCode)));
-        }
+      if (const DWORD errorCode = GetLastError(); errorCode != ERROR_FILE_NOT_FOUND && errorCode != ERROR_PATH_NOT_FOUND && warnings != nullptr) {
+        warnings->push_back("Failed to enumerate saved files in '" + rootPath + "': error " + std::to_string(errorCode));
       }
       return;
     }
@@ -139,7 +136,7 @@ namespace {
     const DWORD lastError = GetLastError();
     FindClose(handle);
     if (lastError != ERROR_NO_MORE_FILES && warnings != nullptr) {
-      warnings->push_back("Stopped enumerating saved files in '" + rootPath + "' early: error " + std::to_string(static_cast<unsigned long>(lastError)));
+      warnings->push_back("Stopped enumerating saved files in '" + rootPath + "' early: error " + std::to_string(lastError));
     }
 #else
     DIR *directory = opendir(rootPath.c_str());

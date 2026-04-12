@@ -162,8 +162,7 @@ int main() {
   logging::RuntimeLogFileSink runtimeLogFile(logFilePath);
   app::set_log_file_path(clientState, logFilePath);
 
-  std::string logFileResetError;
-  if (!runtimeLogFile.reset(&logFileResetError)) {
+  if (std::string logFileResetError; !runtimeLogFile.reset(&logFileResetError)) {
     logging::print_startup_console_line(
       logging::LogLevel::warning,
       "logging",

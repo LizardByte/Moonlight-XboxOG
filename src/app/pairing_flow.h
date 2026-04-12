@@ -3,6 +3,7 @@
 // standard includes
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace app {
 
@@ -36,7 +37,7 @@ namespace app {
    * @param generatedPin Client-generated PIN to show to the user.
    * @return Initialized pairing draft.
    */
-  PairingDraft create_pairing_draft(const std::string &targetAddress, uint16_t targetPort, std::string generatedPin);
+  PairingDraft create_pairing_draft(std::string_view targetAddress, uint16_t targetPort, std::string generatedPin);
 
   /**
    * @brief Return whether a PIN string is a valid Moonlight-style four-digit PIN.
@@ -44,6 +45,6 @@ namespace app {
    * @param pin Candidate PIN string.
    * @return true when the PIN contains exactly four digits.
    */
-  bool is_valid_pairing_pin(const std::string &pin);
+  bool is_valid_pairing_pin(std::string_view pin);
 
 }  // namespace app

@@ -4,6 +4,7 @@
 // standard includes
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -57,8 +58,20 @@ namespace {
     return segments;
   }
 
-  char hex_digit(unsigned int value) {
-    return static_cast<char>(value < 10U ? ('0' + value) : ('A' + (value - 10U)));
+  char hex_digit(std::byte value) {
+    const unsigned int digit = std::to_integer<unsigned int>(value);
+    return static_cast<char>(digit < 10U ? ('0' + digit) : ('A' + (digit - 10U)));
+  }
+
+  void append_percent_encoded_byte(std::string *encoded, unsigned char character) {
+    if (encoded == nullptr) {
+      return;
+    }
+
+    const auto byteValue = static_cast<std::byte>(character);
+    encoded->push_back('%');
+    encoded->push_back(hex_digit((byteValue >> 4U) & std::byte {0x0F}));
+    encoded->push_back(hex_digit(byteValue & std::byte {0x0F}));
   }
 
   bool is_unreserved_serialized_character(unsigned char character) {
@@ -75,9 +88,7 @@ namespace {
         continue;
       }
 
-      encoded.push_back('%');
-      encoded.push_back(hex_digit((character >> 4U) & 0x0FU));
-      encoded.push_back(hex_digit(character & 0x0FU));
+      append_percent_encoded_byte(&encoded, character);
     }
 
     return encoded;
@@ -103,9 +114,11 @@ namespace {
 
     std::string result;
     result.reserve(text.size());
-    for (std::size_t index = 0; index < text.size(); ++index) {
+    std::size_t index = 0;
+    while (index < text.size()) {
       if (text[index] != '%') {
         result.push_back(text[index]);
+        ++index;
         continue;
       }
 
@@ -120,7 +133,7 @@ namespace {
       }
 
       result.push_back(static_cast<char>((highNibble << 4U) | lowNibble));
-      index += 2U;
+      index += 3U;
     }
 
     *decoded = std::move(result);
@@ -445,8 +458,7 @@ namespace app {
       pairingState,
     };
 
-    std::string errorMessage;
-    if (!validate_host_record(record, &errorMessage)) {
+    if (std::string errorMessage; !validate_host_record(record, &errorMessage)) {
       result->errors.push_back("Line " + std::to_string(lineNumber) + ": " + errorMessage);
       return;
     }

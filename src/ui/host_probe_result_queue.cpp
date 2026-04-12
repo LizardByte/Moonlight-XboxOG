@@ -11,7 +11,7 @@ namespace ui {
       return;
     }
 
-    const std::lock_guard<std::mutex> lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex);
     queue->targetCount = 0U;
     queue->publishedCount = 0U;
     queue->pendingResults.clear();
@@ -22,7 +22,7 @@ namespace ui {
       return;
     }
 
-    const std::lock_guard<std::mutex> lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex);
     queue->targetCount = targetCount;
     queue->publishedCount = 0U;
     queue->pendingResults.clear();
@@ -33,7 +33,7 @@ namespace ui {
       return;
     }
 
-    const std::lock_guard<std::mutex> lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex);
     queue->pendingResults.push_back(std::move(result));
     ++queue->publishedCount;
   }
@@ -43,7 +43,7 @@ namespace ui {
       return;
     }
 
-    const std::lock_guard<std::mutex> lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex);
     if (queue->targetCount > 0U) {
       --queue->targetCount;
     }
@@ -54,14 +54,14 @@ namespace ui {
       return {};
     }
 
-    const std::lock_guard<std::mutex> lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex);
     std::vector<HostProbeResult> results;
     results.swap(queue->pendingResults);
     return results;
   }
 
   bool host_probe_result_round_complete(const HostProbeResultQueue &queue) {
-    const std::lock_guard<std::mutex> lock(queue.mutex);
+    const std::scoped_lock lock(queue.mutex);
     return queue.targetCount != 0U && queue.publishedCount >= queue.targetCount;
   }
 

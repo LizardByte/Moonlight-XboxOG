@@ -16,8 +16,6 @@
 extern "C" FILE *_wfopen(const wchar_t *path, const wchar_t *mode);
 #endif
 
-#define TOML_EXCEPTIONS 0
-#define TOML_ENABLE_WINDOWS_COMPAT 0
 #include <toml++/toml.hpp>
 
 // local includes
@@ -208,6 +206,47 @@ namespace {
     append_cleanup_warning(&result->warnings, filePath, keyPath, reason);
   }
 
+  void load_logging_level_setting(
+    toml::node_view<const toml::node> settingNode,
+    const std::string &filePath,
+    std::string_view keyPath,
+    logging::LogLevel *level,
+    std::vector<std::string> *warnings
+  ) {
+    if (!settingNode) {
+      return;
+    }
+
+    if (const auto loggingLevelText = settingNode.value<std::string>(); loggingLevelText) {
+      if (!try_parse_logging_level(*loggingLevelText, level)) {
+        append_invalid_value_warning(warnings, filePath, keyPath, *loggingLevelText);
+      }
+      return;
+    }
+
+    append_invalid_value_warning(warnings, filePath, keyPath, "<non-string>");
+  }
+
+  void load_log_viewer_placement_setting(
+    toml::node_view<const toml::node> settingNode,
+    const std::string &filePath,
+    app::LogViewerPlacement *placement,
+    std::vector<std::string> *warnings
+  ) {
+    if (!settingNode) {
+      return;
+    }
+
+    if (const auto logViewerPlacementText = settingNode.value<std::string>(); logViewerPlacementText) {
+      if (!try_parse_log_viewer_placement(*logViewerPlacementText, placement)) {
+        append_invalid_value_warning(warnings, filePath, "ui.log_viewer_placement", *logViewerPlacementText);
+      }
+      return;
+    }
+
+    append_invalid_value_warning(warnings, filePath, "ui.log_viewer_placement", "<non-string>");
+  }
+
   std::string format_settings_toml(const app::AppSettings &settings) {
     std::string content;
     content += "# Moonlight Xbox OG user settings\n";
@@ -315,55 +354,26 @@ namespace app {
     inspect_top_level_keys(settingsTable, filePath, &result);
 
     const auto loggingLevelNode = settingsTable["logging"]["file_minimum_level"];
-    if (loggingLevelNode) {
-      if (const auto loggingLevelText = loggingLevelNode.value<std::string>(); loggingLevelText) {
-        if (!try_parse_logging_level(*loggingLevelText, &result.settings.loggingLevel)) {
-          append_invalid_value_warning(&result.warnings, filePath, "logging.file_minimum_level", *loggingLevelText);
-        }
-      } else {
-        append_invalid_value_warning(&result.warnings, filePath, "logging.file_minimum_level", "<non-string>");
-      }
+    load_logging_level_setting(loggingLevelNode, filePath, "logging.file_minimum_level", &result.settings.loggingLevel, &result.warnings);
+
+    if (const auto legacyLoggingLevelNode = settingsTable["logging"]["minimum_level"]; legacyLoggingLevelNode && !loggingLevelNode) {
+      load_logging_level_setting(legacyLoggingLevelNode, filePath, "logging.minimum_level", &result.settings.loggingLevel, &result.warnings);
     }
 
-    const auto legacyLoggingLevelNode = settingsTable["logging"]["minimum_level"];
-    if (legacyLoggingLevelNode && !loggingLevelNode) {
-      if (const auto loggingLevelText = legacyLoggingLevelNode.value<std::string>(); loggingLevelText) {
-        if (!try_parse_logging_level(*loggingLevelText, &result.settings.loggingLevel)) {
-          append_invalid_value_warning(&result.warnings, filePath, "logging.minimum_level", *loggingLevelText);
-        }
-      } else {
-        append_invalid_value_warning(&result.warnings, filePath, "logging.minimum_level", "<non-string>");
-      }
-    }
-
-    const auto xemuConsoleLoggingLevelNode = settingsTable["logging"]["xemu_console_minimum_level"];
-    if (xemuConsoleLoggingLevelNode) {
-      if (const auto xemuConsoleLoggingLevelText = xemuConsoleLoggingLevelNode.value<std::string>(); xemuConsoleLoggingLevelText) {
-        if (!try_parse_logging_level(*xemuConsoleLoggingLevelText, &result.settings.xemuConsoleLoggingLevel)) {
-          append_invalid_value_warning(&result.warnings, filePath, "logging.xemu_console_minimum_level", *xemuConsoleLoggingLevelText);
-        }
-      } else {
-        append_invalid_value_warning(&result.warnings, filePath, "logging.xemu_console_minimum_level", "<non-string>");
-      }
-    }
-
-    const auto logViewerPlacementNode = settingsTable["ui"]["log_viewer_placement"];
-    if (logViewerPlacementNode) {
-      if (const auto logViewerPlacementText = logViewerPlacementNode.value<std::string>(); logViewerPlacementText) {
-        if (!try_parse_log_viewer_placement(*logViewerPlacementText, &result.settings.logViewerPlacement)) {
-          append_invalid_value_warning(&result.warnings, filePath, "ui.log_viewer_placement", *logViewerPlacementText);
-        }
-      } else {
-        append_invalid_value_warning(&result.warnings, filePath, "ui.log_viewer_placement", "<non-string>");
-      }
-    }
+    load_logging_level_setting(
+      settingsTable["logging"]["xemu_console_minimum_level"],
+      filePath,
+      "logging.xemu_console_minimum_level",
+      &result.settings.xemuConsoleLoggingLevel,
+      &result.warnings
+    );
+    load_log_viewer_placement_setting(settingsTable["ui"]["log_viewer_placement"], filePath, &result.settings.logViewerPlacement, &result.warnings);
 
     return result;
   }
 
   SaveAppSettingsResult save_app_settings(const AppSettings &settings, const std::string &filePath) {
-    std::string errorMessage;
-    if (!write_text_file(filePath, format_settings_toml(settings), &errorMessage)) {
+    if (std::string errorMessage; !write_text_file(filePath, format_settings_toml(settings), &errorMessage)) {
       return {false, errorMessage};
     }
 

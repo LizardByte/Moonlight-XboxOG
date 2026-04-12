@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -96,12 +97,16 @@ namespace {
   constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again.";
 
   struct WsaGuard {
-    WsaGuard() {
+    WsaGuard():
+        initialized(initialize()) {
+    }
+
+    static bool initialize() {
 #if defined(NXDK) || !defined(_WIN32)
-      initialized = true;
+      return true;
 #else
       WSADATA wsaData {};
-      initialized = WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
+      return WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
 #endif
     }
 
@@ -144,20 +149,20 @@ namespace {
     return append_error(errorMessage, "Pairing cancelled");
   }
 
-  void append_hash_bytes(uint64_t *hash, const unsigned char *bytes, std::size_t byteCount) {
+  void append_hash_bytes(uint64_t *hash, const std::byte *bytes, std::size_t byteCount) {
     if (hash == nullptr || bytes == nullptr) {
       return;
     }
 
     for (std::size_t index = 0; index < byteCount; ++index) {
-      *hash ^= bytes[index];
+      *hash ^= static_cast<uint64_t>(std::to_integer<unsigned char>(bytes[index]));
       *hash *= 1099511628211ULL;
     }
   }
 
   void append_hash_string(uint64_t *hash, std::string_view text) {
-    append_hash_bytes(hash, reinterpret_cast<const unsigned char *>(text.data()), text.size());
-    static constexpr unsigned char delimiter = 0x1F;
+    append_hash_bytes(hash, reinterpret_cast<const std::byte *>(text.data()), text.size());
+    static constexpr std::byte delimiter {0x1F};
     append_hash_bytes(hash, &delimiter, 1U);
   }
 
@@ -539,10 +544,8 @@ namespace {
       return true;
     }
 
-    if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked")) {
-      if (isChunked != nullptr) {
-        *isChunked = true;
-      }
+    if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked") && isChunked != nullptr) {
+      *isChunked = true;
     }
     return true;
   }
@@ -1964,8 +1967,7 @@ namespace {
       return false;
     }
 
-    const network::PairingIdentity *tlsIdentity = useTls ? &session->request.identity : nullptr;
-    if (!http_get(session->request.address, useTls ? session->serverInfo.httpsPort : session->serverInfo.httpPort, path, useTls, tlsIdentity, expectedTlsCertificatePem, &session->response, &session->errorMessage, session->cancelRequested)) {
+    if (!http_get(session->request.address, useTls ? session->serverInfo.httpsPort : session->serverInfo.httpPort, path, useTls, useTls ? &session->request.identity : nullptr, expectedTlsCertificatePem, &session->response, &session->errorMessage, session->cancelRequested)) {
       return false;
     }
     return parse_pairing_tag(session->response, "paired", &session->phaseValue, &session->errorMessage);
@@ -2467,9 +2469,9 @@ namespace network {
     uint64_t hash = 1469598103934665603ULL;
     for (const HostAppEntry &entry : apps) {
       append_hash_string(&hash, entry.name);
-      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.id), sizeof(entry.id));
-      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.hdrSupported), sizeof(entry.hdrSupported));
-      append_hash_bytes(&hash, reinterpret_cast<const unsigned char *>(&entry.hidden), sizeof(entry.hidden));
+      append_hash_bytes(&hash, reinterpret_cast<const std::byte *>(&entry.id), sizeof(entry.id));
+      append_hash_bytes(&hash, reinterpret_cast<const std::byte *>(&entry.hdrSupported), sizeof(entry.hdrSupported));
+      append_hash_bytes(&hash, reinterpret_cast<const std::byte *>(&entry.hidden), sizeof(entry.hidden));
     }
     return hash;
   }

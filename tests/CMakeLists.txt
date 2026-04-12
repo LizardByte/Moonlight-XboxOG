@@ -52,6 +52,10 @@ target_link_libraries(${PROJECT_NAME}
         PRIVATE
         gtest_main
         Moonlight::OpenSSL)
+target_compile_definitions(${PROJECT_NAME}
+        PRIVATE
+        TOML_EXCEPTIONS=0
+        TOML_ENABLE_WINDOWS_COMPAT=0)
 if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32)
 endif()
