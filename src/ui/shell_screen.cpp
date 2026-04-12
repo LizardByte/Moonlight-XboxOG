@@ -1076,6 +1076,65 @@ namespace {
     return {outerMargin, outerMargin, fullWidth, height};
   }
 
+  struct LogViewerLayout {
+    std::vector<const std::string *> visibleLines;
+    std::size_t firstVisibleIndex = 0U;
+  };
+
+  LogViewerLayout build_log_viewer_layout(const ui::ShellViewModel &viewModel, TTF_Font *font, int availableWidth, int availableHeight, std::size_t clampedOffset) {
+    LogViewerLayout layout {};
+    if (viewModel.logViewerLines.empty()) {
+      layout.visibleLines.push_back(nullptr);
+      return layout;
+    }
+
+    int usedHeight = 0;
+    std::size_t endIndex = viewModel.logViewerLines.size() > clampedOffset ? viewModel.logViewerLines.size() - clampedOffset : 0U;
+    layout.firstVisibleIndex = endIndex;
+    while (endIndex > 0U) {
+      const std::string renderedLine = truncate_text_for_render(viewModel.logViewerLines[endIndex - 1U], LOG_VIEWER_MAX_RENDER_CHARACTERS);
+      const int lineHeight = measure_wrapped_text_height(font, renderedLine, std::max(1, availableWidth - 12)) + 4;
+      if (!layout.visibleLines.empty() && usedHeight + lineHeight > availableHeight - 8) {
+        break;
+      }
+      layout.visibleLines.push_back(&viewModel.logViewerLines[endIndex - 1U]);
+      usedHeight += lineHeight;
+      --endIndex;
+    }
+    layout.firstVisibleIndex = endIndex;
+    std::reverse(layout.visibleLines.begin(), layout.visibleLines.end());
+    return layout;
+  }
+
+  bool render_log_viewer_lines(SDL_Renderer *renderer, TTF_Font *smallFont, const ui::ShellViewModel &viewModel, const SDL_Rect &textRect, const LogViewerLayout &layout) {
+    int contentCursorY = textRect.y + 6;
+    if (layout.firstVisibleIndex > 0U) {
+      if (!render_text_line_simple(renderer, smallFont, "Earlier lines above", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
+        return false;
+      }
+      contentCursorY += TTF_FontLineSkip(smallFont) + 4;
+    }
+
+    if (layout.visibleLines.size() == 1U && layout.visibleLines.front() == nullptr) {
+      if (!render_text_line_simple(renderer, smallFont, "The log file is empty.", {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
+        return false;
+      }
+    } else {
+      for (const std::string *line : layout.visibleLines) {
+        int drawnHeight = 0;
+        if (!render_text_line_simple(renderer, smallFont, truncate_text_for_render(*line, LOG_VIEWER_MAX_RENDER_CHARACTERS), {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12), &drawnHeight)) {
+          return false;
+        }
+        contentCursorY += drawnHeight + 4;
+      }
+    }
+
+    if (viewModel.logViewerScrollOffset > 0U) {
+      return render_text_line_simple(renderer, smallFont, "Newer lines below", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, textRect.x + 6, std::max(textRect.y + 6, textRect.y + textRect.h - TTF_FontLineSkip(smallFont) - 6), std::max(1, textRect.w - 12));
+    }
+    return true;
+  }
+
   void render_vertical_scrollbar(SDL_Renderer *renderer, const SDL_Rect &trackRect, int totalItemCount, int visibleItemCount, int startItemIndex) {
     if (
       renderer == nullptr || trackRect.w <= 0 || trackRect.h <= 0 || totalItemCount <= visibleItemCount || visibleItemCount <= 0
@@ -1095,7 +1154,7 @@ namespace {
     fill_rect(renderer, thumbRect, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xD0);
   }
 
-  bool render_log_viewer_modal(  // NOSONAR(cpp:S3776,cpp:S107) modal rendering stays centralized to keep layout behavior consistent
+  bool render_log_viewer_modal(  // NOSONAR(cpp:S107) modal rendering keeps the layout inputs explicit
     SDL_Renderer *renderer,
     TTF_Font *bodyFont,
     TTF_Font *smallFont,
@@ -1144,44 +1203,15 @@ namespace {
     };
     fill_rect(renderer, contentRect, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0x70);
 
-    struct LogViewerLayout {
-      std::vector<const std::string *> visibleLines;
-      std::size_t firstVisibleIndex = 0U;
-    };
-
     const std::size_t maxOffset = viewModel.logViewerLines.size() > 1U ? viewModel.logViewerLines.size() - 1U : 0U;
     const std::size_t clampedOffset = std::min(viewModel.logViewerScrollOffset, maxOffset);
-    auto build_log_viewer_layout = [&](int availableWidth) {  // NOSONAR(cpp:S1188) kept adjacent to modal layout state for readability
-      LogViewerLayout layout {};
-      if (viewModel.logViewerLines.empty()) {
-        layout.visibleLines.push_back(nullptr);
-        return layout;
-      }
-
-      int usedHeight = 0;
-      std::size_t endIndex = viewModel.logViewerLines.size() > clampedOffset ? viewModel.logViewerLines.size() - clampedOffset : 0U;
-      layout.firstVisibleIndex = endIndex;
-      while (endIndex > 0U) {
-        const std::string renderedLine = truncate_text_for_render(viewModel.logViewerLines[endIndex - 1U], LOG_VIEWER_MAX_RENDER_CHARACTERS);
-        const int lineHeight = measure_wrapped_text_height(smallFont, renderedLine, std::max(1, availableWidth - 12)) + 4;
-        if (!layout.visibleLines.empty() && usedHeight + lineHeight > contentRect.h - 8) {
-          break;
-        }
-        layout.visibleLines.push_back(&viewModel.logViewerLines[endIndex - 1U]);
-        usedHeight += lineHeight;
-        --endIndex;
-      }
-      layout.firstVisibleIndex = endIndex;
-      std::reverse(layout.visibleLines.begin(), layout.visibleLines.end());
-      return layout;
-    };
 
     constexpr int logViewerScrollbarWidth = 10;
     constexpr int logViewerScrollbarGap = 12;
-    LogViewerLayout logViewerLayout = build_log_viewer_layout(contentRect.w);
+    LogViewerLayout logViewerLayout = build_log_viewer_layout(viewModel, smallFont, contentRect.w, contentRect.h, clampedOffset);
     const bool overflow = !viewModel.logViewerLines.empty() && viewModel.logViewerLines.size() > logViewerLayout.visibleLines.size();
     if (overflow) {
-      logViewerLayout = build_log_viewer_layout(std::max(1, contentRect.w - logViewerScrollbarWidth - logViewerScrollbarGap));
+      logViewerLayout = build_log_viewer_layout(viewModel, smallFont, std::max(1, contentRect.w - logViewerScrollbarWidth - logViewerScrollbarGap), contentRect.h, clampedOffset);
     }
 
     const SDL_Rect textRect {
@@ -1190,29 +1220,7 @@ namespace {
       std::max(1, contentRect.w - (overflow ? logViewerScrollbarWidth + logViewerScrollbarGap : 0)),
       contentRect.h,
     };
-    int contentCursorY = textRect.y + 6;
-    if (const bool olderLinesAvailable = logViewerLayout.firstVisibleIndex > 0U; olderLinesAvailable) {
-      if (!render_text_line_simple(renderer, smallFont, "Earlier lines above", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
-        return false;
-      }
-      contentCursorY += TTF_FontLineSkip(smallFont) + 4;
-    }
-
-    if (logViewerLayout.visibleLines.size() == 1U && logViewerLayout.visibleLines.front() == nullptr) {
-      if (!render_text_line_simple(renderer, smallFont, "The log file is empty.", {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12))) {
-        return false;
-      }
-    } else {
-      for (const std::string *line : logViewerLayout.visibleLines) {
-        int drawnHeight = 0;
-        if (!render_text_line_simple(renderer, smallFont, truncate_text_for_render(*line, LOG_VIEWER_MAX_RENDER_CHARACTERS), {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, textRect.x + 6, contentCursorY, std::max(1, textRect.w - 12), &drawnHeight)) {
-          return false;
-        }
-        contentCursorY += drawnHeight + 4;
-      }
-    }
-
-    if (viewModel.logViewerScrollOffset > 0U && !render_text_line_simple(renderer, smallFont, "Newer lines below", {MUTED_RED, MUTED_GREEN, MUTED_BLUE, 0xFF}, textRect.x + 6, std::max(textRect.y + 6, textRect.y + textRect.h - TTF_FontLineSkip(smallFont) - 6), std::max(1, textRect.w - 12))) {
+    if (!render_log_viewer_lines(renderer, smallFont, viewModel, textRect, logViewerLayout)) {
       return false;
     }
 
@@ -1322,7 +1330,66 @@ namespace {
     return render_text_line(renderer, smallFont, button.label, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, iconRect.x + iconRect.w + 8, buttonRect.y + std::max(6, (buttonRect.h - TTF_FontLineSkip(smallFont)) / 2), buttonRect.w - (iconRect.w + 26));
   }
 
-  bool render_footer_actions(  // NOSONAR(cpp:S3776) footer chip layout is intentionally centralized for all shell surfaces
+  struct FooterActionChipLayout {
+    int labelWidth = 0;
+    int iconSize = 0;
+    int iconBlockWidth = 0;
+    int chipWidth = 0;
+  };
+
+  int measure_footer_action_label_width(TTF_Font *font, const std::string &label) {
+    int labelWidth = 0;
+    if (int labelHeight = 0; TTF_SizeUTF8(font, label.c_str(), &labelWidth, &labelHeight) != 0) {
+      return static_cast<int>(label.size()) * 8;
+    }
+    return labelWidth;
+  }
+
+  FooterActionChipLayout measure_footer_action_chip(TTF_Font *font, const ui::ShellFooterAction &action, int chipHeight) {
+    const int iconCount = (action.iconAssetPath.empty() ? 0 : 1) + (action.secondaryIconAssetPath.empty() ? 0 : 1);
+    const int iconSize = (action.iconAssetPath.empty() && action.secondaryIconAssetPath.empty()) ? 0 : std::max(18, chipHeight - 14);
+    const int iconBlockWidth = iconCount == 0 ? 0 : (iconSize * iconCount) + ((iconCount - 1) * 4);
+    return {
+      measure_footer_action_label_width(font, action.label),
+      iconSize,
+      iconBlockWidth,
+      18 + iconBlockWidth + (iconBlockWidth > 0 ? 8 : 0) + measure_footer_action_label_width(font, action.label) + 18,
+    };
+  }
+
+  int render_footer_action_icons(SDL_Renderer *renderer, AssetTextureCache *assetCache, const ui::ShellFooterAction &action, const SDL_Rect &chipRect, int iconSize) {
+    int contentX = chipRect.x + 10;
+    if (iconSize <= 0) {
+      return contentX;
+    }
+
+    const auto render_icon = [&](const std::string &assetPath) {
+      if (assetPath.empty()) {
+        return;
+      }
+      const SDL_Rect iconRect {contentX, chipRect.y + (chipRect.h - iconSize) / 2, iconSize, iconSize};
+      render_asset_icon(renderer, assetCache, assetPath, iconRect);
+      contentX += iconSize + 4;
+    };
+
+    render_icon(action.iconAssetPath);
+    render_icon(action.secondaryIconAssetPath);
+    return contentX + 4;
+  }
+
+  bool render_footer_action_chip(
+    SDL_Renderer *renderer,
+    TTF_Font *font,
+    AssetTextureCache *assetCache,
+    const ui::ShellFooterAction &action,
+    const FooterActionChipLayout &layout,
+    const SDL_Rect &chipRect
+  ) {
+    const int contentX = render_footer_action_icons(renderer, assetCache, action, chipRect, layout.iconSize);
+    return render_text_line(renderer, font, action.label, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentX, chipRect.y + std::max(6, (chipRect.h - TTF_FontLineSkip(font)) / 2), chipRect.w - (contentX - chipRect.x) - 10);
+  }
+
+  bool render_footer_actions(
     SDL_Renderer *renderer,
     TTF_Font *font,
     AssetTextureCache *assetCache,
@@ -1335,41 +1402,17 @@ namespace {
     const int chipY = footerRect.y + (footerRect.h - chipHeight) / 2;
 
     for (const ui::ShellFooterAction &action : actions) {
-      int labelWidth = 0;
-      if (int labelHeight = 0; TTF_SizeUTF8(font, action.label.c_str(), &labelWidth, &labelHeight) != 0) {
-        labelWidth = static_cast<int>(action.label.size()) * 8;
-      }
-
-      const int iconSize = (action.iconAssetPath.empty() && action.secondaryIconAssetPath.empty()) ? 0 : std::max(18, chipHeight - 14);
-      const int iconCount = (action.iconAssetPath.empty() ? 0 : 1) + (action.secondaryIconAssetPath.empty() ? 0 : 1);
-      const int iconBlockWidth = iconCount == 0 ? 0 : (iconSize * iconCount) + ((iconCount - 1) * 4);
-      const int chipWidth = 18 + iconBlockWidth + (iconBlockWidth > 0 ? 8 : 0) + labelWidth + 18;
-      if (cursorX + chipWidth > availableRight) {
+      const FooterActionChipLayout layout = measure_footer_action_chip(font, action, chipHeight);
+      if (cursorX + layout.chipWidth > availableRight) {
         break;
       }
 
-      const SDL_Rect chipRect {cursorX, chipY, chipWidth, chipHeight};
-
-      int contentX = chipRect.x + 10;
-      if (iconSize > 0) {
-        if (!action.iconAssetPath.empty()) {
-          const SDL_Rect iconRect {contentX, chipRect.y + (chipRect.h - iconSize) / 2, iconSize, iconSize};
-          render_asset_icon(renderer, assetCache, action.iconAssetPath, iconRect);
-          contentX += iconSize + 4;
-        }
-        if (!action.secondaryIconAssetPath.empty()) {
-          const SDL_Rect iconRect {contentX, chipRect.y + (chipRect.h - iconSize) / 2, iconSize, iconSize};
-          render_asset_icon(renderer, assetCache, action.secondaryIconAssetPath, iconRect);
-          contentX += iconSize + 4;
-        }
-        contentX += 4;
-      }
-
-      if (!render_text_line(renderer, font, action.label, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, contentX, chipRect.y + std::max(6, (chipRect.h - TTF_FontLineSkip(font)) / 2), chipRect.w - (contentX - chipRect.x) - 10)) {
+      const SDL_Rect chipRect {cursorX, chipY, layout.chipWidth, chipHeight};
+      if (!render_footer_action_chip(renderer, font, assetCache, action, layout, chipRect)) {
         return false;
       }
 
-      cursorX += chipWidth + 12;
+      cursorX += layout.chipWidth + 12;
     }
 
     return true;
@@ -1969,42 +2012,66 @@ namespace {
     logging::error("settings", saveResult.errorMessage);
   }
 
-  void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {  // NOSONAR(cpp:S3776) host metadata updates intentionally stay grouped with pairing-state transitions
+  bool update_host_metadata_from_server_info(app::HostRecord *host, const std::string &address, const network::HostPairingServerInfo &serverInfo) {
+    if (host == nullptr) {
+      return false;
+    }
+
+    bool persistedMetadataChanged = false;
+    if (!serverInfo.hostName.empty()) {
+      persistedMetadataChanged = persistedMetadataChanged || host->displayName != serverInfo.hostName;
+      host->displayName = serverInfo.hostName;
+    }
+    host->reachability = app::HostReachability::online;
+    host->activeAddress = network::resolve_reachable_address(address, serverInfo);
+    host->uuid = serverInfo.uuid;
+    host->localAddress = serverInfo.localAddress;
+    host->remoteAddress = serverInfo.remoteAddress;
+    host->ipv6Address = serverInfo.ipv6Address;
+    host->manualAddress = address;
+    host->macAddress = serverInfo.macAddress;
+    host->resolvedHttpPort = serverInfo.httpPort;
+    host->httpsPort = serverInfo.httpsPort;
+    host->runningGameId = serverInfo.runningGameId;
+    return persistedMetadataChanged;
+  }
+
+  bool update_host_pairing_from_server_info(
+    app::ClientState &state,
+    app::HostRecord *host,
+    const std::string &address,
+    uint16_t port,
+    const network::HostPairingServerInfo &serverInfo
+  ) {
+    if (host == nullptr || !serverInfo.pairingStatusCurrentClientKnown) {
+      return false;
+    }
+
+    const bool hostRequiresManualPairing = app::host_requires_manual_pairing(state, address, port);
+    const bool clientIsEffectivelyPaired = serverInfo.pairingStatusCurrentClient && !hostRequiresManualPairing;
+    const app::PairingState resolvedPairingState = clientIsEffectivelyPaired ? app::PairingState::paired : app::PairingState::not_paired;
+    const bool pairingChanged = host->pairingState != resolvedPairingState;
+    host->pairingState = resolvedPairingState;
+    if (clientIsEffectivelyPaired) {
+      return pairingChanged;
+    }
+
+    host->apps.clear();
+    host->appListState = hostRequiresManualPairing ? app::HostAppListState::idle : app::HostAppListState::failed;
+    host->appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again.";
+    host->appListContentHash = 0;
+    host->lastAppListRefreshTick = 0;
+    state.selectedAppIndex = 0U;
+    if (state.activeScreen == app::ScreenId::apps && state.activeHostLoaded && host == &state.activeHost) {
+      state.statusMessage = host->appListStatusMessage;
+    }
+    return true;
+  }
+
+  void apply_server_info_to_host(app::ClientState &state, const std::string &address, uint16_t port, const network::HostPairingServerInfo &serverInfo) {
     auto apply_to_host = [&](app::HostRecord &host) {
-      bool persistedMetadataChanged = false;
-      const bool hostRequiresManualPairing = app::host_requires_manual_pairing(state, address, port);
-      if (!serverInfo.hostName.empty()) {
-        persistedMetadataChanged = persistedMetadataChanged || host.displayName != serverInfo.hostName;
-        host.displayName = serverInfo.hostName;
-      }
-      host.reachability = app::HostReachability::online;
-      host.activeAddress = network::resolve_reachable_address(address, serverInfo);
-      host.uuid = serverInfo.uuid;
-      host.localAddress = serverInfo.localAddress;
-      host.remoteAddress = serverInfo.remoteAddress;
-      host.ipv6Address = serverInfo.ipv6Address;
-      host.manualAddress = address;
-      host.macAddress = serverInfo.macAddress;
-      host.resolvedHttpPort = serverInfo.httpPort;
-      host.httpsPort = serverInfo.httpsPort;
-      host.runningGameId = serverInfo.runningGameId;
-      if (serverInfo.pairingStatusCurrentClientKnown) {
-        const bool clientIsEffectivelyPaired = serverInfo.pairingStatusCurrentClient && !hostRequiresManualPairing;
-        const app::PairingState resolvedPairingState = clientIsEffectivelyPaired ? app::PairingState::paired : app::PairingState::not_paired;
-        persistedMetadataChanged = persistedMetadataChanged || host.pairingState != resolvedPairingState;
-        host.pairingState = resolvedPairingState;
-        if (!clientIsEffectivelyPaired) {
-          host.apps.clear();
-          host.appListState = hostRequiresManualPairing ? app::HostAppListState::idle : app::HostAppListState::failed;
-          host.appListStatusMessage = hostRequiresManualPairing ? "This host was removed locally. Pair it again to restore apps and authorization." : "The host reports that this client is no longer paired. Pair the host again.";
-          host.appListContentHash = 0;
-          host.lastAppListRefreshTick = 0;
-          state.selectedAppIndex = 0U;
-          if (state.activeScreen == app::ScreenId::apps && state.activeHostLoaded && &host == &state.activeHost) {
-            state.statusMessage = host.appListStatusMessage;
-          }
-        }
-      }
+      bool persistedMetadataChanged = update_host_metadata_from_server_info(&host, address, serverInfo);
+      persistedMetadataChanged = update_host_pairing_from_server_info(state, &host, address, port, serverInfo) || persistedMetadataChanged;
       state.hostsDirty = state.hostsDirty || persistedMetadataChanged;
     };
 
@@ -3059,7 +3126,90 @@ namespace {
     logging::info("logging", statusMessage + ": " + loadedLog.filePath);
   }
 
-  bool draw_shell(  // NOSONAR(cpp:S3776,cpp:S107) one-frame shell rendering is intentionally centralized to keep layout and failure handling consistent
+  int measure_body_lines_height(TTF_Font *font, const std::vector<std::string> &lines, int maxWidth, int lineGap) {
+    int textHeight = 0;
+    for (std::size_t index = 0; index < lines.size(); ++index) {
+      textHeight += measure_wrapped_text_height(font, lines[index], maxWidth);
+      if (index + 1U < lines.size()) {
+        textHeight += lineGap;
+      }
+    }
+    return textHeight;
+  }
+
+  bool render_body_lines(
+    SDL_Renderer *renderer,
+    TTF_Font *font,
+    const std::vector<std::string> &lines,
+    const SDL_Color &color,
+    int x,
+    int y,
+    int maxWidth,
+    int lineGap
+  ) {
+    int cursorY = y;
+    for (const std::string &line : lines) {
+      int drawnHeight = 0;
+      if (!render_text_line(renderer, font, line, color, x, cursorY, maxWidth, &drawnHeight)) {
+        return false;
+      }
+      cursorY += drawnHeight + lineGap;
+    }
+    return true;
+  }
+
+  bool render_app_tiles_grid(
+    SDL_Renderer *renderer,
+    TTF_Font *smallFont,
+    const ui::ShellViewModel &viewModel,
+    const SDL_Rect &gridRect,
+    CoverArtTextureCache *textureCache,
+    AssetTextureCache *assetCache
+  ) {
+    const int columnCount = std::max(1, static_cast<int>(viewModel.appColumnCount));
+    const int tileGap = 16;
+    const int gridPadding = 10;
+    const GridViewport viewport = calculate_grid_viewport(viewModel.appTiles.size(), viewModel.appColumnCount, selected_app_tile_index(viewModel.appTiles), std::max(1, gridRect.h - (gridPadding * 2)), 220, tileGap);
+    const int scrollbarGap = viewport.scrollbarWidth > 0 ? 12 : 0;
+    const int gridInnerWidth = std::max(1, gridRect.w - (gridPadding * 2) - viewport.scrollbarWidth - scrollbarGap);
+    const int cellWidth = std::max(1, (gridInnerWidth - (tileGap * (columnCount - 1))) / columnCount);
+    const int cellHeight = std::max(1, (gridRect.h - (gridPadding * 2) - (tileGap * std::max(0, viewport.visibleRowCount - 1))) / std::max(1, viewport.visibleRowCount));
+    const int tileWidth = std::max(1, std::min(cellWidth, (cellHeight * 2) / 3));
+    const int tileHeight = std::max(1, std::min(cellHeight, (tileWidth * 3) / 2));
+    const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.appColumnCount;
+    const std::size_t endIndex = std::min(viewModel.appTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.appColumnCount);
+
+    for (std::size_t index = startIndex; index < endIndex; ++index) {
+      const int row = static_cast<int>(index / viewModel.appColumnCount) - viewport.startRow;
+      const auto column = static_cast<int>(index % viewModel.appColumnCount);
+      const SDL_Rect tileRect {
+        gridRect.x + gridPadding + (column * (cellWidth + tileGap)) + std::max(0, (cellWidth - tileWidth) / 2),
+        gridRect.y + gridPadding + (row * (cellHeight + tileGap)) + std::max(0, (cellHeight - tileHeight) / 2),
+        tileWidth,
+        tileHeight,
+      };
+      if (!render_app_cover(renderer, smallFont, viewModel.appTiles[index], tileRect, textureCache, assetCache)) {
+        return false;
+      }
+    }
+
+    if (viewport.scrollbarWidth > 0) {
+      render_grid_scrollbar(
+        renderer,
+        {gridRect.x + gridRect.w - viewport.scrollbarWidth, gridRect.y + gridPadding, viewport.scrollbarWidth, std::max(1, gridRect.h - (gridPadding * 2))},
+        viewport
+      );
+    }
+    return true;
+  }
+
+  bool render_apps_empty_state(SDL_Renderer *renderer, TTF_Font *smallFont, const ui::ShellViewModel &viewModel, const SDL_Rect &gridRect) {
+    const int lineGap = 8;
+    const int textHeight = measure_body_lines_height(smallFont, viewModel.bodyLines, gridRect.w - 48, lineGap);
+    return render_body_lines(renderer, smallFont, viewModel.bodyLines, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, gridRect.x + 24, gridRect.y + std::max(16, (gridRect.h - textHeight) / 2), gridRect.w - 48, lineGap);
+  }
+
+  bool draw_shell(  // NOSONAR(cpp:S107) one-frame shell rendering keeps layout dependencies explicit
     SDL_Renderer *renderer,
     const VIDEO_MODE &videoMode,
     unsigned long encoderSettings,
@@ -3235,57 +3385,12 @@ namespace {
       };
 
       if (!viewModel.appTiles.empty()) {
-        const int columnCount = std::max(1, static_cast<int>(viewModel.appColumnCount));
-        const int tileGap = 16;
-        const int gridPadding = 10;
-        const GridViewport viewport = calculate_grid_viewport(viewModel.appTiles.size(), viewModel.appColumnCount, selected_app_tile_index(viewModel.appTiles), std::max(1, gridRect.h - (gridPadding * 2)), 220, tileGap);
-        const int scrollbarGap = viewport.scrollbarWidth > 0 ? 12 : 0;
-        const int gridInnerWidth = std::max(1, gridRect.w - (gridPadding * 2) - viewport.scrollbarWidth - scrollbarGap);
-        const int cellWidth = std::max(1, (gridInnerWidth - (tileGap * (columnCount - 1))) / columnCount);
-        const int cellHeight = std::max(1, (gridRect.h - (gridPadding * 2) - (tileGap * std::max(0, viewport.visibleRowCount - 1))) / std::max(1, viewport.visibleRowCount));
-        const int tileWidth = std::max(1, std::min(cellWidth, (cellHeight * 2) / 3));
-        const int tileHeight = std::max(1, std::min(cellHeight, (tileWidth * 3) / 2));
-        const std::size_t startIndex = static_cast<std::size_t>(viewport.startRow) * viewModel.appColumnCount;
-        const std::size_t endIndex = std::min(viewModel.appTiles.size(), static_cast<std::size_t>(viewport.startRow + viewport.visibleRowCount) * viewModel.appColumnCount);
-        for (std::size_t index = startIndex; index < endIndex; ++index) {
-          const int row = static_cast<int>(index / viewModel.appColumnCount) - viewport.startRow;
-          const auto column = static_cast<int>(index % viewModel.appColumnCount);
-          const SDL_Rect tileRect {
-            gridRect.x + gridPadding + (column * (cellWidth + tileGap)) + std::max(0, (cellWidth - tileWidth) / 2),
-            gridRect.y + gridPadding + (row * (cellHeight + tileGap)) + std::max(0, (cellHeight - tileHeight) / 2),
-            tileWidth,
-            tileHeight,
-          };
-          const ui::ShellAppTile &tile = viewModel.appTiles[index];
-          if (!render_app_cover(renderer, smallFont, tile, tileRect, textureCache, assetCache)) {  // NOSONAR(cpp:S134) app-grid rendering keeps per-tile failure handling inline with layout
-            return false;
-          }
-        }
-
-        if (viewport.scrollbarWidth > 0) {
-          render_grid_scrollbar(
-            renderer,
-            {gridRect.x + gridRect.w - viewport.scrollbarWidth, gridRect.y + gridPadding, viewport.scrollbarWidth, std::max(1, gridRect.h - (gridPadding * 2))},
-            viewport
-          );
+        if (!render_app_tiles_grid(renderer, smallFont, viewModel, gridRect, textureCache, assetCache)) {
+          return false;
         }
       } else if (!viewModel.bodyLines.empty()) {
-        const int lineGap = 8;
-        int textHeight = 0;
-        for (std::size_t index = 0; index < viewModel.bodyLines.size(); ++index) {
-          textHeight += measure_wrapped_text_height(smallFont, viewModel.bodyLines[index], gridRect.w - 48);
-          if (index + 1U < viewModel.bodyLines.size()) {  // NOSONAR(cpp:S134) empty-state text height is accumulated inline with layout calculation
-            textHeight += lineGap;
-          }
-        }
-
-        int messageY = gridRect.y + std::max(16, (gridRect.h - textHeight) / 2);
-        for (const std::string &line : viewModel.bodyLines) {
-          int drawnHeight = 0;
-          if (!render_text_line(renderer, smallFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, gridRect.x + 24, messageY, gridRect.w - 48, &drawnHeight)) {
-            return false;
-          }
-          messageY += drawnHeight + lineGap;
+        if (!render_apps_empty_state(renderer, smallFont, viewModel, gridRect)) {
+          return false;
         }
       }
     } else {
@@ -3389,13 +3494,8 @@ namespace {
           return false;
         }
       } else {
-        int bodyY = bodyPanel.y + panelPadding;
-        for (const std::string &line : viewModel.bodyLines) {
-          int drawnHeight = 0;
-          if (!render_text_line(renderer, bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyY, bodyPanel.w - (panelPadding * 2), &drawnHeight)) {  // NOSONAR(cpp:S134) settings-body rendering keeps layout failure handling local
-            return false;
-          }
-          bodyY += drawnHeight + 8;
+        if (!render_body_lines(renderer, bodyFont, viewModel.bodyLines, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, bodyPanel.x + panelPadding, bodyPanel.y + panelPadding, bodyPanel.w - (panelPadding * 2), 8)) {
+          return false;
         }
       }
     }
@@ -3579,11 +3679,42 @@ namespace {
     }
   }
 
+  bool should_open_added_controller(SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
+    return controller == nullptr && SDL_IsGameController(event.which);
+  }
+
+  bool should_close_removed_controller(SDL_GameController *controller, const SDL_ControllerDeviceEvent &event) {
+    return controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.which);
+  }
+
+  bool hosts_screen_exit_combo_allowed(const app::ClientState &state) {
+    return state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts;
+  }
+
+  void update_trigger_repeat_tick(input::UiCommand command, Uint32 now, Uint32 *leftTriggerRepeatTick, Uint32 *rightTriggerRepeatTick) {
+    if (command == input::UiCommand::fast_previous_page) {
+      if (leftTriggerRepeatTick != nullptr) {
+        *leftTriggerRepeatTick = now;
+      }
+      return;
+    }
+    if (command == input::UiCommand::fast_next_page && rightTriggerRepeatTick != nullptr) {
+      *rightTriggerRepeatTick = now;
+    }
+  }
+
+  input::UiCommand translate_unrepeated_keydown(const SDL_KeyboardEvent &event) {
+    if (event.repeat != 0) {
+      return input::UiCommand::none;
+    }
+    return translate_keyboard_key(event.keysym.sym, event.keysym.mod);
+  }
+
 }  // namespace
 
 namespace ui {
 
-  int run_shell(  // NOSONAR(cpp:S3776) shell loop owns all frame/update orchestration in one place by design
+  int run_shell(
     SDL_Window *window,
     const VIDEO_MODE &videoMode,
     app::ClientState &state
@@ -3743,9 +3874,7 @@ namespace ui {
       start_app_list_task_if_needed(state, &appListTask, SDL_GetTicks());
       start_app_art_task_if_needed(state, &appArtTask);
 
-      if (
-        !controllerExitComboTriggered && controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
-      ) {
+      if (!controllerExitComboTriggered && controllerStartPressed && controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
         controllerExitComboArmed = true;
         const Uint32 comboStartTick = controllerStartDownTick > controllerBackDownTick ? controllerStartDownTick : controllerBackDownTick;
         if (SDL_GetTicks() - comboStartTick >= EXIT_COMBO_HOLD_MILLISECONDS) {
@@ -3786,7 +3915,7 @@ namespace ui {
               state.shouldExit = true;
               break;
             case SDL_CONTROLLERDEVICEADDED:
-              if (controller == nullptr && SDL_IsGameController(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
+              if (should_open_added_controller(controller, event.cdevice)) {
                 controller = SDL_GameControllerOpen(event.cdevice.which);
                 if (controller != nullptr) {
                   logging::info("input", "Controller connected");
@@ -3794,7 +3923,7 @@ namespace ui {
               }
               break;
             case SDL_CONTROLLERDEVICEREMOVED:
-              if (controller != nullptr && controller == SDL_GameControllerFromInstanceID(event.cdevice.which)) {  // NOSONAR(cpp:S134) controller lifecycle handling stays inline with SDL event routing
+              if (should_close_removed_controller(controller, event.cdevice)) {
                 close_controller(controller);
                 controller = nullptr;
                 leftTriggerPressed = false;
@@ -3845,9 +3974,7 @@ namespace ui {
                   }
                 }
 
-                if (  // NOSONAR(cpp:S134) exit-combo arming stays inline with the button state machine
-                  controllerStartPressed && controllerBackPressed && (state.activeScreen == app::ScreenId::home || state.activeScreen == app::ScreenId::hosts)
-                ) {
+                if (controllerStartPressed && controllerBackPressed && hosts_screen_exit_combo_allowed(state)) {
                   controllerExitComboArmed = true;
                 }
                 break;
@@ -3880,16 +4007,10 @@ namespace ui {
               break;
             case SDL_CONTROLLERAXISMOTION:
               command = translate_trigger_axis(event.caxis, &leftTriggerPressed, &rightTriggerPressed);
-              if (command == input::UiCommand::fast_previous_page) {  // NOSONAR(cpp:S134) trigger repeat bookkeeping stays inline with translated command handling
-                leftTriggerRepeatTick = SDL_GetTicks();
-              } else if (command == input::UiCommand::fast_next_page) {
-                rightTriggerRepeatTick = SDL_GetTicks();
-              }
+              update_trigger_repeat_tick(command, SDL_GetTicks(), &leftTriggerRepeatTick, &rightTriggerRepeatTick);
               break;
             case SDL_KEYDOWN:
-              if (event.key.repeat == 0) {  // NOSONAR(cpp:S134) keyboard translation stays inline with SDL event routing
-                command = translate_keyboard_key(event.key.keysym.sym, event.key.keysym.mod);
-              }
+              command = translate_unrepeated_keydown(event.key);
               break;
             default:
               break;

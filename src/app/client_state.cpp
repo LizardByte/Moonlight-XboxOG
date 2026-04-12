@@ -901,50 +901,320 @@ namespace {
     return logging::LogLevel::none;
   }
 
-  bool handle_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {  // NOSONAR(cpp:S3776) modal command routing stays centralized for predictable UI behavior
+  /**
+   * @brief Closes the active modal and records the close in the outgoing update.
+   *
+   * @param state Client state whose modal should be dismissed.
+   * @param update Update structure that tracks modal lifecycle changes.
+   */
+  void close_modal_and_mark_closed(app::ClientState &state, app::AppUpdate *update) {
+    close_modal(state);
+    if (update != nullptr) {
+      update->modalClosed = true;
+    }
+  }
+
+  /**
+   * @brief Copies the current pairing draft into an update after entering the pairing screen.
+   *
+   * @param state Client state containing the generated pairing draft.
+   * @param update Update structure to populate.
+   */
+  void assign_pairing_request_from_draft(const app::ClientState &state, app::AppUpdate *update) {
+    if (update == nullptr) {
+      return;
+    }
+
+    update->screenChanged = true;
+    update->pairingRequested = true;
+    update->pairingAddress = state.pairingDraft.targetAddress;
+    update->pairingPort = state.pairingDraft.targetPort;
+    update->pairingPin = state.pairingDraft.generatedPin;
+  }
+
+  /**
+   * @brief Tries to enter the pairing screen for a host action and fills the update when successful.
+   *
+   * @param state Client state to transition.
+   * @param host Host selected for the pairing flow.
+   * @param update Update structure that receives the pairing request details.
+   */
+  void request_host_pairing(app::ClientState &state, const app::HostRecord &host, app::AppUpdate *update) {
+    if (!enter_pair_host_screen(state, host.address, host.port)) {
+      return;
+    }
+
+    assign_pairing_request_from_draft(state, update);
+  }
+
+  /**
+   * @brief Collects unique cover-art cache keys before deleting a saved host.
+   *
+   * @param deletedHost Host being removed from the saved-host list.
+   * @param update Update structure that receives cleanup work.
+   */
+  void collect_deleted_host_cover_art_keys(const app::HostRecord &deletedHost, app::AppUpdate *update) {
+    if (update == nullptr) {
+      return;
+    }
+
+    for (const app::HostAppRecord &appRecord : deletedHost.apps) {
+      if (appRecord.boxArtCacheKey.empty()) {
+        continue;
+      }
+      if (std::find(update->deletedHostCoverArtCacheKeys.begin(), update->deletedHostCoverArtCacheKeys.end(), appRecord.boxArtCacheKey) != update->deletedHostCoverArtCacheKeys.end()) {
+        continue;
+      }
+      update->deletedHostCoverArtCacheKeys.push_back(appRecord.boxArtCacheKey);
+    }
+  }
+
+  /**
+   * @brief Deletes the currently selected host and records the cleanup side effects.
+   *
+   * @param state Client state containing the selected host.
+   * @param update Update structure that receives deletion work.
+   */
+  void delete_selected_host(app::ClientState &state, app::AppUpdate *update) {
+    if (update == nullptr || state.selectedHostIndex >= state.hosts.size()) {
+      return;
+    }
+
+    const app::HostRecord deletedHost = state.hosts[state.selectedHostIndex];
+    remember_deleted_host_pairing(state, deletedHost);
+    update->hostDeleteCleanupRequested = true;
+    update->deletedHostAddress = deletedHost.address;
+    update->deletedHostPort = deletedHost.port;
+    update->deletedHostWasPaired = deletedHost.pairingState == app::PairingState::paired;
+    collect_deleted_host_cover_art_keys(deletedHost, update);
+    state.hosts.erase(state.hosts.begin() + static_cast<std::ptrdiff_t>(state.selectedHostIndex));
+    state.hostsDirty = true;
+    update->hostsChanged = true;
+    clamp_selected_host_index(state);
+    close_modal_and_mark_closed(state, update);
+    state.statusMessage = "Deleted saved host";
+  }
+
+  /**
+   * @brief Handles commands while the log viewer modal is active.
+   *
+   * @param state Client state containing the log viewer modal.
+   * @param command Command being processed.
+   * @param update Update structure that receives side effects.
+   * @return True when the command was consumed by the log viewer.
+   */
+  bool handle_log_viewer_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {
+    if (state.modal.id != app::ModalId::log_viewer) {
+      return false;
+    }
+
+    switch (command) {
+      case input::UiCommand::back:
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+        close_modal_and_mark_closed(state, update);
+        return true;
+      case input::UiCommand::delete_character:
+      case input::UiCommand::open_context_menu:
+        cycle_log_viewer_placement(state);
+        state.settingsDirty = true;
+        if (update != nullptr) {
+          update->settingsChanged = true;
+        }
+        return true;
+      case input::UiCommand::previous_page:
+        scroll_log_viewer(state, true, LOG_VIEWER_SCROLL_STEP);
+        return true;
+      case input::UiCommand::next_page:
+        scroll_log_viewer(state, false, LOG_VIEWER_SCROLL_STEP);
+        return true;
+      case input::UiCommand::fast_previous_page:
+        scroll_log_viewer(state, true, LOG_VIEWER_FAST_SCROLL_STEP);
+        return true;
+      case input::UiCommand::fast_next_page:
+        scroll_log_viewer(state, false, LOG_VIEWER_FAST_SCROLL_STEP);
+        return true;
+      case input::UiCommand::move_up:
+      case input::UiCommand::move_down:
+      case input::UiCommand::move_left:
+      case input::UiCommand::move_right:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Handles confirmation modal activation commands.
+   *
+   * @param state Client state containing the confirmation dialog.
+   * @param update Update structure that receives the confirmed action.
+   * @return True after consuming the confirmation action.
+   */
+  bool handle_confirmation_modal_activation(app::ClientState &state, app::AppUpdate *update) {
+    const bool confirmed = state.modal.selectedActionIndex % 2U == 0U;
+    const app::ConfirmationAction action = state.confirmation.action;
+    const std::string targetPath = state.confirmation.targetPath;
+    close_modal_and_mark_closed(state, update);
+    if (!confirmed) {
+      state.statusMessage = "Cancelled the pending reset action";
+      return true;
+    }
+    if (update == nullptr) {
+      return true;
+    }
+    if (action == app::ConfirmationAction::delete_saved_file) {
+      update->savedFileDeleteRequested = true;
+      update->savedFileDeletePath = targetPath;
+      return true;
+    }
+    if (action == app::ConfirmationAction::factory_reset) {
+      update->factoryResetRequested = true;
+    }
+    return true;
+  }
+
+  /**
+   * @brief Handles activation inside the host actions modal.
+   *
+   * @param state Client state containing the selected host.
+   * @param update Update structure that receives host-action side effects.
+   * @return True after consuming the modal activation.
+   */
+  bool handle_host_actions_modal_activation(app::ClientState &state, app::AppUpdate *update) {
+    const app::HostRecord *host = app::selected_host(state);
+    if (host == nullptr) {
+      close_modal_and_mark_closed(state, update);
+      return true;
+    }
+
+    switch (state.modal.selectedActionIndex % 4U) {
+      case 0:
+        close_modal_and_mark_closed(state, update);
+        if (host->pairingState == app::PairingState::paired) {
+          if (update != nullptr) {
+            update->appsBrowseRequested = true;
+            update->appsBrowseShowHidden = true;
+          }
+          return true;
+        }
+        request_host_pairing(state, *host, update);
+        return true;
+      case 1:
+        close_modal_and_mark_closed(state, update);
+        if (update != nullptr) {
+          update->connectionTestRequested = true;
+          update->connectionTestAddress = host->address;
+          update->connectionTestPort = app::effective_host_port(host->port);
+        }
+        return true;
+      case 2:
+        delete_selected_host(state, update);
+        return true;
+      case 3:
+        open_modal(state, app::ModalId::host_details);
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * @brief Handles activation inside the app actions modal.
+   *
+   * @param state Client state containing the selected app.
+   * @param update Update structure that receives app-action side effects.
+   * @return True after consuming the modal activation.
+   */
+  bool handle_app_actions_modal_activation(app::ClientState &state, app::AppUpdate *update) {
+    const app::HostRecord *host = app::apps_host(state);
+    const app::HostAppRecord *selectedApp = app::selected_app(state);
+    if (host == nullptr || selectedApp == nullptr) {
+      close_modal_and_mark_closed(state, update);
+      return true;
+    }
+
+    app::HostRecord *mutableHost = state.activeHostLoaded ? &state.activeHost : nullptr;
+    if (mutableHost == nullptr) {
+      close_modal_and_mark_closed(state, update);
+      return true;
+    }
+
+    const std::vector<std::size_t> indices = visible_app_indices(*mutableHost, state.showHiddenApps);
+    if (indices.empty()) {
+      close_modal_and_mark_closed(state, update);
+      return true;
+    }
+
+    app::HostAppRecord &appRecord = mutableHost->apps[indices[state.selectedAppIndex]];
+    switch (state.modal.selectedActionIndex % 3U) {
+      case 0:
+        appRecord.hidden = !appRecord.hidden;
+        state.hostsDirty = true;
+        close_modal_and_mark_closed(state, update);
+        if (update != nullptr) {
+          update->hostsChanged = true;
+        }
+        clamp_selected_app_index(state);
+        return true;
+      case 1:
+        open_modal(state, app::ModalId::app_details);
+        return true;
+      case 2:
+        appRecord.favorite = !appRecord.favorite;
+        state.hostsDirty = true;
+        close_modal_and_mark_closed(state, update);
+        if (update != nullptr) {
+          update->hostsChanged = true;
+        }
+        return true;
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * @brief Handles activation or confirmation commands for the active modal.
+   *
+   * @param state Client state containing the modal.
+   * @param update Update structure that receives modal side effects.
+   * @return True when a modal action was processed.
+   */
+  bool handle_modal_activation(app::ClientState &state, app::AppUpdate *update) {
+    switch (state.modal.id) {
+      case app::ModalId::support:
+      case app::ModalId::host_details:
+      case app::ModalId::app_details:
+        close_modal_and_mark_closed(state, update);
+        return true;
+      case app::ModalId::log_viewer:
+        return true;
+      case app::ModalId::confirmation:
+        return handle_confirmation_modal_activation(state, update);
+      case app::ModalId::host_actions:
+        return handle_host_actions_modal_activation(state, update);
+      case app::ModalId::app_actions:
+        return handle_app_actions_modal_activation(state, update);
+      case app::ModalId::none:
+        return false;
+    }
+
+    return false;
+  }
+
+  bool handle_modal_command(app::ClientState &state, input::UiCommand command, app::AppUpdate *update) {
     if (!state.modal.active()) {
       return false;
     }
 
-    if (state.modal.id == app::ModalId::log_viewer) {
-      switch (command) {
-        case input::UiCommand::back:
-        case input::UiCommand::activate:
-        case input::UiCommand::confirm:
-          close_modal(state);
-          update->modalClosed = true;
-          return true;
-        case input::UiCommand::delete_character:
-        case input::UiCommand::open_context_menu:
-          cycle_log_viewer_placement(state);
-          state.settingsDirty = true;
-          update->settingsChanged = true;
-          return true;
-        case input::UiCommand::previous_page:
-          scroll_log_viewer(state, true, LOG_VIEWER_SCROLL_STEP);
-          return true;
-        case input::UiCommand::next_page:
-          scroll_log_viewer(state, false, LOG_VIEWER_SCROLL_STEP);
-          return true;
-        case input::UiCommand::fast_previous_page:
-          scroll_log_viewer(state, true, LOG_VIEWER_FAST_SCROLL_STEP);
-          return true;
-        case input::UiCommand::fast_next_page:
-          scroll_log_viewer(state, false, LOG_VIEWER_FAST_SCROLL_STEP);
-          return true;
-        case input::UiCommand::move_up:
-        case input::UiCommand::move_down:
-        case input::UiCommand::move_left:
-        case input::UiCommand::move_right:
-        case input::UiCommand::toggle_overlay:
-        case input::UiCommand::none:
-          return true;
-      }
+    if (handle_log_viewer_modal_command(state, command, update)) {
+      return true;
     }
 
     if (command == input::UiCommand::back) {
-      close_modal(state);
-      update->modalClosed = true;
+      close_modal_and_mark_closed(state, update);
       return true;
     }
 
@@ -961,152 +1231,7 @@ namespace {
       return true;
     }
 
-    switch (state.modal.id) {
-      case app::ModalId::support:
-      case app::ModalId::host_details:
-      case app::ModalId::app_details:
-        close_modal(state);
-        update->modalClosed = true;
-        return true;
-      case app::ModalId::log_viewer:
-        return true;
-      case app::ModalId::confirmation:
-        {
-          const bool confirmed = state.modal.selectedActionIndex % 2U == 0U;
-          const app::ConfirmationAction action = state.confirmation.action;
-          const std::string targetPath = state.confirmation.targetPath;
-          close_modal(state);
-          update->modalClosed = true;
-          if (!confirmed) {
-            state.statusMessage = "Cancelled the pending reset action";
-            return true;
-          }
-          if (action == app::ConfirmationAction::delete_saved_file) {
-            update->savedFileDeleteRequested = true;
-            update->savedFileDeletePath = targetPath;
-            return true;
-          }
-          if (action == app::ConfirmationAction::factory_reset) {
-            update->factoryResetRequested = true;
-            return true;
-          }
-          return true;
-        }
-      case app::ModalId::host_actions:
-        {
-          const app::HostRecord *host = app::selected_host(state);
-          if (host == nullptr) {
-            close_modal(state);
-            update->modalClosed = true;
-            return true;
-          }
-
-          switch (state.modal.selectedActionIndex % 4U) {
-            case 0:
-              close_modal(state);
-              update->modalClosed = true;
-              if (host->pairingState == app::PairingState::paired) {
-                update->appsBrowseRequested = true;
-                update->appsBrowseShowHidden = true;
-              } else {
-                if (enter_pair_host_screen(state, host->address, host->port)) {  // NOSONAR(cpp:S134) host action flow is intentionally kept inline with its UI side effects
-                  update->screenChanged = true;
-                  update->pairingRequested = true;
-                  update->pairingAddress = state.pairingDraft.targetAddress;
-                  update->pairingPort = state.pairingDraft.targetPort;
-                  update->pairingPin = state.pairingDraft.generatedPin;
-                }
-              }
-              return true;
-            case 1:
-              close_modal(state);
-              update->modalClosed = true;
-              update->connectionTestRequested = true;
-              update->connectionTestAddress = host->address;
-              update->connectionTestPort = app::effective_host_port(host->port);
-              return true;
-            case 2:
-              if (state.selectedHostIndex < state.hosts.size()) {
-                const app::HostRecord deletedHost = state.hosts[state.selectedHostIndex];
-                remember_deleted_host_pairing(state, deletedHost);
-                update->hostDeleteCleanupRequested = true;
-                update->deletedHostAddress = deletedHost.address;
-                update->deletedHostPort = deletedHost.port;
-                update->deletedHostWasPaired = deletedHost.pairingState == app::PairingState::paired;
-                for (const app::HostAppRecord &appRecord : deletedHost.apps) {
-                  if (!appRecord.boxArtCacheKey.empty() && std::find(update->deletedHostCoverArtCacheKeys.begin(), update->deletedHostCoverArtCacheKeys.end(), appRecord.boxArtCacheKey) == update->deletedHostCoverArtCacheKeys.end()) {
-                    update->deletedHostCoverArtCacheKeys.push_back(appRecord.boxArtCacheKey);
-                  }
-                }
-                state.hosts.erase(state.hosts.begin() + static_cast<std::ptrdiff_t>(state.selectedHostIndex));
-                state.hostsDirty = true;
-                update->hostsChanged = true;
-                clamp_selected_host_index(state);
-                close_modal(state);
-                update->modalClosed = true;
-                state.statusMessage = "Deleted saved host";
-              }
-              return true;
-            case 3:
-              open_modal(state, app::ModalId::host_details);
-              return true;
-            default:
-              return true;
-          }
-          return true;
-        }
-      case app::ModalId::app_actions:
-        {
-          const app::HostRecord *host = app::apps_host(state);
-          if (const app::HostAppRecord *selectedApp = app::selected_app(state); host == nullptr || selectedApp == nullptr) {
-            close_modal(state);
-            update->modalClosed = true;
-            return true;
-          }
-
-          app::HostRecord *mutableHost = state.activeHostLoaded ? &state.activeHost : nullptr;
-          if (mutableHost == nullptr) {
-            close_modal(state);
-            update->modalClosed = true;
-            return true;
-          }
-          const std::vector<std::size_t> indices = visible_app_indices(*mutableHost, state.showHiddenApps);
-          if (indices.empty()) {
-            close_modal(state);
-            update->modalClosed = true;
-            return true;
-          }
-          app::HostAppRecord &appRecord = mutableHost->apps[indices[state.selectedAppIndex]];
-
-          switch (state.modal.selectedActionIndex % 3U) {
-            case 0:
-              appRecord.hidden = !appRecord.hidden;
-              state.hostsDirty = true;
-              close_modal(state);
-              update->modalClosed = true;
-              update->hostsChanged = true;
-              clamp_selected_app_index(state);
-              return true;
-            case 1:
-              open_modal(state, app::ModalId::app_details);
-              return true;
-            case 2:
-              appRecord.favorite = !appRecord.favorite;
-              state.hostsDirty = true;
-              close_modal(state);
-              update->modalClosed = true;
-              update->hostsChanged = true;
-              return true;
-            default:
-              return true;
-          }
-          return true;
-        }
-      case app::ModalId::none:
-        return false;
-    }
-
-    return false;
+    return handle_modal_activation(state, update);
   }
 
 }  // namespace
@@ -1266,7 +1391,140 @@ namespace app {
     return false;
   }
 
-  void apply_app_list_result(  // NOSONAR(cpp:S3776) app-list merge logic is intentionally centralized to preserve host selection state
+  /**
+   * @brief Finds the host that should receive an app-list refresh result.
+   *
+   * @param state Client state that owns saved and active hosts.
+   * @param address Address reported by the background task.
+   * @param port Port reported by the background task.
+   * @return Pointer to the matching host, or null when no host matches.
+   */
+  HostRecord *find_app_list_result_host(ClientState &state, const std::string &address, uint16_t port) {
+    HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
+    if (host != nullptr) {
+      return host;
+    }
+    if (state.activeScreen == ScreenId::apps && state.activeHostLoaded && host_matches_endpoint(state.activeHost, address, port)) {
+      return &state.activeHost;
+    }
+    return nullptr;
+  }
+
+  /**
+   * @brief Returns whether the given host is the active apps-screen selection.
+   *
+   * @param state Client state to inspect.
+   * @param host Host potentially backing the apps screen.
+   * @return True when the host is the active apps-screen selection.
+   */
+  bool app_list_result_targets_active_selection(const ClientState &state, const HostRecord *host) {
+    return host != nullptr && state.activeScreen == ScreenId::apps && state.activeHostLoaded && host == &state.activeHost;
+  }
+
+  /**
+   * @brief Returns the selected app identifier so it can be restored after a refresh.
+   *
+   * @param state Client state whose selected app should be preserved.
+   * @return The selected app ID, or zero when no app is selected.
+   */
+  int selected_app_id_for_restore(const ClientState &state) {
+    const HostAppRecord *currentSelection = selected_app(state);
+    return currentSelection == nullptr ? 0 : currentSelection->id;
+  }
+
+  /**
+   * @brief Applies a failed app-list refresh for an unpaired host.
+   *
+   * @param state Client state to update.
+   * @param host Host receiving the failure.
+   * @param hostIsActiveAppsScreenSelection True when the host backs the active apps screen.
+   * @param message Failure message returned by the refresh task.
+   */
+  void apply_unpaired_app_list_failure(ClientState &state, HostRecord *host, bool hostIsActiveAppsScreenSelection, std::string message) {
+    if (host == nullptr) {
+      return;
+    }
+
+    const bool persistedAppCacheChanged = !host->apps.empty() || host->appListContentHash != 0U;
+    host->pairingState = PairingState::not_paired;
+    host->apps.clear();
+    host->appListContentHash = 0;
+    host->lastAppListRefreshTick = 0U;
+    host->appListState = HostAppListState::failed;
+    host->appListStatusMessage = message;
+    state.hostsDirty = state.hostsDirty || persistedAppCacheChanged;
+    if (hostIsActiveAppsScreenSelection) {
+      state.statusMessage = std::move(message);
+    }
+    refresh_running_flags(host);
+    clamp_selected_app_index(state);
+  }
+
+  /**
+   * @brief Applies a failed app-list refresh that can fall back to cached app data.
+   *
+   * @param state Client state to update.
+   * @param host Host receiving the failure.
+   * @param hostIsActiveAppsScreenSelection True when the host backs the active apps screen.
+   * @param message Failure message returned by the refresh task.
+   */
+  void apply_cached_app_list_failure(ClientState &state, HostRecord *host, bool hostIsActiveAppsScreenSelection, std::string message) {
+    if (host == nullptr) {
+      return;
+    }
+
+    host->appListState = host->apps.empty() ? HostAppListState::failed : HostAppListState::ready;
+    host->appListStatusMessage = host->apps.empty() ? message : "Using cached apps. Last refresh failed: " + message;
+    if (hostIsActiveAppsScreenSelection) {
+      state.statusMessage = std::move(message);
+    }
+    refresh_running_flags(host);
+    clamp_selected_app_index(state);
+  }
+
+  /**
+   * @brief Merges saved app metadata into a freshly fetched app list.
+   *
+   * @param host Host providing persisted per-app metadata.
+   * @param apps Freshly fetched apps to merge.
+   * @return Merged app records ready to persist.
+   */
+  std::vector<HostAppRecord> merge_host_app_records(const HostRecord &host, std::vector<HostAppRecord> apps) {
+    std::vector<HostAppRecord> mergedApps;
+    mergedApps.reserve(apps.size());
+    for (HostAppRecord &appRecord : apps) {
+      if (const HostAppRecord *savedApp = find_app_by_id(host.apps, appRecord.id); savedApp != nullptr) {
+        appRecord.hidden = appRecord.hidden || savedApp->hidden;
+        appRecord.favorite = savedApp->favorite;
+        appRecord.boxArtCached = appRecord.boxArtCached || savedApp->boxArtCached;
+        if (appRecord.boxArtCacheKey.empty()) {
+          appRecord.boxArtCacheKey = savedApp->boxArtCacheKey;
+        }
+      }
+      appRecord.running = static_cast<uint32_t>(appRecord.id) == host.runningGameId;
+      mergedApps.push_back(std::move(appRecord));
+    }
+    return mergedApps;
+  }
+
+  /**
+   * @brief Restores the previously selected app after a successful refresh.
+   *
+   * @param state Client state whose selected app should be restored.
+   * @param host Host containing the refreshed app list.
+   * @param selectedAppId App ID that was selected before the refresh.
+   */
+  void restore_selected_app_after_refresh(ClientState &state, const HostRecord &host, int selectedAppId) {
+    if (selectedAppId != 0) {
+      const std::size_t restoredIndex = visible_app_index_for_id(host, state.showHiddenApps, selectedAppId);
+      if (restoredIndex != static_cast<std::size_t>(-1)) {
+        state.selectedAppIndex = restoredIndex;
+      }
+    }
+    clamp_selected_app_index(state);
+  }
+
+  void apply_app_list_result(
     ClientState &state,
     const std::string &address,
     uint16_t port,
@@ -1275,62 +1533,28 @@ namespace app {
     bool success,
     std::string message
   ) {
-    HostRecord *host = find_host_by_endpoint(state.hosts, address, port);
-    if (host == nullptr && state.activeScreen == ScreenId::apps && state.activeHostLoaded && host_matches_endpoint(state.activeHost, address, port)) {
-      host = &state.activeHost;
-    }
+    HostRecord *host = find_app_list_result_host(state, address, port);
     if (host == nullptr) {
       return;
     }
 
-    bool persistedAppCacheChanged = false;
-
-    const bool hostIsActiveAppsScreenSelection = state.activeScreen == ScreenId::apps && state.activeHostLoaded && host == &state.activeHost;
-    const HostAppRecord *currentSelection = selected_app(state);
-    const int selectedAppId = currentSelection == nullptr ? 0 : currentSelection->id;
+    const bool hostIsActiveAppsScreenSelection = app_list_result_targets_active_selection(state, host);
+    const int selectedAppId = selected_app_id_for_restore(state);
 
     if (!success) {
-      if (const bool hostIsUnpaired = network::error_indicates_unpaired_client(message); hostIsUnpaired) {
-        host->pairingState = PairingState::not_paired;
-        persistedAppCacheChanged = !host->apps.empty() || host->appListContentHash != 0U;
-        host->apps.clear();
-        host->appListContentHash = 0;
-        host->lastAppListRefreshTick = 0U;
-        host->appListState = HostAppListState::failed;
-        host->appListStatusMessage = message;
-        if (hostIsActiveAppsScreenSelection) {
-          state.statusMessage = std::move(message);
-        }
-        refresh_running_flags(host);
-        clamp_selected_app_index(state);
+      if (network::error_indicates_unpaired_client(message)) {
+        apply_unpaired_app_list_failure(state, host, hostIsActiveAppsScreenSelection, std::move(message));
         return;
       }
-      host->appListState = host->apps.empty() ? HostAppListState::failed : HostAppListState::ready;
-      host->appListStatusMessage = host->apps.empty() ? message : "Using cached apps. Last refresh failed: " + message;
-      if (hostIsActiveAppsScreenSelection) {
-        state.statusMessage = std::move(message);
-      }
-      refresh_running_flags(host);
-      clamp_selected_app_index(state);
+
+      apply_cached_app_list_failure(state, host, hostIsActiveAppsScreenSelection, std::move(message));
       return;
     }
 
-    if (const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash; appListChanged) {
-      std::vector<HostAppRecord> mergedApps;
-      mergedApps.reserve(apps.size());
-      for (HostAppRecord &appRecord : apps) {
-        if (const HostAppRecord *savedApp = find_app_by_id(host->apps, appRecord.id); savedApp != nullptr) {
-          appRecord.hidden = appRecord.hidden || savedApp->hidden;
-          appRecord.favorite = savedApp->favorite;
-          appRecord.boxArtCached = appRecord.boxArtCached || savedApp->boxArtCached;
-          if (appRecord.boxArtCacheKey.empty()) {  // NOSONAR(cpp:S134) merge path keeps persisted app metadata updates together
-            appRecord.boxArtCacheKey = savedApp->boxArtCacheKey;
-          }
-        }
-        appRecord.running = static_cast<uint32_t>(appRecord.id) == host->runningGameId;
-        mergedApps.push_back(std::move(appRecord));
-      }
-      host->apps = std::move(mergedApps);
+    bool persistedAppCacheChanged = false;
+    const bool appListChanged = host->apps.empty() || host->appListContentHash == 0U || host->appListContentHash != appListContentHash;
+    if (appListChanged) {
+      host->apps = merge_host_app_records(*host, std::move(apps));
       persistedAppCacheChanged = true;
     } else {
       refresh_running_flags(host);
@@ -1345,13 +1569,7 @@ namespace app {
       state.statusMessage.clear();
     }
 
-    if (selectedAppId != 0) {
-      const std::size_t restoredIndex = visible_app_index_for_id(*host, state.showHiddenApps, selectedAppId);
-      if (restoredIndex != static_cast<std::size_t>(-1)) {
-        state.selectedAppIndex = restoredIndex;
-      }
-    }
-    clamp_selected_app_index(state);
+    restore_selected_app_after_refresh(state, *host, selectedAppId);
   }
 
   void mark_cover_art_cached(ClientState &state, const std::string &address, uint16_t port, int appId) {
@@ -1421,83 +1639,532 @@ namespace app {
     return &state.activeHost;
   }
 
-  AppUpdate handle_command(ClientState &state, input::UiCommand command) {  // NOSONAR(cpp:S3776) top-level UI command routing intentionally remains in one place
-    AppUpdate update {};
-
+  /**
+   * @brief Handles overlay toggle and scrolling commands.
+   *
+   * @param state Client state containing the overlay state.
+   * @param command Command being processed.
+   * @param update Update structure that receives overlay changes.
+   * @return True when the command was consumed by the overlay.
+   */
+  bool handle_overlay_command(ClientState &state, input::UiCommand command, AppUpdate *update) {
     if (command == input::UiCommand::toggle_overlay) {
       state.overlayVisible = !state.overlayVisible;
       if (!state.overlayVisible) {
         state.overlayScrollOffset = 0U;
       }
-      update.overlayChanged = true;
-      update.overlayVisibilityChanged = true;
+      if (update != nullptr) {
+        update->overlayChanged = true;
+        update->overlayVisibilityChanged = true;
+      }
+      return true;
+    }
+
+    if (!state.overlayVisible || update == nullptr) {
+      return false;
+    }
+
+    switch (command) {
+      case input::UiCommand::previous_page:
+        state.overlayScrollOffset += OVERLAY_SCROLL_STEP;
+        update->overlayChanged = true;
+        return true;
+      case input::UiCommand::next_page:
+        state.overlayScrollOffset = state.overlayScrollOffset > OVERLAY_SCROLL_STEP ? state.overlayScrollOffset - OVERLAY_SCROLL_STEP : 0U;
+        update->overlayChanged = true;
+        return true;
+      case input::UiCommand::fast_previous_page:
+        state.overlayScrollOffset += OVERLAY_SCROLL_STEP * 3U;
+        update->overlayChanged = true;
+        return true;
+      case input::UiCommand::fast_next_page:
+        {
+          const std::size_t fastStep = OVERLAY_SCROLL_STEP * 3U;
+          state.overlayScrollOffset = state.overlayScrollOffset > fastStep ? state.overlayScrollOffset - fastStep : 0U;
+          update->overlayChanged = true;
+          return true;
+        }
+      case input::UiCommand::move_up:
+      case input::UiCommand::move_down:
+      case input::UiCommand::move_left:
+      case input::UiCommand::move_right:
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+      case input::UiCommand::back:
+      case input::UiCommand::delete_character:
+      case input::UiCommand::open_context_menu:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return false;
+    }
+
+    return false;
+  }
+
+  /**
+   * @brief Handles commands while the add-host keypad modal is visible.
+   *
+   * @param state Client state containing the keypad draft.
+   * @param command Command being processed.
+   * @return True when the command was consumed by the keypad.
+   */
+  bool handle_add_host_keypad_command(ClientState &state, input::UiCommand command) {
+    if (state.activeScreen != ScreenId::add_host || !state.addHostDraft.keypad.visible) {
+      return false;
+    }
+
+    switch (command) {
+      case input::UiCommand::move_up:
+        move_add_host_keypad_selection(state, -1, 0);
+        return true;
+      case input::UiCommand::move_down:
+        move_add_host_keypad_selection(state, 1, 0);
+        return true;
+      case input::UiCommand::move_left:
+        move_add_host_keypad_selection(state, 0, -1);
+        return true;
+      case input::UiCommand::move_right:
+        move_add_host_keypad_selection(state, 0, 1);
+        return true;
+      case input::UiCommand::back:
+        cancel_add_host_keypad(state);
+        return true;
+      case input::UiCommand::delete_character:
+        backspace_active_add_host_field(state);
+        return true;
+      case input::UiCommand::confirm:
+        accept_add_host_keypad(state);
+        return true;
+      case input::UiCommand::activate:
+        {
+          char character = '\0';
+          if (selected_add_host_keypad_character(state, &character)) {
+            append_to_active_add_host_field(state, character);
+          }
+          return true;
+        }
+      case input::UiCommand::open_context_menu:
+      case input::UiCommand::previous_page:
+      case input::UiCommand::next_page:
+      case input::UiCommand::fast_previous_page:
+      case input::UiCommand::fast_next_page:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Handles activation of a settings detail row.
+   *
+   * @param state Client state containing the settings menus.
+   * @param detailUpdate Activated detail-menu update.
+   * @param update Update structure that receives side effects.
+   */
+  void handle_settings_detail_activation(ClientState &state, const ui::MenuUpdate &detailUpdate, AppUpdate *update) {
+    if (update == nullptr) {
+      return;
+    }
+
+    update->activatedItemId = detailUpdate.activatedItemId;
+    if (detailUpdate.activatedItemId == "view-log-file") {
+      update->logViewRequested = true;
+      return;
+    }
+    if (detailUpdate.activatedItemId == "cycle-log-level") {
+      state.loggingLevel = next_logging_level(state.loggingLevel);
+      state.settingsDirty = true;
+      update->settingsChanged = true;
+      state.statusMessage = std::string("Logging level set to ") + logging::to_string(state.loggingLevel);
+      rebuild_menu(state, "cycle-log-level");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "cycle-xemu-console-log-level") {
+      state.xemuConsoleLoggingLevel = next_logging_level(state.xemuConsoleLoggingLevel);
+      state.settingsDirty = true;
+      update->settingsChanged = true;
+      state.statusMessage = std::string("xemu console logging level set to ") + logging::to_string(state.xemuConsoleLoggingLevel);
+      rebuild_menu(state, "cycle-xemu-console-log-level");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "factory-reset") {
+      open_confirmation(
+        state,
+        ConfirmationAction::factory_reset,
+        "Factory Reset",
+        {
+          "Delete all Moonlight saved data?",
+          "This removes hosts, settings, logs, pairing identity, and cached cover art.",
+        }
+      );
+      update->modalOpened = true;
+      return;
+    }
+    if (starts_with(detailUpdate.activatedItemId, DELETE_SAVED_FILE_MENU_ID_PREFIX)) {
+      const std::string targetPath = detailUpdate.activatedItemId.substr(std::char_traits<char>::length(DELETE_SAVED_FILE_MENU_ID_PREFIX));
+      open_confirmation(
+        state,
+        ConfirmationAction::delete_saved_file,
+        "Delete Saved File",
+        {
+          "Delete this saved file?",
+          targetPath,
+        },
+        targetPath
+      );
+      update->modalOpened = true;
+      return;
+    }
+    state.statusMessage = detailUpdate.activatedItemId + " is not implemented yet";
+  }
+
+  /**
+   * @brief Handles commands on the settings screen.
+   *
+   * @param state Client state containing the settings menus.
+   * @param command Command being processed.
+   * @param update Update structure that receives side effects.
+   * @return True when the settings screen consumed the command.
+   */
+  bool handle_settings_screen_command(ClientState &state, input::UiCommand command, AppUpdate *update) {
+    if (state.activeScreen != ScreenId::settings || update == nullptr) {
+      return false;
+    }
+
+    if (command == input::UiCommand::move_left && state.settingsFocusArea == SettingsFocusArea::options) {
+      state.settingsFocusArea = SettingsFocusArea::categories;
+      return true;
+    }
+    if (command == input::UiCommand::move_right && state.settingsFocusArea == SettingsFocusArea::categories && !state.detailMenu.items().empty()) {
+      state.settingsFocusArea = SettingsFocusArea::options;
+      return true;
+    }
+
+    if (state.settingsFocusArea == SettingsFocusArea::categories) {
+      const ui::MenuUpdate categoryUpdate = state.menu.handle_command(command);
+      if (categoryUpdate.backRequested) {
+        set_screen(state, ScreenId::hosts);
+        update->screenChanged = true;
+        return true;
+      }
+      if (categoryUpdate.selectionChanged) {
+        sync_selected_settings_category_from_menu(state);
+        rebuild_settings_detail_menu(state, {}, false);
+        return true;
+      }
+      if (!categoryUpdate.activationRequested) {
+        return true;
+      }
+
+      update->activatedItemId = categoryUpdate.activatedItemId;
+      sync_selected_settings_category_from_menu(state);
+      rebuild_menu(state, categoryUpdate.activatedItemId);
+      if (!state.detailMenu.items().empty()) {
+        state.settingsFocusArea = SettingsFocusArea::options;
+      }
+      return true;
+    }
+
+    const ui::MenuUpdate detailUpdate = state.detailMenu.handle_command(command);
+    if (detailUpdate.backRequested) {
+      state.settingsFocusArea = SettingsFocusArea::categories;
+      return true;
+    }
+    if (!detailUpdate.activationRequested) {
+      return true;
+    }
+
+    handle_settings_detail_activation(state, detailUpdate, update);
+    return true;
+  }
+
+  /**
+   * @brief Activates a selected host from the hosts screen.
+   *
+   * @param state Client state containing the selected host.
+   * @param update Update structure that receives browse or pairing work.
+   */
+  void activate_selected_host(ClientState &state, AppUpdate *update) {
+    const HostRecord *host = selected_host(state);
+    if (host == nullptr || update == nullptr) {
+      return;
+    }
+
+    update->activatedItemId = "select-host";
+    if (host->pairingState == PairingState::paired) {
+      update->appsBrowseRequested = true;
+      update->appsBrowseShowHidden = false;
+      return;
+    }
+
+    request_host_pairing(state, *host, update);
+  }
+
+  /**
+   * @brief Handles activation of the hosts toolbar.
+   *
+   * @param state Client state containing the toolbar selection.
+   * @param update Update structure that receives side effects.
+   */
+  void activate_hosts_toolbar(ClientState &state, AppUpdate *update) {
+    if (update == nullptr) {
+      return;
+    }
+
+    const std::size_t toolbarIndex = state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT;
+    if (toolbarIndex == 0U) {
+      set_screen(state, ScreenId::settings, settings_category_menu_id(SettingsCategory::logging));
+      update->screenChanged = true;
+      update->activatedItemId = "settings-button";
+      return;
+    }
+    if (toolbarIndex == 1U) {
+      open_modal(state, ModalId::support);
+      update->modalOpened = true;
+      update->activatedItemId = "support-button";
+      return;
+    }
+
+    enter_add_host_screen(state);
+    update->screenChanged = true;
+    update->activatedItemId = "add-host-button";
+  }
+
+  /**
+   * @brief Handles commands on the hosts screen.
+   *
+   * @param state Client state containing the hosts screen selection.
+   * @param command Command being processed.
+   * @param update Update structure that receives side effects.
+   * @return True when the hosts screen consumed the command.
+   */
+  bool handle_hosts_screen_command(ClientState &state, input::UiCommand command, AppUpdate *update) {
+    if (state.activeScreen != ScreenId::hosts || update == nullptr) {
+      return false;
+    }
+
+    switch (command) {
+      case input::UiCommand::move_left:
+        if (state.hostsFocusArea == HostsFocusArea::toolbar) {
+          move_toolbar_selection(state, -1);
+        } else {
+          move_host_grid_selection(state, 0, -1);
+        }
+        return true;
+      case input::UiCommand::move_right:
+        if (state.hostsFocusArea == HostsFocusArea::toolbar) {
+          move_toolbar_selection(state, 1);
+        } else {
+          move_host_grid_selection(state, 0, 1);
+        }
+        return true;
+      case input::UiCommand::move_down:
+        if (state.hostsFocusArea == HostsFocusArea::toolbar) {
+          if (!state.hosts.empty()) {
+            state.hostsFocusArea = HostsFocusArea::grid;
+          }
+        } else {
+          move_host_grid_selection(state, 1, 0);
+        }
+        return true;
+      case input::UiCommand::move_up:
+        if (state.hostsFocusArea == HostsFocusArea::grid) {
+          move_host_grid_selection(state, -1, 0);
+        }
+        return true;
+      case input::UiCommand::open_context_menu:
+        if (state.hostsFocusArea == HostsFocusArea::grid && selected_host(state) != nullptr) {
+          open_modal(state, ModalId::host_actions);
+          update->modalOpened = true;
+        }
+        return true;
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+        if (state.hostsFocusArea == HostsFocusArea::toolbar) {
+          activate_hosts_toolbar(state, update);
+          return true;
+        }
+        activate_selected_host(state, update);
+        return true;
+      case input::UiCommand::back:
+      case input::UiCommand::delete_character:
+      case input::UiCommand::previous_page:
+      case input::UiCommand::next_page:
+      case input::UiCommand::fast_previous_page:
+      case input::UiCommand::fast_next_page:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Handles commands on the apps screen.
+   *
+   * @param state Client state containing the apps selection.
+   * @param command Command being processed.
+   * @param update Update structure that receives side effects.
+   * @return True when the apps screen consumed the command.
+   */
+  bool handle_apps_screen_command(ClientState &state, input::UiCommand command, AppUpdate *update) {
+    if (state.activeScreen != ScreenId::apps || update == nullptr) {
+      return false;
+    }
+
+    switch (command) {
+      case input::UiCommand::move_left:
+        move_app_grid_selection(state, 0, -1);
+        return true;
+      case input::UiCommand::move_right:
+        move_app_grid_selection(state, 0, 1);
+        return true;
+      case input::UiCommand::move_up:
+        move_app_grid_selection(state, -1, 0);
+        return true;
+      case input::UiCommand::move_down:
+        move_app_grid_selection(state, 1, 0);
+        return true;
+      case input::UiCommand::open_context_menu:
+        if (selected_app(state) != nullptr) {
+          open_modal(state, ModalId::app_actions);
+          update->modalOpened = true;
+        }
+        return true;
+      case input::UiCommand::activate:
+      case input::UiCommand::confirm:
+        if (const HostAppRecord *appRecord = selected_app(state); appRecord != nullptr) {
+          state.statusMessage = "Launching " + appRecord->name + " is not implemented yet";
+          update->activatedItemId = "launch-app";
+        }
+        return true;
+      case input::UiCommand::back:
+        state.statusMessage.clear();
+        set_screen(state, ScreenId::hosts);
+        update->screenChanged = true;
+        return true;
+      case input::UiCommand::delete_character:
+      case input::UiCommand::previous_page:
+      case input::UiCommand::next_page:
+      case input::UiCommand::fast_previous_page:
+      case input::UiCommand::fast_next_page:
+      case input::UiCommand::toggle_overlay:
+      case input::UiCommand::none:
+        return true;
+    }
+
+    return true;
+  }
+
+  /**
+   * @brief Applies an invalid add-host draft error to the UI state.
+   *
+   * @param state Client state containing the add-host draft.
+   * @param validationError Validation message to display.
+   */
+  void apply_add_host_validation_error(ClientState &state, const std::string &validationError) {
+    state.addHostDraft.validationMessage = validationError;
+    state.statusMessage = validationError;
+  }
+
+  /**
+   * @brief Handles activation of add-host screen menu actions.
+   *
+   * @param state Client state containing the add-host draft.
+   * @param activatedItemId Activated menu item identifier.
+   * @param update Update structure that receives side effects.
+   */
+  void handle_add_host_menu_activation(ClientState &state, const std::string &activatedItemId, AppUpdate *update) {
+    if (update == nullptr) {
+      return;
+    }
+
+    if (activatedItemId == "edit-address") {
+      open_add_host_keypad(state, AddHostField::address);
+      return;
+    }
+    if (activatedItemId == "edit-port") {
+      open_add_host_keypad(state, AddHostField::port);
+      return;
+    }
+
+    std::string normalizedAddress;
+    uint16_t parsedPort = 0;
+    std::string validationError;
+    const bool draftIsValid = normalize_add_host_inputs(state, &normalizedAddress, &parsedPort, &validationError);
+    if (activatedItemId == "test-connection") {
+      if (!draftIsValid) {
+        apply_add_host_validation_error(state, validationError);
+        return;
+      }
+      state.addHostDraft.validationMessage.clear();
+      state.addHostDraft.connectionMessage = "Testing connection to " + normalizedAddress + (parsedPort == 0 ? std::string {} : ":" + std::to_string(parsedPort)) + "...";
+      state.statusMessage = state.addHostDraft.connectionMessage;
+      update->connectionTestRequested = true;
+      update->connectionTestAddress = normalizedAddress;
+      update->connectionTestPort = effective_host_port(parsedPort);
+      return;
+    }
+    if (activatedItemId == "save-host") {
+      if (!draftIsValid) {
+        apply_add_host_validation_error(state, validationError);
+        return;
+      }
+      if (find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort) != nullptr) {
+        apply_add_host_validation_error(state, "That host is already saved");
+        return;
+      }
+
+      state.hosts.push_back(make_host_record(normalizedAddress, parsedPort));
+      state.selectedHostIndex = state.hosts.size() - 1U;
+      state.hostsFocusArea = HostsFocusArea::grid;
+      state.hostsDirty = true;
+      update->hostsChanged = true;
+      state.addHostDraft.validationMessage.clear();
+      state.addHostDraft.connectionMessage.clear();
+      state.statusMessage = "Saved host " + normalizedAddress;
+      set_screen(state, ScreenId::hosts);
+      update->screenChanged = true;
+      return;
+    }
+    if (activatedItemId == "start-pairing") {
+      if (!draftIsValid) {
+        apply_add_host_validation_error(state, validationError);
+        return;
+      }
+
+      const HostRecord *host = find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort);
+      if (host == nullptr) {
+        state.hosts.push_back(make_host_record(normalizedAddress, parsedPort));
+        state.selectedHostIndex = state.hosts.size() - 1U;
+        state.hostsDirty = true;
+        update->hostsChanged = true;
+        host = &state.hosts.back();
+      }
+
+      request_host_pairing(state, *host, update);
+      return;
+    }
+    if (activatedItemId == "cancel-add-host") {
+      state.addHostDraft.validationMessage.clear();
+      state.addHostDraft.connectionMessage.clear();
+      set_screen(state, ScreenId::hosts);
+      update->screenChanged = true;
+    }
+  }
+
+  AppUpdate handle_command(ClientState &state, input::UiCommand command) {
+    AppUpdate update {};
+
+    if (handle_overlay_command(state, command, &update)) {
       return update;
     }
 
-    if (state.overlayVisible) {
-      if (command == input::UiCommand::previous_page) {
-        state.overlayScrollOffset += OVERLAY_SCROLL_STEP;
-        update.overlayChanged = true;
-        return update;
-      }
-      if (command == input::UiCommand::next_page) {
-        state.overlayScrollOffset = state.overlayScrollOffset > OVERLAY_SCROLL_STEP ? state.overlayScrollOffset - OVERLAY_SCROLL_STEP : 0U;
-        update.overlayChanged = true;
-        return update;
-      }
-      if (command == input::UiCommand::fast_previous_page) {
-        state.overlayScrollOffset += OVERLAY_SCROLL_STEP * 3U;
-        update.overlayChanged = true;
-        return update;
-      }
-      if (command == input::UiCommand::fast_next_page) {
-        const std::size_t fastStep = OVERLAY_SCROLL_STEP * 3U;
-        state.overlayScrollOffset = state.overlayScrollOffset > fastStep ? state.overlayScrollOffset - fastStep : 0U;
-        update.overlayChanged = true;
-        return update;
-      }
-    }
-
-    if (state.activeScreen == ScreenId::add_host && state.addHostDraft.keypad.visible) {
-      switch (command) {
-        case input::UiCommand::move_up:
-          move_add_host_keypad_selection(state, -1, 0);
-          return update;
-        case input::UiCommand::move_down:
-          move_add_host_keypad_selection(state, 1, 0);
-          return update;
-        case input::UiCommand::move_left:
-          move_add_host_keypad_selection(state, 0, -1);
-          return update;
-        case input::UiCommand::move_right:
-          move_add_host_keypad_selection(state, 0, 1);
-          return update;
-        case input::UiCommand::back:
-          cancel_add_host_keypad(state);
-          return update;
-        case input::UiCommand::delete_character:
-          backspace_active_add_host_field(state);
-          return update;
-        case input::UiCommand::confirm:
-          accept_add_host_keypad(state);
-          return update;
-        case input::UiCommand::activate:
-          {
-            char character = '\0';
-            if (selected_add_host_keypad_character(state, &character)) {
-              append_to_active_add_host_field(state, character);
-            }
-            return update;
-          }
-        case input::UiCommand::open_context_menu:
-        case input::UiCommand::previous_page:
-        case input::UiCommand::next_page:
-        case input::UiCommand::fast_previous_page:
-        case input::UiCommand::fast_next_page:
-        case input::UiCommand::toggle_overlay:
-        case input::UiCommand::none:
-          return update;
-      }
+    if (handle_add_host_keypad_command(state, command)) {
+      return update;
     }
 
     if (handle_modal_command(state, command, &update)) {
@@ -1509,229 +2176,16 @@ namespace app {
       return update;
     }
 
-    if (state.activeScreen == ScreenId::settings) {
-      if (command == input::UiCommand::move_left && state.settingsFocusArea == SettingsFocusArea::options) {
-        state.settingsFocusArea = SettingsFocusArea::categories;
-        return update;
-      }
-      if (command == input::UiCommand::move_right && state.settingsFocusArea == SettingsFocusArea::categories && !state.detailMenu.items().empty()) {
-        state.settingsFocusArea = SettingsFocusArea::options;
-        return update;
-      }
-
-      if (state.settingsFocusArea == SettingsFocusArea::categories) {
-        const ui::MenuUpdate categoryUpdate = state.menu.handle_command(command);
-        if (categoryUpdate.backRequested) {
-          set_screen(state, ScreenId::hosts);
-          update.screenChanged = true;
-          return update;
-        }
-        if (categoryUpdate.selectionChanged) {
-          sync_selected_settings_category_from_menu(state);
-          rebuild_settings_detail_menu(state, {}, false);
-          return update;
-        }
-        if (!categoryUpdate.activationRequested) {
-          return update;
-        }
-
-        update.activatedItemId = categoryUpdate.activatedItemId;
-        sync_selected_settings_category_from_menu(state);
-        rebuild_menu(state, categoryUpdate.activatedItemId);
-        if (!state.detailMenu.items().empty()) {
-          state.settingsFocusArea = SettingsFocusArea::options;
-        }
-        return update;
-      }
-
-      const ui::MenuUpdate detailUpdate = state.detailMenu.handle_command(command);
-      if (detailUpdate.backRequested) {
-        state.settingsFocusArea = SettingsFocusArea::categories;
-        return update;
-      }
-      if (!detailUpdate.activationRequested) {
-        return update;
-      }
-
-      update.activatedItemId = detailUpdate.activatedItemId;
-      if (detailUpdate.activatedItemId == "view-log-file") {
-        update.logViewRequested = true;
-        return update;
-      }
-      if (detailUpdate.activatedItemId == "cycle-log-level") {
-        state.loggingLevel = next_logging_level(state.loggingLevel);
-        state.settingsDirty = true;
-        update.settingsChanged = true;
-        state.statusMessage = std::string("Logging level set to ") + logging::to_string(state.loggingLevel);
-        rebuild_menu(state, "cycle-log-level");
-        return update;
-      }
-      if (detailUpdate.activatedItemId == "cycle-xemu-console-log-level") {
-        state.xemuConsoleLoggingLevel = next_logging_level(state.xemuConsoleLoggingLevel);
-        state.settingsDirty = true;
-        update.settingsChanged = true;
-        state.statusMessage = std::string("xemu console logging level set to ") + logging::to_string(state.xemuConsoleLoggingLevel);
-        rebuild_menu(state, "cycle-xemu-console-log-level");
-        return update;
-      }
-      if (detailUpdate.activatedItemId == "factory-reset") {
-        open_confirmation(
-          state,
-          ConfirmationAction::factory_reset,
-          "Factory Reset",
-          {
-            "Delete all Moonlight saved data?",
-            "This removes hosts, settings, logs, pairing identity, and cached cover art.",
-          }
-        );
-        update.modalOpened = true;
-        return update;
-      }
-      if (starts_with(detailUpdate.activatedItemId, DELETE_SAVED_FILE_MENU_ID_PREFIX)) {
-        const std::string targetPath = detailUpdate.activatedItemId.substr(std::char_traits<char>::length(DELETE_SAVED_FILE_MENU_ID_PREFIX));
-        open_confirmation(
-          state,
-          ConfirmationAction::delete_saved_file,
-          "Delete Saved File",
-          {
-            "Delete this saved file?",
-            targetPath,
-          },
-          targetPath
-        );
-        update.modalOpened = true;
-        return update;
-      }
-      state.statusMessage = detailUpdate.activatedItemId + " is not implemented yet";
+    if (handle_settings_screen_command(state, command, &update)) {
       return update;
     }
 
-    if (state.activeScreen == ScreenId::hosts) {
-      switch (command) {
-        case input::UiCommand::move_left:
-          if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            move_toolbar_selection(state, -1);
-          } else {
-            move_host_grid_selection(state, 0, -1);
-          }
-          return update;
-        case input::UiCommand::move_right:
-          if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            move_toolbar_selection(state, 1);
-          } else {
-            move_host_grid_selection(state, 0, 1);
-          }
-          return update;
-        case input::UiCommand::move_down:
-          if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            if (!state.hosts.empty()) {  // NOSONAR(cpp:S134) hosts-screen focus transition stays inline with navigation handling
-              state.hostsFocusArea = HostsFocusArea::grid;
-            }
-          } else {
-            move_host_grid_selection(state, 1, 0);
-          }
-          return update;
-        case input::UiCommand::move_up:
-          if (state.hostsFocusArea == HostsFocusArea::grid) {
-            move_host_grid_selection(state, -1, 0);
-          }
-          return update;
-        case input::UiCommand::open_context_menu:
-          if (state.hostsFocusArea == HostsFocusArea::grid && selected_host(state) != nullptr) {
-            open_modal(state, ModalId::host_actions);
-            update.modalOpened = true;
-          }
-          return update;
-        case input::UiCommand::activate:
-        case input::UiCommand::confirm:
-          if (state.hostsFocusArea == HostsFocusArea::toolbar) {
-            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 0U) {  // NOSONAR(cpp:S134) toolbar actions stay explicit for controller navigation parity
-              set_screen(state, ScreenId::settings, settings_category_menu_id(SettingsCategory::logging));
-              update.screenChanged = true;
-              update.activatedItemId = "settings-button";
-              return update;
-            }
-            if (state.selectedToolbarButtonIndex % HOST_TOOLBAR_BUTTON_COUNT == 1U) {  // NOSONAR(cpp:S134) toolbar actions stay explicit for controller navigation parity
-              open_modal(state, ModalId::support);
-              update.modalOpened = true;
-              update.activatedItemId = "support-button";
-              return update;
-            }
-            enter_add_host_screen(state);
-            update.screenChanged = true;
-            update.activatedItemId = "add-host-button";
-            return update;
-          }
-
-          if (const HostRecord *host = selected_host(state); host != nullptr) {
-            update.activatedItemId = "select-host";
-            if (host->pairingState == PairingState::paired) {  // NOSONAR(cpp:S134) host activation keeps browse-vs-pair branching with its update flags
-              update.appsBrowseRequested = true;
-              update.appsBrowseShowHidden = false;
-            } else {
-              if (enter_pair_host_screen(state, host->address, host->port)) {
-                update.screenChanged = true;
-                update.pairingRequested = true;
-                update.pairingAddress = state.pairingDraft.targetAddress;
-                update.pairingPort = state.pairingDraft.targetPort;
-                update.pairingPin = state.pairingDraft.generatedPin;
-              }
-            }
-          }
-          return update;
-        case input::UiCommand::back:
-        case input::UiCommand::delete_character:
-        case input::UiCommand::previous_page:
-        case input::UiCommand::next_page:
-        case input::UiCommand::fast_previous_page:
-        case input::UiCommand::fast_next_page:
-        case input::UiCommand::toggle_overlay:
-        case input::UiCommand::none:
-          return update;
-      }
+    if (handle_hosts_screen_command(state, command, &update)) {
+      return update;
     }
 
-    if (state.activeScreen == ScreenId::apps) {
-      switch (command) {
-        case input::UiCommand::move_left:
-          move_app_grid_selection(state, 0, -1);
-          return update;
-        case input::UiCommand::move_right:
-          move_app_grid_selection(state, 0, 1);
-          return update;
-        case input::UiCommand::move_up:
-          move_app_grid_selection(state, -1, 0);
-          return update;
-        case input::UiCommand::move_down:
-          move_app_grid_selection(state, 1, 0);
-          return update;
-        case input::UiCommand::open_context_menu:
-          if (selected_app(state) != nullptr) {
-            open_modal(state, ModalId::app_actions);
-            update.modalOpened = true;
-          }
-          return update;
-        case input::UiCommand::activate:
-        case input::UiCommand::confirm:
-          if (const HostAppRecord *appRecord = selected_app(state); appRecord != nullptr) {
-            state.statusMessage = "Launching " + appRecord->name + " is not implemented yet";
-            update.activatedItemId = "launch-app";
-          }
-          return update;
-        case input::UiCommand::back:
-          state.statusMessage.clear();
-          set_screen(state, ScreenId::hosts);
-          update.screenChanged = true;
-          return update;
-        case input::UiCommand::delete_character:
-        case input::UiCommand::previous_page:
-        case input::UiCommand::next_page:
-        case input::UiCommand::fast_previous_page:
-        case input::UiCommand::fast_next_page:
-        case input::UiCommand::toggle_overlay:
-        case input::UiCommand::none:
-          return update;
-      }
+    if (handle_apps_screen_command(state, command, &update)) {
+      return update;
     }
 
     const ui::MenuUpdate menuUpdate = state.menu.handle_command(command);
@@ -1773,93 +2227,7 @@ namespace app {
       return update;
     }
 
-    if (menuUpdate.activatedItemId == "edit-address") {
-      open_add_host_keypad(state, AddHostField::address);
-      return update;
-    }
-    if (menuUpdate.activatedItemId == "edit-port") {
-      open_add_host_keypad(state, AddHostField::port);
-      return update;
-    }
-
-    std::string normalizedAddress;
-    uint16_t parsedPort = 0;
-    std::string validationError;
-    const bool draftIsValid = normalize_add_host_inputs(state, &normalizedAddress, &parsedPort, &validationError);
-
-    if (menuUpdate.activatedItemId == "test-connection") {
-      if (!draftIsValid) {
-        state.addHostDraft.validationMessage = validationError;
-        state.statusMessage = validationError;
-        return update;
-      }
-      state.addHostDraft.validationMessage.clear();
-      state.addHostDraft.connectionMessage = "Testing connection to " + normalizedAddress + (parsedPort == 0 ? std::string {} : ":" + std::to_string(parsedPort)) + "...";
-      state.statusMessage = state.addHostDraft.connectionMessage;
-      update.connectionTestRequested = true;
-      update.connectionTestAddress = normalizedAddress;
-      update.connectionTestPort = effective_host_port(parsedPort);
-      return update;
-    }
-
-    if (menuUpdate.activatedItemId == "save-host") {
-      if (!draftIsValid) {
-        state.addHostDraft.validationMessage = validationError;
-        state.statusMessage = validationError;
-        return update;
-      }
-      if (find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort) != nullptr) {
-        state.addHostDraft.validationMessage = "That host is already saved";
-        state.statusMessage = state.addHostDraft.validationMessage;
-        return update;
-      }
-
-      state.hosts.push_back(make_host_record(normalizedAddress, parsedPort));
-      state.selectedHostIndex = state.hosts.size() - 1U;
-      state.hostsFocusArea = HostsFocusArea::grid;
-      state.hostsDirty = true;
-      update.hostsChanged = true;
-      state.addHostDraft.validationMessage.clear();
-      state.addHostDraft.connectionMessage.clear();
-      state.statusMessage = "Saved host " + normalizedAddress;
-      set_screen(state, ScreenId::hosts);
-      update.screenChanged = true;
-      return update;
-    }
-
-    if (menuUpdate.activatedItemId == "start-pairing") {
-      if (!draftIsValid) {
-        state.addHostDraft.validationMessage = validationError;
-        state.statusMessage = validationError;
-        return update;
-      }
-
-      const HostRecord *host = find_host_by_endpoint(state.hosts, normalizedAddress, parsedPort);
-      if (host == nullptr) {
-        state.hosts.push_back(make_host_record(normalizedAddress, parsedPort));
-        state.selectedHostIndex = state.hosts.size() - 1U;
-        state.hostsDirty = true;
-        update.hostsChanged = true;
-        host = &state.hosts.back();
-      }
-
-      if (enter_pair_host_screen(state, host->address, host->port)) {
-        update.screenChanged = true;
-        update.pairingRequested = true;
-        update.pairingAddress = state.pairingDraft.targetAddress;
-        update.pairingPort = state.pairingDraft.targetPort;
-        update.pairingPin = state.pairingDraft.generatedPin;
-      }
-      return update;
-    }
-
-    if (menuUpdate.activatedItemId == "cancel-add-host") {
-      state.addHostDraft.validationMessage.clear();
-      state.addHostDraft.connectionMessage.clear();
-      set_screen(state, ScreenId::hosts);
-      update.screenChanged = true;
-    }
-
+    handle_add_host_menu_activation(state, menuUpdate.activatedItemId, &update);
     return update;
   }
 

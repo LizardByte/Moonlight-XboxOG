@@ -3,7 +3,6 @@
 
 // standard includes
 #include <algorithm>
-#include <cstddef>
 #include <utility>
 #include <vector>
 
@@ -222,110 +221,127 @@ namespace {
     return lines;
   }
 
-  std::vector<std::string> body_lines(const app::ClientState &state) {  // NOSONAR(cpp:S3776) screen-specific copy is kept local for render-model assembly
+  std::vector<std::string> hosts_body_lines(const app::ClientState &state) {
+    if (state.hosts.empty()) {
+      return {
+        "No PCs have been added yet.",
+        "Use Add Host to save a host manually.",
+        "A Moonlight-style discovery grid now owns the home screen.",
+      };
+    }
+
+    return {
+      "Select a PC to pair or browse its apps.",
+      "Press Y on a controller, or I on a keyboard, for host actions.",
+    };
+  }
+
+  std::vector<std::string> apps_body_lines(const app::ClientState &state) {
+    const app::HostRecord *host = app::apps_host(state);
+    if (host == nullptr) {
+      return {"No host is selected."};
+    }
+    if (host->pairingState != app::PairingState::paired) {
+      return {"This host is not paired yet. Return and select it to begin pairing."};
+    }
+    if (host->appListState == app::HostAppListState::loading) {
+      return {};
+    }
+    if (host->appListState == app::HostAppListState::failed) {
+      return {
+        host->appListStatusMessage.empty() ? "The app list could not be refreshed." : host->appListStatusMessage,
+      };
+    }
+    if (host->apps.empty()) {
+      return {"Host did not return any launchable apps for this host."};
+    }
+
+    return {};
+  }
+
+  std::vector<std::string> add_host_body_lines(const app::ClientState &state) {
+    std::vector<std::string> lines = {
+      "Manual host entry with a keypad modal.",
+      std::string("Address: ") + app::current_add_host_address(state),
+      std::string("Port: ") + (state.addHostDraft.portInput.empty() ? std::string("default (47989)") : state.addHostDraft.portInput),
+      "Press A to edit either field with the keypad modal.",
+    };
+
+    if (!state.addHostDraft.validationMessage.empty()) {
+      lines.emplace_back("Validation: " + state.addHostDraft.validationMessage);
+    }
+    if (!state.addHostDraft.connectionMessage.empty()) {
+      lines.emplace_back("Connection: " + state.addHostDraft.connectionMessage);
+    }
+    return lines;
+  }
+
+  std::vector<std::string> pair_host_body_lines(const app::ClientState &state) {
+    std::vector<std::string> lines = {
+      std::string("Target host: ") + state.pairingDraft.targetAddress,
+    };
+    if (state.pairingDraft.stage == app::PairingStage::idle) {
+      lines.emplace_back("Checking whether the host is reachable before showing a PIN.");
+    } else {
+      lines.emplace_back(std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort));
+      if (!state.pairingDraft.generatedPin.empty()) {
+        lines.emplace_back(std::string("PIN: ") + app::current_pairing_pin(state));
+        lines.emplace_back("Enter the PIN on the host.");
+      }
+    }
+    if (!state.pairingDraft.statusMessage.empty()) {
+      lines.emplace_back("Status: " + state.pairingDraft.statusMessage);
+    }
+    return lines;
+  }
+
+  std::vector<std::string> settings_body_lines(const app::ClientState &state) {
+    std::vector<std::string> lines = {
+      std::string("Category: ") + settings_category_label(state.selectedSettingsCategory),
+    };
+    if (state.selectedSettingsCategory == app::SettingsCategory::logging) {
+      lines.emplace_back("Runtime log file: reset on every startup");
+      lines.push_back(std::string("Log file path: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
+      lines.push_back(std::string("File logging level: ") + logging::to_string(state.loggingLevel));
+      lines.push_back(std::string("xemu console logging level: ") + logging::to_string(state.xemuConsoleLoggingLevel));
+      lines.emplace_back("File logging writes to disk and should usually stay at NONE unless you are debugging an issue.");
+      lines.emplace_back("xemu console logging writes through DbgPrint(). Start xemu with -device lpc47m157 -serial stdio.");
+      lines.emplace_back("Startup console messages are always shown before the splash screen.");
+      return lines;
+    }
+    if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
+      if (state.savedFiles.empty()) {
+        lines.emplace_back("Saved files: none found.");
+        return lines;
+      }
+      lines.emplace_back("Saved files on disk:");
+      for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
+        lines.push_back("- " + savedFile.displayName + " (" + format_file_size(savedFile.sizeBytes) + ")");
+      }
+      return lines;
+    }
+    if (state.selectedSettingsCategory == app::SettingsCategory::display) {
+      lines.emplace_back("Display options will be added here.");
+      return lines;
+    }
+
+    lines.emplace_back("Input options will be added here.");
+    return lines;
+  }
+
+  std::vector<std::string> body_lines(const app::ClientState &state) {
     switch (state.activeScreen) {
       case app::ScreenId::home:
       case app::ScreenId::hosts:
-        if (state.hosts.empty()) {
-          return {
-            "No PCs have been added yet.",
-            "Use Add Host to save a host manually.",
-            "A Moonlight-style discovery grid now owns the home screen.",
-          };
-        }
-        return {
-          "Select a PC to pair or browse its apps.",
-          "Press Y on a controller, or I on a keyboard, for host actions.",
-        };
+        return hosts_body_lines(state);
       case app::ScreenId::apps:
-        {
-          const app::HostRecord *host = app::apps_host(state);
-          if (host == nullptr) {
-            return {"No host is selected."};
-          }
-
-          if (host->pairingState != app::PairingState::paired) {
-            return {"This host is not paired yet. Return and select it to begin pairing."};
-          }
-          if (host->appListState == app::HostAppListState::loading) {
-            return {};
-          }
-          if (host->appListState == app::HostAppListState::failed) {
-            return {
-              host->appListStatusMessage.empty() ? "The app list could not be refreshed." : host->appListStatusMessage,
-            };
-          }
-          if (host->apps.empty()) {
-            return {"Host did not return any launchable apps for this host."};
-          }
-
-          return {};
-        }
+        return apps_body_lines(state);
       case app::ScreenId::add_host:
-        {
-          std::vector<std::string> lines = {
-            "Manual host entry with a keypad modal.",
-            std::string("Address: ") + app::current_add_host_address(state),
-            std::string("Port: ") + (state.addHostDraft.portInput.empty() ? std::string("default (47989)") : state.addHostDraft.portInput),
-            "Press A to edit either field with the keypad modal.",
-          };
-
-          if (!state.addHostDraft.validationMessage.empty()) {
-            lines.emplace_back("Validation: " + state.addHostDraft.validationMessage);
-          }
-          if (!state.addHostDraft.connectionMessage.empty()) {
-            lines.emplace_back("Connection: " + state.addHostDraft.connectionMessage);
-          }
-          return lines;
-        }
+        return add_host_body_lines(state);
       case app::ScreenId::pair_host:
-        {
-          std::vector<std::string> lines = {
-            std::string("Target host: ") + state.pairingDraft.targetAddress,
-          };
-          if (state.pairingDraft.stage == app::PairingStage::idle) {
-            lines.emplace_back("Checking whether the host is reachable before showing a PIN.");
-          } else {
-            lines.emplace_back(std::string("Target port: ") + std::to_string(state.pairingDraft.targetPort));
-            if (!state.pairingDraft.generatedPin.empty()) {
-              lines.emplace_back(std::string("PIN: ") + app::current_pairing_pin(state));
-              lines.emplace_back("Enter the PIN on the host.");
-            }
-          }
-          if (!state.pairingDraft.statusMessage.empty()) {
-            lines.emplace_back("Status: " + state.pairingDraft.statusMessage);
-          }
-          return lines;
-        }
+        return pair_host_body_lines(state);
       case app::ScreenId::settings:
-        {
-          std::vector<std::string> lines = {
-            std::string("Category: ") + settings_category_label(state.selectedSettingsCategory),
-          };
-          if (state.selectedSettingsCategory == app::SettingsCategory::logging) {
-            lines.emplace_back("Runtime log file: reset on every startup");
-            lines.push_back(std::string("Log file path: ") + (state.logFilePath.empty() ? "not configured" : state.logFilePath));
-            lines.push_back(std::string("File logging level: ") + logging::to_string(state.loggingLevel));
-            lines.push_back(std::string("xemu console logging level: ") + logging::to_string(state.xemuConsoleLoggingLevel));
-            lines.emplace_back("File logging writes to disk and should usually stay at NONE unless you are debugging an issue.");
-            lines.emplace_back("xemu console logging writes through DbgPrint(). Start xemu with -device lpc47m157 -serial stdio.");
-            lines.emplace_back("Startup console messages are always shown before the splash screen.");
-          } else if (state.selectedSettingsCategory == app::SettingsCategory::reset) {
-            if (state.savedFiles.empty()) {
-              lines.emplace_back("Saved files: none found.");
-              return lines;
-            }
-            lines.emplace_back("Saved files on disk:");
-            for (const startup::SavedFileEntry &savedFile : state.savedFiles) {
-              lines.push_back("- " + savedFile.displayName + " (" + format_file_size(savedFile.sizeBytes) + ")");
-            }
-          } else if (state.selectedSettingsCategory == app::SettingsCategory::display) {
-            lines.emplace_back("Display options will be added here.");
-          } else {
-            lines.emplace_back("Input options will be added here.");
-          }
-          return lines;
-        }
+        return settings_body_lines(state);
     }
 
     return {};
@@ -371,7 +387,108 @@ namespace {
     };
   }
 
-  void fill_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {  // NOSONAR(cpp:S3776) modal rendering data stays centralized to keep state/view mapping explicit
+  void fill_support_modal_view(ui::ShellViewModel *viewModel) {
+    viewModel->modalTitle = "Support";
+    viewModel->modalLines = {
+      "Moonlight Xbox OG prototype UI",
+      "Use the footer actions below to close this dialog.",
+      "Open host and app context menus from the Y action on the main screens.",
+    };
+    viewModel->modalFooterActions = {
+      {"close", "Close", "icons\\button-a.svg", "icons\\button-start.svg", true},
+      {"back", "Back", "icons\\button-b.svg", {}, false},
+    };
+  }
+
+  void fill_host_actions_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    viewModel->modalTitle = "Host Actions";
+    viewModel->modalActions = {
+      {"view-all-apps", "View all apps", true, state.modal.selectedActionIndex == 0U, false},
+      {"test-connection", "Test Network Connection", true, state.modal.selectedActionIndex == 1U, false},
+      {"delete-host", "Delete PC", true, state.modal.selectedActionIndex == 2U, false},
+      {"view-host-details", "View Details", true, state.modal.selectedActionIndex == 3U, false},
+    };
+  }
+
+  void fill_host_details_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    viewModel->modalTitle = "Host Details";
+    const app::HostRecord *host = app::selected_host(state);
+    if (host == nullptr) {
+      return;
+    }
+
+    const char *reachabilityLabel = "UNKNOWN";
+    if (host->reachability == app::HostReachability::online) {
+      reachabilityLabel = "ONLINE";
+    } else if (host->reachability == app::HostReachability::offline) {
+      reachabilityLabel = "OFFLINE";
+    }
+
+    viewModel->modalLines = {
+      "Name: " + host->displayName,
+      std::string("State: ") + reachabilityLabel,
+      std::string("Active Address: ") + (host->activeAddress.empty() ? "NULL" : host->activeAddress),
+      std::string("UUID: ") + (host->uuid.empty() ? "NULL" : host->uuid),
+      std::string("Local Address: ") + (host->localAddress.empty() ? "NULL" : host->localAddress),
+      std::string("Remote Address: ") + (host->remoteAddress.empty() ? "NULL" : host->remoteAddress),
+      std::string("IPv6 Address: ") + (host->ipv6Address.empty() ? "NULL" : host->ipv6Address),
+      std::string("Manual Address: ") + (host->manualAddress.empty() ? host->address : host->manualAddress),
+      std::string("MAC Address: ") + (host->macAddress.empty() ? "NULL" : host->macAddress),
+      std::string("Pair State: ") + (host->pairingState == app::PairingState::paired ? "PAIRED" : "NOT_PAIRED"),
+      "Running Game ID: " + std::to_string(host->runningGameId),
+      "HTTPS Port: " + std::to_string(app::effective_host_port(host->httpsPort)),
+    };
+  }
+
+  void fill_app_actions_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    if (const app::HostAppRecord *appRecord = app::selected_app(state); appRecord != nullptr) {
+      viewModel->modalTitle = appRecord->name;
+      viewModel->modalActions = {
+        {"toggle-hidden-app", "Hide app", true, state.modal.selectedActionIndex == 0U, appRecord->hidden},
+        {"view-app-details", "View details", true, state.modal.selectedActionIndex == 1U, false},
+        {"create-shortcut", "Create shortcut", true, state.modal.selectedActionIndex == 2U, appRecord->favorite},
+      };
+    }
+  }
+
+  void fill_app_details_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    if (const app::HostAppRecord *appRecord = app::selected_app(state); appRecord != nullptr) {
+      viewModel->modalTitle = "App Details";
+      viewModel->modalLines = {
+        "Name: " + appRecord->name,
+        std::string("HDR Supported: ") + (appRecord->hdrSupported ? "YES" : "NO"),
+        "ID: " + std::to_string(appRecord->id),
+      };
+    }
+  }
+
+  void fill_log_viewer_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    viewModel->modalTitle = "Log File";
+    viewModel->logViewerVisible = true;
+    viewModel->logViewerPath = state.logFilePath.empty() ? "not configured" : state.logFilePath;
+    viewModel->logViewerLines = state.logViewerLines;
+    viewModel->logViewerScrollOffset = state.logViewerScrollOffset;
+    viewModel->logViewerPlacement = state.logViewerPlacement;
+    viewModel->modalFooterActions = {
+      {"older", "Older", "icons\\button-lb.svg", {}, false},
+      {"newer", "Newer", "icons\\button-rb.svg", {}, false},
+      {"fast-older", "Fast Older", "icons\\button-lt.svg", {}, false},
+      {"fast-newer", "Fast Newer", "icons\\button-rt.svg", {}, false},
+      {"move-pane", "Move Pane", "icons\\button-x.svg", {}, false},
+      {"close", "Close", "icons\\button-b.svg", {}, true},
+    };
+  }
+
+  void fill_confirmation_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
+    viewModel->modalTitle = state.confirmation.title;
+    viewModel->modalLines = state.confirmation.lines;
+    viewModel->modalFooterActions = {
+      {"confirm", "OK", "icons\\button-a.svg", {}, state.modal.selectedActionIndex == 0U},
+      {"cancel", "Cancel", "icons\\button-b.svg", {}, state.modal.selectedActionIndex != 0U},
+    };
+  }
+
+  void fill_modal_view(const app::ClientState &state, ui::ShellViewModel *viewModel) {
     if (!state.modal.active()) {
       return;
     }
@@ -379,97 +496,25 @@ namespace {
     viewModel->modalVisible = true;
     switch (state.modal.id) {
       case app::ModalId::support:
-        viewModel->modalTitle = "Support";
-        viewModel->modalLines = {
-          "Moonlight Xbox OG prototype UI",
-          "Use the footer actions below to close this dialog.",
-          "Open host and app context menus from the Y action on the main screens.",
-        };
-        viewModel->modalFooterActions = {
-          {"close", "Close", "icons\\button-a.svg", "icons\\button-start.svg", true},
-          {"back", "Back", "icons\\button-b.svg", {}, false},
-        };
+        fill_support_modal_view(viewModel);
         return;
       case app::ModalId::host_actions:
-        viewModel->modalTitle = "Host Actions";
-        viewModel->modalActions = {
-          {"view-all-apps", "View all apps", true, state.modal.selectedActionIndex == 0U, false},
-          {"test-connection", "Test Network Connection", true, state.modal.selectedActionIndex == 1U, false},
-          {"delete-host", "Delete PC", true, state.modal.selectedActionIndex == 2U, false},
-          {"view-host-details", "View Details", true, state.modal.selectedActionIndex == 3U, false},
-        };
+        fill_host_actions_modal_view(state, viewModel);
         return;
       case app::ModalId::host_details:
-        {
-          viewModel->modalTitle = "Host Details";
-          if (const app::HostRecord *host = app::selected_host(state); host != nullptr) {
-            const char *reachabilityLabel = "UNKNOWN";
-            if (host->reachability == app::HostReachability::online) {
-              reachabilityLabel = "ONLINE";
-            } else if (host->reachability == app::HostReachability::offline) {
-              reachabilityLabel = "OFFLINE";
-            }
-
-            viewModel->modalLines = {
-              "Name: " + host->displayName,
-              std::string("State: ") + reachabilityLabel,
-              std::string("Active Address: ") + (host->activeAddress.empty() ? "NULL" : host->activeAddress),
-              std::string("UUID: ") + (host->uuid.empty() ? "NULL" : host->uuid),
-              std::string("Local Address: ") + (host->localAddress.empty() ? "NULL" : host->localAddress),
-              std::string("Remote Address: ") + (host->remoteAddress.empty() ? "NULL" : host->remoteAddress),
-              std::string("IPv6 Address: ") + (host->ipv6Address.empty() ? "NULL" : host->ipv6Address),
-              std::string("Manual Address: ") + (host->manualAddress.empty() ? host->address : host->manualAddress),
-              std::string("MAC Address: ") + (host->macAddress.empty() ? "NULL" : host->macAddress),
-              std::string("Pair State: ") + (host->pairingState == app::PairingState::paired ? "PAIRED" : "NOT_PAIRED"),
-              "Running Game ID: " + std::to_string(host->runningGameId),
-              "HTTPS Port: " + std::to_string(app::effective_host_port(host->httpsPort)),
-            };
-          }
-          return;
-        }
+        fill_host_details_modal_view(state, viewModel);
+        return;
       case app::ModalId::app_actions:
-        if (const app::HostAppRecord *appRecord = app::selected_app(state); appRecord != nullptr) {
-          viewModel->modalTitle = appRecord->name;
-          viewModel->modalActions = {
-            {"toggle-hidden-app", "Hide app", true, state.modal.selectedActionIndex == 0U, appRecord->hidden},
-            {"view-app-details", "View details", true, state.modal.selectedActionIndex == 1U, false},
-            {"create-shortcut", "Create shortcut", true, state.modal.selectedActionIndex == 2U, appRecord->favorite},
-          };
-        }
+        fill_app_actions_modal_view(state, viewModel);
         return;
       case app::ModalId::app_details:
-        if (const app::HostAppRecord *appRecord = app::selected_app(state); appRecord != nullptr) {
-          viewModel->modalTitle = "App Details";
-          viewModel->modalLines = {
-            "Name: " + appRecord->name,
-            std::string("HDR Supported: ") + (appRecord->hdrSupported ? "YES" : "NO"),
-            "ID: " + std::to_string(appRecord->id),
-          };
-        }
+        fill_app_details_modal_view(state, viewModel);
         return;
       case app::ModalId::log_viewer:
-        viewModel->modalTitle = "Log File";
-        viewModel->logViewerVisible = true;
-        viewModel->logViewerPath = state.logFilePath.empty() ? "not configured" : state.logFilePath;
-        viewModel->logViewerLines = state.logViewerLines;
-        viewModel->logViewerScrollOffset = state.logViewerScrollOffset;
-        viewModel->logViewerPlacement = state.logViewerPlacement;
-        viewModel->modalFooterActions = {
-          {"older", "Older", "icons\\button-lb.svg", {}, false},
-          {"newer", "Newer", "icons\\button-rb.svg", {}, false},
-          {"fast-older", "Fast Older", "icons\\button-lt.svg", {}, false},
-          {"fast-newer", "Fast Newer", "icons\\button-rt.svg", {}, false},
-          {"move-pane", "Move Pane", "icons\\button-x.svg", {}, false},
-          {"close", "Close", "icons\\button-b.svg", {}, true},
-        };
+        fill_log_viewer_modal_view(state, viewModel);
         return;
       case app::ModalId::confirmation:
-        viewModel->modalTitle = state.confirmation.title;
-        viewModel->modalLines = state.confirmation.lines;
-        viewModel->modalFooterActions = {
-          {"confirm", "OK", "icons\\button-a.svg", {}, state.modal.selectedActionIndex == 0U},
-          {"cancel", "Cancel", "icons\\button-b.svg", {}, state.modal.selectedActionIndex != 0U},
-        };
+        fill_confirmation_modal_view(state, viewModel);
         return;
       case app::ModalId::none:
         return;
@@ -537,7 +582,63 @@ namespace {
 
 namespace ui {
 
-  ShellViewModel build_shell_view_model(  // NOSONAR(cpp:S3776) this function intentionally assembles the complete render snapshot in one place
+  bool screen_uses_split_menu_layout(app::ScreenId screen) {
+    return screen == app::ScreenId::settings || screen == app::ScreenId::add_host || screen == app::ScreenId::pair_host;
+  }
+
+  void fill_view_model_panel_state(const app::ClientState &state, ShellViewModel *viewModel) {
+    if (!screen_uses_split_menu_layout(state.activeScreen)) {
+      return;
+    }
+
+    viewModel->leftPanelActive = state.activeScreen != app::ScreenId::settings || state.settingsFocusArea == app::SettingsFocusArea::categories;
+    viewModel->rightPanelActive = state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options;
+  }
+
+  void fill_view_model_selected_menu_details(const app::ClientState &state, ShellViewModel *viewModel) {
+    if (!screen_uses_split_menu_layout(state.activeScreen)) {
+      return;
+    }
+
+    if (state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
+      viewModel->selectedMenuRowLabel = state.detailMenu.selected_item()->label;
+      viewModel->selectedMenuRowDescription = state.detailMenu.selected_item()->description;
+      return;
+    }
+    if (state.menu.selected_item() != nullptr) {
+      viewModel->selectedMenuRowLabel = state.menu.selected_item()->label;
+      viewModel->selectedMenuRowDescription = state.menu.selected_item()->description;
+    }
+  }
+
+  void fill_view_model_overlay(const app::ClientState &state, const std::vector<logging::LogEntry> &logEntries, const std::vector<std::string> &statsLines, ShellViewModel *viewModel) {
+    if (!viewModel->overlayVisible) {
+      return;
+    }
+
+    if (!statsLines.empty()) {
+      viewModel->overlayLines.insert(viewModel->overlayLines.end(), statsLines.begin(), statsLines.end());
+    } else {
+      viewModel->overlayLines.emplace_back("No active stream");
+    }
+
+    const std::size_t logLineLimit = 10;
+    const std::size_t availableLogCount = logEntries.size();
+    const std::size_t maxOffset = availableLogCount > logLineLimit ? availableLogCount - logLineLimit : 0;
+    const std::size_t clampedOffset = std::min(state.overlayScrollOffset, maxOffset);
+    const std::size_t startIndex = availableLogCount > logLineLimit ? availableLogCount - logLineLimit - clampedOffset : 0;
+    const std::size_t endIndex = std::min(availableLogCount, startIndex + logLineLimit);
+
+    for (std::size_t index = startIndex; index < endIndex; ++index) {
+      viewModel->overlayLines.push_back(logging::format_entry(logEntries[index]));
+    }
+
+    if (clampedOffset > 0U) {
+      viewModel->overlayLines.emplace(viewModel->overlayLines.begin(), "Showing earlier log entries");
+    }
+  }
+
+  ShellViewModel build_shell_view_model(
     const app::ClientState &state,
     const std::vector<logging::LogEntry> &logEntries,
     const std::vector<std::string> &statsLines
@@ -559,19 +660,8 @@ namespace ui {
     viewModel.bodyLines = body_lines(state);
     viewModel.menuRows = menu_rows(state);
     viewModel.detailMenuRows = detail_menu_rows(state);
-    if (state.activeScreen == app::ScreenId::settings || state.activeScreen == app::ScreenId::add_host || state.activeScreen == app::ScreenId::pair_host) {
-      viewModel.leftPanelActive = state.activeScreen != app::ScreenId::settings || state.settingsFocusArea == app::SettingsFocusArea::categories;
-      viewModel.rightPanelActive = state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options;
-    }
-    if (state.activeScreen == app::ScreenId::settings || state.activeScreen == app::ScreenId::add_host || state.activeScreen == app::ScreenId::pair_host) {
-      if (state.activeScreen == app::ScreenId::settings && state.settingsFocusArea == app::SettingsFocusArea::options && state.detailMenu.selected_item() != nullptr) {
-        viewModel.selectedMenuRowLabel = state.detailMenu.selected_item()->label;
-        viewModel.selectedMenuRowDescription = state.detailMenu.selected_item()->description;
-      } else if (state.menu.selected_item() != nullptr) {
-        viewModel.selectedMenuRowLabel = state.menu.selected_item()->label;
-        viewModel.selectedMenuRowDescription = state.menu.selected_item()->description;
-      }
-    }
+    fill_view_model_panel_state(state, &viewModel);
+    fill_view_model_selected_menu_details(state, &viewModel);
     viewModel.footerActions = footer_actions(state);
     viewModel.overlayVisible = state.overlayVisible;
     viewModel.overlayTitle = "Diagnostics";
@@ -586,27 +676,7 @@ namespace ui {
 
     fill_modal_view(state, &viewModel);
 
-    if (viewModel.overlayVisible) {
-      if (!statsLines.empty()) {
-        viewModel.overlayLines.insert(viewModel.overlayLines.end(), statsLines.begin(), statsLines.end());
-      } else {
-        viewModel.overlayLines.emplace_back("No active stream");
-      }
-
-      const std::size_t logLineLimit = 10;
-      const std::size_t availableLogCount = logEntries.size();
-      const std::size_t maxOffset = availableLogCount > logLineLimit ? availableLogCount - logLineLimit : 0;
-      const std::size_t clampedOffset = std::min(state.overlayScrollOffset, maxOffset);
-      const std::size_t startIndex = availableLogCount > logLineLimit ? availableLogCount - logLineLimit - clampedOffset : 0;
-      const std::size_t endIndex = std::min(availableLogCount, startIndex + logLineLimit);
-      for (std::size_t index = startIndex; index < endIndex; ++index) {
-        viewModel.overlayLines.push_back(logging::format_entry(logEntries[index]));
-      }
-
-      if (clampedOffset > 0) {
-        viewModel.overlayLines.emplace(viewModel.overlayLines.begin(), "Showing earlier log entries");
-      }
-    }
+    fill_view_model_overlay(state, logEntries, statsLines, &viewModel);
 
     return viewModel;
   }

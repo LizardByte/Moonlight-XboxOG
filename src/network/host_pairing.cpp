@@ -517,6 +517,36 @@ namespace {
     }
   }
 
+  bool apply_http_message_length_header(
+    std::string_view headerName,
+    std::string_view headerValue,
+    bool *hasContentLength,
+    std::size_t *contentLength,
+    bool *isChunked,
+    std::string *errorMessage
+  ) {
+    if (ascii_iequals(headerName, "Content-Length")) {
+      std::size_t parsedContentLength = 0;
+      if (!try_parse_decimal_size(headerValue, &parsedContentLength)) {
+        return append_error(errorMessage, "Received an invalid Content-Length header while pairing");
+      }
+      if (hasContentLength != nullptr) {
+        *hasContentLength = true;
+      }
+      if (contentLength != nullptr) {
+        *contentLength = parsedContentLength;
+      }
+      return true;
+    }
+
+    if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked")) {
+      if (isChunked != nullptr) {
+        *isChunked = true;
+      }
+    }
+    return true;
+  }
+
   bool try_get_http_response_length(std::string_view responseText, std::size_t *messageLength, std::string *errorMessage) {
     const std::size_t headerTerminator = responseText.find("\r\n\r\n");
     if (headerTerminator == std::string_view::npos) {
@@ -540,13 +570,8 @@ namespace {
         const std::string_view headerName = trim_ascii_whitespace(headerLine.substr(0, separator));
         const std::string_view headerValue = trim_ascii_whitespace(headerLine.substr(separator + 1));
 
-        if (ascii_iequals(headerName, "Content-Length")) {
-          hasContentLength = try_parse_decimal_size(headerValue, &contentLength);  // NOSONAR(cpp:S134) header parsing keeps validation adjacent to the matching header branch
-          if (!hasContentLength) {
-            return append_error(errorMessage, "Received an invalid Content-Length header while pairing");
-          }
-        } else if (ascii_iequals(headerName, "Transfer-Encoding") && header_value_contains_token(headerValue, "chunked")) {
-          isChunked = true;
+        if (!apply_http_message_length_header(headerName, headerValue, &hasContentLength, &contentLength, &isChunked, errorMessage)) {
+          return false;
         }
       }
 
@@ -985,7 +1010,46 @@ namespace {
   bool try_parse_flag(std::string_view text, bool *value);
   bool try_parse_uint32(std::string_view text, uint32_t *value);
 
-  bool extract_xml_attribute_value(std::string_view openTag, std::string_view attributeName, std::string *value) {  // NOSONAR(cpp:S3776) permissive host XML parsing stays centralized here
+  std::size_t skip_xml_attribute_whitespace(std::string_view text, std::size_t index) {
+    while (index < text.size() && std::isspace(static_cast<unsigned char>(text[index]))) {
+      ++index;
+    }
+    return index;
+  }
+
+  bool xml_attribute_name_has_valid_prefix(std::string_view openTag, std::size_t nameIndex) {
+    if (nameIndex == 0U) {
+      return true;
+    }
+
+    const char previousCharacter = openTag[nameIndex - 1U];
+    return previousCharacter == '<' || std::isspace(static_cast<unsigned char>(previousCharacter));
+  }
+
+  bool find_xml_attribute_value_bounds(std::string_view openTag, std::size_t nameIndex, std::size_t *valueStart, char *quoteCharacter) {
+    std::size_t separatorIndex = skip_xml_attribute_whitespace(openTag, nameIndex);
+    if (separatorIndex >= openTag.size() || openTag[separatorIndex] != '=') {
+      return false;
+    }
+
+    separatorIndex = skip_xml_attribute_whitespace(openTag, separatorIndex + 1U);
+    if (separatorIndex >= openTag.size()) {
+      return false;
+    }
+    if (openTag[separatorIndex] != '"' && openTag[separatorIndex] != '\'') {
+      return false;
+    }
+
+    if (quoteCharacter != nullptr) {
+      *quoteCharacter = openTag[separatorIndex];
+    }
+    if (valueStart != nullptr) {
+      *valueStart = separatorIndex + 1U;
+    }
+    return true;
+  }
+
+  bool extract_xml_attribute_value(std::string_view openTag, std::string_view attributeName, std::string *value) {
     std::size_t cursor = 0;
     while (cursor < openTag.size()) {
       const std::size_t nameIndex = openTag.find(attributeName, cursor);
@@ -993,34 +1057,18 @@ namespace {
         return false;
       }
 
-      if (nameIndex > 0) {
-        const char previousCharacter = openTag[nameIndex - 1];
-        if (previousCharacter != '<' && !std::isspace(static_cast<unsigned char>(previousCharacter))) {
-          cursor = nameIndex + 1;
-          continue;
-        }
-      }
-
-      std::size_t separatorIndex = nameIndex + attributeName.size();
-      while (separatorIndex < openTag.size() && std::isspace(static_cast<unsigned char>(openTag[separatorIndex]))) {
-        ++separatorIndex;
-      }
-      if (separatorIndex >= openTag.size() || openTag[separatorIndex] != '=') {
-        cursor = nameIndex + 1;
+      if (!xml_attribute_name_has_valid_prefix(openTag, nameIndex)) {
+        cursor = nameIndex + 1U;
         continue;
       }
 
-      ++separatorIndex;
-      while (separatorIndex < openTag.size() && std::isspace(static_cast<unsigned char>(openTag[separatorIndex]))) {
-        ++separatorIndex;
-      }
-      if (separatorIndex >= openTag.size() || (openTag[separatorIndex] != '"' && openTag[separatorIndex] != '\'')) {
-        cursor = nameIndex + 1;
+      std::size_t valueStart = 0;
+      char quoteCharacter = '\0';
+      if (!find_xml_attribute_value_bounds(openTag, nameIndex + attributeName.size(), &valueStart, &quoteCharacter)) {
+        cursor = nameIndex + 1U;
         continue;
       }
 
-      const char quoteCharacter = openTag[separatorIndex];
-      const std::size_t valueStart = separatorIndex + 1;
       const std::size_t valueEnd = openTag.find(quoteCharacter, valueStart);
       if (valueEnd == std::string_view::npos) {
         return false;
@@ -1212,7 +1260,93 @@ namespace {
     return true;
   }
 
-  bool connect_socket(const std::string &address, uint16_t port, SocketGuard *socketGuard, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {  // NOSONAR(cpp:S3776) connection setup keeps platform-specific error handling in one place
+  bool prepare_pairing_socket_address(const std::string &address, uint16_t port, sockaddr_in *socketAddress, std::string *errorMessage) {
+    if (socketAddress == nullptr) {
+      return append_error(errorMessage, "Internal pairing error while preparing the host connection");
+    }
+
+    trace_pairing_phase("preparing IPv4 socket address");
+    *socketAddress = {};
+    socketAddress->sin_family = AF_INET;
+    socketAddress->sin_port = htons(port);
+    socketAddress->sin_addr.s_addr = inet_addr(address.c_str());
+    if (socketAddress->sin_addr.s_addr == INADDR_NONE && address != "255.255.255.255") {
+      return append_error(errorMessage, "Pairing currently requires a dotted IPv4 host address");
+    }
+    trace_pairing_phase("IPv4 socket address ready");
+    return true;
+  }
+
+  bool wait_for_socket_connect_completion(
+    SOCKET socketHandle,
+    const std::string &address,
+    uint16_t port,
+    std::string *errorMessage,
+    const std::atomic<bool> *cancelRequested
+  ) {
+    trace_pairing_phase("waiting for timed connect completion");
+    constexpr int CONNECT_POLL_INTERVAL_MILLISECONDS = 100;
+    int remainingWaitMilliseconds = SOCKET_TIMEOUT_MILLISECONDS;
+    int selectResult = 0;
+    while (remainingWaitMilliseconds > 0) {  // NOSONAR(cpp:S924) timed connect polling intentionally uses multiple early breaks and returns
+      if (pairing_cancel_requested(cancelRequested)) {
+        return append_cancelled_pairing_error(errorMessage);
+      }
+
+      fd_set writeSet;
+      FD_ZERO(&writeSet);
+      FD_SET(socketHandle, &writeSet);
+      const int waitMilliseconds = std::min(remainingWaitMilliseconds, CONNECT_POLL_INTERVAL_MILLISECONDS);
+      timeval timeout {
+        waitMilliseconds / 1000,
+        (waitMilliseconds % 1000) * 1000,
+      };
+
+      selectResult = select(static_cast<int>(socketHandle) + 1, nullptr, &writeSet, nullptr, &timeout);
+      if (selectResult != 0) {
+        break;
+      }
+
+      remainingWaitMilliseconds -= waitMilliseconds;
+    }
+    if (selectResult <= 0) {
+      if (pairing_cancel_requested(cancelRequested)) {
+        return append_cancelled_pairing_error(errorMessage);
+      }
+      return append_error(
+        errorMessage,
+        selectResult == 0 ? "Timed out connecting to the host pairing endpoint at " + address + ":" + std::to_string(port) : "Connection test failed while waiting for the host pairing endpoint at " + address + ":" + std::to_string(port)
+      );
+    }
+
+    int socketError = 0;
+#if defined(_WIN32) && !defined(NXDK)
+    if (int socketErrorLength = sizeof(socketError); getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
+#else
+    if (socklen_t socketErrorLength = sizeof(socketError); getsockopt(socketHandle, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) != 0) {
+#endif
+      return append_error(errorMessage, "Failed to query the host pairing socket status after connect (socket error " + std::to_string(last_socket_error()) + ")");
+    }
+
+    if (socketError != 0) {
+      return append_error(errorMessage, "Host refused the pairing connection on " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(socketError) + ")");
+    }
+
+    return true;
+  }
+
+  bool finalize_connected_socket(SOCKET socketHandle, std::string *errorMessage) {
+    trace_pairing_phase("restoring blocking mode after connect");
+    if (!set_socket_non_blocking(socketHandle, false, errorMessage)) {
+      return false;
+    }
+
+    set_socket_timeouts(socketHandle);
+    trace_pairing_phase("socket connected");
+    return true;
+  }
+
+  bool connect_socket(const std::string &address, uint16_t port, SocketGuard *socketGuard, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {
     if (socketGuard == nullptr) {
       return append_error(errorMessage, "Internal pairing error while preparing the host connection");
     }
@@ -1232,15 +1366,10 @@ namespace {
     }
     trace_pairing_phase("socket created");
 
-    trace_pairing_phase("preparing IPv4 socket address");
     sockaddr_in socketAddress {};
-    socketAddress.sin_family = AF_INET;
-    socketAddress.sin_port = htons(port);
-    socketAddress.sin_addr.s_addr = inet_addr(address.c_str());
-    if (socketAddress.sin_addr.s_addr == INADDR_NONE && address != "255.255.255.255") {
-      return append_error(errorMessage, "Pairing currently requires a dotted IPv4 host address");
+    if (!prepare_pairing_socket_address(address, port, &socketAddress, errorMessage)) {
+      return false;
     }
-    trace_pairing_phase("IPv4 socket address ready");
 
     trace_pairing_phase("setting non-blocking connect mode");
     if (!set_socket_non_blocking(socketGuard->handle, true, errorMessage)) {
@@ -1252,61 +1381,12 @@ namespace {
       if (const int connectError = last_socket_error(); !is_connect_in_progress_error(connectError)) {
         return append_error(errorMessage, "Failed to connect to the host pairing endpoint at " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(connectError) + ")");
       }
-
-      trace_pairing_phase("waiting for timed connect completion");
-      constexpr int CONNECT_POLL_INTERVAL_MILLISECONDS = 100;
-      int remainingWaitMilliseconds = SOCKET_TIMEOUT_MILLISECONDS;
-      int selectResult = 0;
-      while (remainingWaitMilliseconds > 0) {  // NOSONAR(cpp:S924) timed connect polling intentionally uses multiple early breaks and returns
-        if (pairing_cancel_requested(cancelRequested)) {
-          return append_cancelled_pairing_error(errorMessage);
-        }
-
-        fd_set writeSet;
-        FD_ZERO(&writeSet);
-        FD_SET(socketGuard->handle, &writeSet);
-        const int waitMilliseconds = std::min(remainingWaitMilliseconds, CONNECT_POLL_INTERVAL_MILLISECONDS);
-        timeval timeout {
-          waitMilliseconds / 1000,
-          (waitMilliseconds % 1000) * 1000,
-        };
-
-        selectResult = select(static_cast<int>(socketGuard->handle) + 1, nullptr, &writeSet, nullptr, &timeout);
-        if (selectResult != 0) {
-          break;
-        }
-
-        remainingWaitMilliseconds -= waitMilliseconds;
-      }
-      if (selectResult <= 0) {
-        if (pairing_cancel_requested(cancelRequested)) {
-          return append_cancelled_pairing_error(errorMessage);
-        }
-        return append_error(errorMessage, selectResult == 0 ? "Timed out connecting to the host pairing endpoint at " + address + ":" + std::to_string(port) : "Connection test failed while waiting for the host pairing endpoint at " + address + ":" + std::to_string(port));
-      }
-
-      int socketError = 0;
-#if defined(_WIN32) && !defined(NXDK)
-      if (int socketErrorLength = sizeof(socketError); getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, reinterpret_cast<char *>(&socketError), &socketErrorLength) != 0) {
-#else
-      if (socklen_t socketErrorLength = sizeof(socketError); getsockopt(socketGuard->handle, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) != 0) {
-#endif
-        return append_error(errorMessage, "Failed to query the host pairing socket status after connect (socket error " + std::to_string(last_socket_error()) + ")");
-      }
-      if (socketError != 0) {
-        return append_error(errorMessage, "Host refused the pairing connection on " + address + ":" + std::to_string(port) + " (socket error " + std::to_string(socketError) + ")");
+      if (!wait_for_socket_connect_completion(socketGuard->handle, address, port, errorMessage, cancelRequested)) {
+        return false;
       }
     }
 
-    trace_pairing_phase("restoring blocking mode after connect");
-    if (!set_socket_non_blocking(socketGuard->handle, false, errorMessage)) {
-      return false;
-    }
-
-    set_socket_timeouts(socketGuard->handle);
-    trace_pairing_phase("socket connected");
-
-    return true;
+    return finalize_connected_socket(socketGuard->handle, errorMessage);
   }
 
   bool recv_all_plain(SOCKET socketHandle, std::string *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested = nullptr) {
@@ -1509,7 +1589,103 @@ namespace {
     return append_error(errorMessage, std::move(combinedMessage));
   }
 
-  bool http_get(  // NOSONAR(cpp:S3776,cpp:S107) HTTP transport keeps TLS/plain fallback and error reporting in one place
+  std::string build_http_get_request(const std::string &address, uint16_t port, std::string_view pathAndQuery) {
+    return "GET " + std::string(pathAndQuery) +
+           " HTTP/1.1\r\n"
+           "Host: " +
+           address + ":" + std::to_string(port) +
+           "\r\n"
+           "User-Agent: Moonlight-XboxOG\r\n"
+           "Connection: close\r\n\r\n";
+  }
+
+  bool execute_plain_http_get(
+    SOCKET socketHandle,
+    std::string_view request,
+    std::string *rawResponse,
+    std::string *errorMessage,
+    const std::atomic<bool> *cancelRequested
+  ) {
+    trace_pairing_phase("http_get: sending plain request");
+    if (!send_all_plain(socketHandle, request, errorMessage, cancelRequested)) {
+      return false;
+    }
+    return recv_all_plain(socketHandle, rawResponse, errorMessage, cancelRequested);
+  }
+
+  bool execute_tls_http_get(
+    SOCKET socketHandle,
+    std::string_view request,
+    const network::PairingIdentity *tlsClientIdentity,
+    std::string_view expectedTlsCertificatePem,
+    std::string *rawResponse,
+    std::string *errorMessage,
+    const std::atomic<bool> *cancelRequested
+  ) {
+    if (pairing_cancel_requested(cancelRequested)) {
+      return append_cancelled_pairing_error(errorMessage);
+    }
+
+    trace_pairing_phase("http_get: preparing TLS");
+    if (!ensure_pairing_entropy(errorMessage)) {
+      return false;
+    }
+
+    std::unique_ptr<SSL_CTX, SslCtxDeleter> context(SSL_CTX_new(TLS_client_method()));
+    if (context == nullptr) {
+      return append_openssl_error(errorMessage, "Failed to create the TLS context for host pairing");
+    }
+
+    SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);  // NOSONAR(cpp:S4830) certificate pinning is enforced by verify_tls_peer_certificate()
+    if (tlsClientIdentity != nullptr && !configure_tls_pairing_identity(context.get(), *tlsClientIdentity, errorMessage)) {
+      return false;
+    }
+    if (pairing_cancel_requested(cancelRequested)) {
+      return append_cancelled_pairing_error(errorMessage);
+    }
+
+    std::unique_ptr<SSL, SslDeleter> ssl(SSL_new(context.get()));
+    if (ssl == nullptr) {
+      return append_openssl_error(errorMessage, "Failed to create the TLS session for host pairing");
+    }
+
+#ifdef NXDK
+    std::unique_ptr<BIO, BioDeleter> socketBio(BIO_new_fd(socketHandle, BIO_NOCLOSE));
+    if (socketBio == nullptr || BIO_up_ref(socketBio.get()) != 1) {
+      return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
+    }
+
+    SSL_set_bio(ssl.get(), socketBio.get(), socketBio.get());
+    socketBio.release();
+#else
+    if (SSL_set_fd(ssl.get(), static_cast<int>(socketHandle)) != 1) {
+      return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
+    }
+#endif
+
+    ERR_clear_error();
+    trace_pairing_phase("http_get: SSL_connect");
+    if (const int connectResult = SSL_connect(ssl.get()); connectResult != 1) {
+      const int sslError = SSL_get_error(ssl.get(), connectResult);
+      std::string tlsError = "Failed to establish the encrypted host pairing session (SSL error " + std::to_string(sslError);
+      if (sslError == SSL_ERROR_SYSCALL) {
+        tlsError += ", socket error " + std::to_string(last_socket_error());
+      }
+      tlsError += ")";
+      return append_openssl_error(errorMessage, std::move(tlsError));
+    }
+    if (!verify_tls_peer_certificate(ssl.get(), expectedTlsCertificatePem, errorMessage)) {
+      return false;
+    }
+
+    trace_pairing_phase("http_get: sending TLS request");
+    if (!send_all_ssl(ssl.get(), request, errorMessage, cancelRequested)) {
+      return false;
+    }
+    return recv_all_ssl(ssl.get(), rawResponse, errorMessage, cancelRequested);
+  }
+
+  bool http_get(  // NOSONAR(cpp:S107) HTTP transport keeps the request inputs explicit for callers
     const std::string &address,
     uint16_t port,
     std::string_view pathAndQuery,
@@ -1535,79 +1711,15 @@ namespace {
       return false;
     }
 
-    const std::string request =
-      "GET " + std::string(pathAndQuery) +
-      " HTTP/1.1\r\n"
-      "Host: " +
-      address + ":" + std::to_string(port) +
-      "\r\n"
-      "User-Agent: Moonlight-XboxOG\r\n"
-      "Connection: close\r\n\r\n";
+    const std::string request = build_http_get_request(address, port, pathAndQuery);
 
     std::string rawResponse;
     if (!useTls) {
-      trace_pairing_phase("http_get: sending plain request");
-      if (!send_all_plain(socketGuard.handle, request, errorMessage, cancelRequested) || !recv_all_plain(socketGuard.handle, &rawResponse, errorMessage, cancelRequested)) {
+      if (!execute_plain_http_get(socketGuard.handle, request, &rawResponse, errorMessage, cancelRequested)) {
         return false;
       }
     } else {
-      if (pairing_cancel_requested(cancelRequested)) {
-        return append_cancelled_pairing_error(errorMessage);
-      }
-
-      trace_pairing_phase("http_get: preparing TLS");
-      if (!ensure_pairing_entropy(errorMessage)) {
-        return false;
-      }
-
-      std::unique_ptr<SSL_CTX, SslCtxDeleter> context(SSL_CTX_new(TLS_client_method()));
-      if (context == nullptr) {
-        return append_openssl_error(errorMessage, "Failed to create the TLS context for host pairing");
-      }
-
-      SSL_CTX_set_verify(context.get(), SSL_VERIFY_NONE, nullptr);  // NOSONAR(cpp:S4830) certificate pinning is enforced by verify_tls_peer_certificate()
-      if (tlsClientIdentity != nullptr && !configure_tls_pairing_identity(context.get(), *tlsClientIdentity, errorMessage)) {
-        return false;
-      }
-      if (pairing_cancel_requested(cancelRequested)) {
-        return append_cancelled_pairing_error(errorMessage);
-      }
-
-      std::unique_ptr<SSL, SslDeleter> ssl(SSL_new(context.get()));
-      if (ssl == nullptr) {
-        return append_openssl_error(errorMessage, "Failed to create the TLS session for host pairing");
-      }
-
-#ifdef NXDK
-      std::unique_ptr<BIO, BioDeleter> socketBio(BIO_new_fd(socketGuard.handle, BIO_NOCLOSE));
-      if (socketBio == nullptr || BIO_up_ref(socketBio.get()) != 1) {
-        return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
-      }
-
-      SSL_set_bio(ssl.get(), socketBio.get(), socketBio.get());
-      socketBio.release();
-#else
-      if (SSL_set_fd(ssl.get(), static_cast<int>(socketGuard.handle)) != 1) {
-        return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
-      }
-#endif
-      ERR_clear_error();
-      trace_pairing_phase("http_get: SSL_connect");
-      if (const int connectResult = SSL_connect(ssl.get()); connectResult != 1) {
-        const int sslError = SSL_get_error(ssl.get(), connectResult);
-        std::string tlsError = "Failed to establish the encrypted host pairing session (SSL error " + std::to_string(sslError);
-        if (sslError == SSL_ERROR_SYSCALL) {
-          tlsError += ", socket error " + std::to_string(last_socket_error());
-        }
-        tlsError += ")";
-        return append_openssl_error(errorMessage, std::move(tlsError));
-      }
-      if (!verify_tls_peer_certificate(ssl.get(), expectedTlsCertificatePem, errorMessage)) {
-        return false;
-      }
-
-      trace_pairing_phase("http_get: sending TLS request");
-      if (!send_all_ssl(ssl.get(), request, errorMessage, cancelRequested) || !recv_all_ssl(ssl.get(), &rawResponse, errorMessage, cancelRequested)) {
+      if (!execute_tls_http_get(socketGuard.handle, request, tlsClientIdentity, expectedTlsCertificatePem, &rawResponse, errorMessage, cancelRequested)) {
         return false;
       }
     }
@@ -1753,6 +1865,317 @@ namespace {
 
     if (signature != nullptr) {
       signature->assign(asn1Signature->data, asn1Signature->data + asn1Signature->length);
+    }
+    return true;
+  }
+
+  struct PairingSessionState {
+    PairingSessionState(const network::HostPairingRequest &requestValue, const std::atomic<bool> *cancelRequestedValue):
+        request(requestValue),
+        cancelRequested(cancelRequestedValue) {
+    }
+
+    const network::HostPairingRequest &request;
+    const std::atomic<bool> *cancelRequested = nullptr;
+    network::HostPairingResult result {false, false, "Pairing failed"};
+    std::unique_ptr<X509, X509Deleter> clientCertificate;
+    std::unique_ptr<EVP_PKEY, PkeyDeleter> clientPrivateKey;
+    uint16_t httpPort = DEFAULT_SERVERINFO_HTTP_PORT;
+    std::string uniqueId;
+    std::string deviceName;
+    std::string errorMessage;
+    HttpResponse response {};
+    std::string requestUuid;
+    network::HostPairingServerInfo serverInfo {};
+    std::string phaseValue;
+    std::string plainCertPem;
+    std::string saltHex;
+    std::vector<unsigned char> aesKey;
+    std::array<unsigned char, CLIENT_SECRET_BYTE_COUNT> clientSecretBytes {};
+  };
+
+  bool pairing_session_cancelled(PairingSessionState *session) {
+    if (session == nullptr || !pairing_cancel_requested(session->cancelRequested)) {
+      return false;
+    }
+
+    session->result = {false, false, "Pairing cancelled"};
+    trace_pairing_detail(session->result.message);
+    return true;
+  }
+
+  network::HostPairingResult fail_pairing_phase(PairingSessionState *session, std::string_view phase) {
+    if (session == nullptr) {
+      return {false, false, "Pairing failed"};
+    }
+
+    session->result.message = "Pairing failed during " + std::string(phase) + ": " + session->errorMessage;
+    trace_pairing_detail(session->result.message);
+    return session->result;
+  }
+
+  bool next_pairing_request_uuid(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+    if (generate_uuid(&session->requestUuid, &session->errorMessage)) {
+      return true;
+    }
+
+    session->result.message = session->errorMessage.empty() ? "Failed to generate the UUID used for pairing" : session->errorMessage;
+    return false;
+  }
+
+  bool initialize_pairing_session(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+    if (session->request.address.empty()) {
+      session->result.message = "Pairing requires a valid host address";
+      return false;
+    }
+    if (session->request.pin.size() != 4U) {
+      session->result.message = "Pairing requires a four-digit PIN";
+      return false;
+    }
+    if (!is_valid_pairing_identity(session->request.identity)) {
+      session->result.message = "Client pairing identity is missing or invalid";
+      return false;
+    }
+    if (pairing_session_cancelled(session)) {
+      return false;
+    }
+
+    session->clientCertificate = load_certificate(session->request.identity.certificatePem);
+    session->clientPrivateKey = load_private_key(session->request.identity.privateKeyPem);
+    if (session->clientCertificate == nullptr || session->clientPrivateKey == nullptr) {
+      session->result.message = "Client pairing credentials could not be loaded";
+      return false;
+    }
+
+    session->httpPort = session->request.httpPort == 0 ? DEFAULT_SERVERINFO_HTTP_PORT : session->request.httpPort;
+    session->uniqueId = session->request.identity.uniqueId;
+    session->deviceName = session->request.deviceName.empty() ? "MoonlightXboxOG" : session->request.deviceName;
+    return true;
+  }
+
+  bool execute_pairing_phase_request(PairingSessionState *session, const std::string &path, bool useTls, std::string_view expectedTlsCertificatePem = {}) {
+    if (session == nullptr) {
+      return false;
+    }
+
+    const network::PairingIdentity *tlsIdentity = useTls ? &session->request.identity : nullptr;
+    if (!http_get(session->request.address, useTls ? session->serverInfo.httpsPort : session->serverInfo.httpPort, path, useTls, tlsIdentity, expectedTlsCertificatePem, &session->response, &session->errorMessage, session->cancelRequested)) {
+      return false;
+    }
+    return parse_pairing_tag(session->response, "paired", &session->phaseValue, &session->errorMessage);
+  }
+
+  bool query_pairing_server_info(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+
+    trace_pairing_phase("requesting /serverinfo");
+    return query_server_info_internal(session->request.address, session->httpPort, session->uniqueId, &session->response, &session->serverInfo, &session->errorMessage, session->cancelRequested);
+  }
+
+  bool request_server_certificate(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+
+    std::array<unsigned char, 16> saltBytes {};
+    if (!fill_random_bytes(saltBytes.data(), saltBytes.size(), &session->errorMessage)) {
+      return false;
+    }
+
+    session->saltHex = hex_encode(saltBytes.data(), saltBytes.size());
+    const std::string certHex = certificate_hex(session->request.identity.certificatePem);
+    if (!next_pairing_request_uuid(session)) {
+      return false;
+    }
+
+    const std::string phasePath = "/pair?uniqueid=" + session->uniqueId + "&uuid=" + session->requestUuid + "&devicename=" + session->deviceName + "&updateState=1&phrase=getservercert&salt=" + session->saltHex + "&clientcert=" + certHex;
+    trace_pairing_phase("phase 1 getservercert request");
+    if (!execute_pairing_phase_request(session, phasePath, false)) {
+      return false;
+    }
+    if (session->phaseValue != "1") {
+      session->result.message = "The host rejected the initial pairing request";
+      return false;
+    }
+
+    std::string plainCertHex;
+    if (!parse_pairing_tag(session->response, "plaincert", &plainCertHex, &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> plainCertBytes;
+    if (!hex_decode(plainCertHex, &plainCertBytes, &session->errorMessage)) {
+      return false;
+    }
+    session->plainCertPem.assign(plainCertBytes.begin(), plainCertBytes.end());
+    return derive_aes_key(session->saltHex, session->request.pin, &session->aesKey, &session->errorMessage);
+  }
+
+  bool send_client_challenge(PairingSessionState *session, std::vector<unsigned char> *challengeResponsePlaintext) {
+    if (session == nullptr || challengeResponsePlaintext == nullptr) {
+      return false;
+    }
+
+    std::array<unsigned char, CLIENT_CHALLENGE_BYTE_COUNT> clientChallengeBytes {};
+    if (!fill_random_bytes(clientChallengeBytes.data(), clientChallengeBytes.size(), &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> encryptedClientChallenge;
+    if (!aes_ecb_encrypt(clientChallengeBytes.data(), clientChallengeBytes.size(), session->aesKey, &encryptedClientChallenge, &session->errorMessage)) {
+      return false;
+    }
+    if (!next_pairing_request_uuid(session)) {
+      return false;
+    }
+
+    const std::string phasePath = "/pair?uniqueid=" + session->uniqueId + "&uuid=" + session->requestUuid + "&devicename=" + session->deviceName + "&updateState=1&clientchallenge=" + hex_encode(encryptedClientChallenge.data(), encryptedClientChallenge.size());
+    trace_pairing_phase("phase 2 clientchallenge request");
+    if (!execute_pairing_phase_request(session, phasePath, false)) {
+      return false;
+    }
+    if (session->phaseValue != "1") {
+      session->result.message = "The host rejected the client challenge during pairing";
+      return false;
+    }
+
+    std::string challengeResponseHex;
+    if (!parse_pairing_tag(session->response, "challengeresponse", &challengeResponseHex, &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> challengeResponseEncrypted;
+    if (!hex_decode(challengeResponseHex, &challengeResponseEncrypted, &session->errorMessage)) {
+      return false;
+    }
+    if (!aes_ecb_decrypt(challengeResponseEncrypted, session->aesKey, challengeResponsePlaintext, &session->errorMessage)) {
+      return false;
+    }
+    if (challengeResponsePlaintext->size() < pairing_hash_length() + 16U) {
+      session->result.message = "The host returned an incomplete challenge response during pairing";
+      return false;
+    }
+    return true;
+  }
+
+  bool send_server_challenge_response(PairingSessionState *session, const std::vector<unsigned char> &challengeResponsePlaintext) {
+    if (session == nullptr) {
+      return false;
+    }
+
+    std::vector<unsigned char> certificateSignature;
+    if (!load_certificate_signature(session->clientCertificate.get(), &certificateSignature, &session->errorMessage)) {
+      return false;
+    }
+    if (!fill_random_bytes(session->clientSecretBytes.data(), session->clientSecretBytes.size(), &session->errorMessage)) {
+      return false;
+    }
+
+    const std::size_t hashLength = pairing_hash_length();
+    std::vector<unsigned char> clientHashSource;
+    clientHashSource.insert(clientHashSource.end(), challengeResponsePlaintext.begin() + static_cast<std::ptrdiff_t>(hashLength), challengeResponsePlaintext.begin() + static_cast<std::ptrdiff_t>(hashLength + 16U));
+    clientHashSource.insert(clientHashSource.end(), certificateSignature.begin(), certificateSignature.end());
+    clientHashSource.insert(clientHashSource.end(), session->clientSecretBytes.begin(), session->clientSecretBytes.end());
+
+    std::vector<unsigned char> clientHash;
+    if (!compute_digest(clientHashSource.data(), clientHashSource.size(), &clientHash, &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> encryptedClientHash;
+    if (!aes_ecb_encrypt(clientHash.data(), clientHash.size(), session->aesKey, &encryptedClientHash, &session->errorMessage)) {
+      return false;
+    }
+    if (!next_pairing_request_uuid(session)) {
+      return false;
+    }
+
+    const std::string phasePath = "/pair?uniqueid=" + session->uniqueId + "&uuid=" + session->requestUuid + "&devicename=" + session->deviceName + "&updateState=1&serverchallengeresp=" + hex_encode(encryptedClientHash.data(), encryptedClientHash.size());
+    trace_pairing_phase("phase 3 serverchallengeresp request");
+    if (!execute_pairing_phase_request(session, phasePath, false)) {
+      return false;
+    }
+    if (session->phaseValue != "1") {
+      session->result.message = "The host rejected the server challenge response during pairing";
+      return false;
+    }
+
+    std::string pairingSecretHex;
+    if (!parse_pairing_tag(session->response, "pairingsecret", &pairingSecretHex, &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> pairingSecretBytes;
+    if (!hex_decode(pairingSecretHex, &pairingSecretBytes, &session->errorMessage) || pairingSecretBytes.size() <= 16U) {
+      session->errorMessage = "The host returned an invalid pairing secret";
+      return false;
+    }
+
+    std::unique_ptr<X509, X509Deleter> plainCertificate = load_certificate(session->plainCertPem);
+    if (plainCertificate == nullptr) {
+      session->errorMessage = "The host returned an invalid server certificate during pairing";
+      return false;
+    }
+
+    std::vector<unsigned char> serverSecret(pairingSecretBytes.begin(), pairingSecretBytes.begin() + 16);
+    std::vector<unsigned char> serverSignature(pairingSecretBytes.begin() + 16, pairingSecretBytes.end());
+    return verify_sha256_signature(serverSecret, serverSignature, plainCertificate.get(), &session->errorMessage);
+  }
+
+  bool send_client_pairing_secret(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+
+    std::vector<unsigned char> clientSecretVector(session->clientSecretBytes.begin(), session->clientSecretBytes.end());
+    std::vector<unsigned char> clientPairingSignature;
+    if (!sign_sha256(clientSecretVector, session->clientPrivateKey.get(), &clientPairingSignature, &session->errorMessage)) {
+      return false;
+    }
+
+    std::vector<unsigned char> clientPairingSecret;
+    clientPairingSecret.insert(clientPairingSecret.end(), session->clientSecretBytes.begin(), session->clientSecretBytes.end());
+    clientPairingSecret.insert(clientPairingSecret.end(), clientPairingSignature.begin(), clientPairingSignature.end());
+    if (!next_pairing_request_uuid(session)) {
+      return false;
+    }
+
+    const std::string phasePath = "/pair?uniqueid=" + session->uniqueId + "&uuid=" + session->requestUuid + "&devicename=" + session->deviceName + "&updateState=1&clientpairingsecret=" + hex_encode(clientPairingSecret.data(), clientPairingSecret.size());
+    trace_pairing_phase("phase 4 clientpairingsecret request");
+    if (!execute_pairing_phase_request(session, phasePath, false)) {
+      return false;
+    }
+    if (session->phaseValue != "1") {
+      session->result.message = "The host rejected the client pairing secret";
+      return false;
+    }
+    return true;
+  }
+
+  bool send_pair_challenge(PairingSessionState *session) {
+    if (session == nullptr) {
+      return false;
+    }
+    if (!next_pairing_request_uuid(session)) {
+      return false;
+    }
+
+    const std::string phasePath = "/pair?uniqueid=" + session->uniqueId + "&uuid=" + session->requestUuid + "&devicename=" + session->deviceName + "&updateState=1&phrase=pairchallenge";
+    trace_pairing_phase("phase 5 pairchallenge request");
+    if (!execute_pairing_phase_request(session, phasePath, true, session->plainCertPem)) {
+      return false;
+    }
+    if (session->phaseValue != "1") {
+      session->result.message = "The host rejected the final encrypted pairing challenge";
+      return false;
     }
     return true;
   }
@@ -2101,280 +2524,62 @@ namespace network {
     return append_error(errorMessage, std::move(combinedMessage));
   }
 
-  HostPairingResult pair_host(const HostPairingRequest &request, const std::atomic<bool> *cancelRequested) {  // NOSONAR(cpp:S3776) pairing protocol phases intentionally remain linear and explicit here
+  HostPairingResult pair_host(const HostPairingRequest &request, const std::atomic<bool> *cancelRequested) {
     trace_pairing_phase("pair_host entered");
-    HostPairingResult result {false, false, "Pairing failed"};
-    auto fail_if_cancelled = [&cancelRequested, &result]() {
-      if (!pairing_cancel_requested(cancelRequested)) {
-        return false;
-      }
-
-      result = {false, false, "Pairing cancelled"};
-      trace_pairing_detail(result.message);
-      return true;
-    };
-    auto fail_with_phase = [&result](std::string_view phase, const std::string &message) {
-      result.message = "Pairing failed during " + std::string(phase) + ": " + message;
-      trace_pairing_detail(result.message);
-      return result;
-    };
-    auto next_pairing_uuid = [&result](std::string *uuid, std::string *errorMessage) {
-      if (generate_uuid(uuid, errorMessage)) {
-        return true;
-      }
-
-      result.message = errorMessage != nullptr && !errorMessage->empty() ? *errorMessage : "Failed to generate the UUID used for pairing";
-      return false;
-    };
-
-    if (request.address.empty()) {
-      result.message = "Pairing requires a valid host address";
-      return result;
+    PairingSessionState session(request, cancelRequested);
+    if (!initialize_pairing_session(&session)) {
+      return session.result;
     }
-    if (request.pin.size() != 4U) {
-      result.message = "Pairing requires a four-digit PIN";
-      return result;
+    if (!query_pairing_server_info(&session)) {
+      return fail_pairing_phase(&session, "serverinfo");
     }
-    if (!is_valid_pairing_identity(request.identity)) {
-      result.message = "Client pairing identity is missing or invalid";
-      return result;
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
     }
-    if (fail_if_cancelled()) {
-      return result;
+    if (session.serverInfo.paired) {
+      session.result.success = true;
+      session.result.alreadyPaired = true;
+      session.result.message = "The host already reports this client as paired";
+      return session.result;
     }
-
-    std::unique_ptr<X509, X509Deleter> clientCertificate = load_certificate(request.identity.certificatePem);
-    std::unique_ptr<EVP_PKEY, PkeyDeleter> clientPrivateKey = load_private_key(request.identity.privateKeyPem);
-    if (clientCertificate == nullptr || clientPrivateKey == nullptr) {
-      result.message = "Client pairing credentials could not be loaded";
-      return result;
-    }
-
-    const uint16_t httpPort = request.httpPort == 0 ? DEFAULT_SERVERINFO_HTTP_PORT : request.httpPort;
-    const std::string uniqueId = request.identity.uniqueId;
-    const std::string deviceName = request.deviceName.empty() ? "MoonlightXboxOG" : request.deviceName;
-
-    std::string errorMessage;
-    HttpResponse response {};
-    std::string requestUuid;
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-
-    trace_pairing_phase("requesting /serverinfo");
-    HostPairingServerInfo serverInfo {};
-    if (!query_server_info_internal(request.address, httpPort, uniqueId, &response, &serverInfo, &errorMessage, cancelRequested)) {
-      return fail_with_phase("serverinfo", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-
-    if (serverInfo.paired) {
-      result.success = true;
-      result.alreadyPaired = true;
-      result.message = "The host already reports this client as paired";
-      return result;
-    }
-
-    std::array<unsigned char, 16> saltBytes {};
-    if (!fill_random_bytes(saltBytes.data(), saltBytes.size(), &errorMessage)) {
-      result.message = errorMessage;
-      return result;
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    const std::string saltHex = hex_encode(saltBytes.data(), saltBytes.size());
-    const std::string certHex = certificate_hex(request.identity.certificatePem);
-
-    std::string phaseValue;
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-    const std::string phase1Path = "/pair?uniqueid=" + uniqueId + "&uuid=" + requestUuid + "&devicename=" + deviceName + "&updateState=1&phrase=getservercert&salt=" + saltHex + "&clientcert=" + certHex;
-    trace_pairing_phase("phase 1 getservercert request");
-    if (!http_get(request.address, serverInfo.httpPort, phase1Path, false, nullptr, {}, &response, &errorMessage, cancelRequested) || !parse_pairing_tag(response, "paired", &phaseValue, &errorMessage)) {
-      return fail_with_phase("phase 1 (getservercert)", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    if (phaseValue != "1") {
-      result.message = "The host rejected the initial pairing request";
-      return result;
-    }
-
-    std::string plainCertHex;
-    if (!parse_pairing_tag(response, "plaincert", &plainCertHex, &errorMessage)) {
-      return fail_with_phase("phase 1 (getservercert)", errorMessage);
-    }
-
-    std::vector<unsigned char> plainCertBytes;
-    if (!hex_decode(plainCertHex, &plainCertBytes, &errorMessage)) {
-      return fail_with_phase("phase 1 (getservercert)", errorMessage);
-    }
-    const std::string plainCertPem(plainCertBytes.begin(), plainCertBytes.end());
-
-    std::vector<unsigned char> aesKey;
     trace_pairing_phase("deriving AES key");
-    if (!derive_aes_key(saltHex, request.pin, &aesKey, &errorMessage)) {
-      return fail_with_phase("phase 1 (derive AES key)", errorMessage);
+    if (!request_server_certificate(&session)) {
+      return fail_pairing_phase(&session, "phase 1 (getservercert)");
     }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-
-    std::array<unsigned char, CLIENT_CHALLENGE_BYTE_COUNT> clientChallengeBytes {};
-    if (!fill_random_bytes(clientChallengeBytes.data(), clientChallengeBytes.size(), &errorMessage)) {
-      return fail_with_phase("phase 2 (client challenge random)", errorMessage);
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
     }
 
-    std::vector<unsigned char> encryptedClientChallenge;
-    if (!aes_ecb_encrypt(clientChallengeBytes.data(), clientChallengeBytes.size(), aesKey, &encryptedClientChallenge, &errorMessage)) {
-      return fail_with_phase("phase 2 (client challenge encrypt)", errorMessage);
-    }
-
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-    const std::string phase2Path = "/pair?uniqueid=" + uniqueId + "&uuid=" + requestUuid + "&devicename=" + deviceName + "&updateState=1&clientchallenge=" + hex_encode(encryptedClientChallenge.data(), encryptedClientChallenge.size());
-    trace_pairing_phase("phase 2 clientchallenge request");
-    if (!http_get(request.address, serverInfo.httpPort, phase2Path, false, nullptr, {}, &response, &errorMessage, cancelRequested) || !parse_pairing_tag(response, "paired", &phaseValue, &errorMessage)) {
-      return fail_with_phase("phase 2 (client challenge)", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    if (phaseValue != "1") {
-      result.message = "The host rejected the client challenge during pairing";
-      return result;
-    }
-
-    std::string challengeResponseHex;
-    if (!parse_pairing_tag(response, "challengeresponse", &challengeResponseHex, &errorMessage)) {
-      return fail_with_phase("phase 2 (client challenge)", errorMessage);
-    }
-
-    std::vector<unsigned char> challengeResponseEncrypted;
     std::vector<unsigned char> challengeResponsePlaintext;
-    if (!hex_decode(challengeResponseHex, &challengeResponseEncrypted, &errorMessage) || !aes_ecb_decrypt(challengeResponseEncrypted, aesKey, &challengeResponsePlaintext, &errorMessage)) {
-      return fail_with_phase("phase 2 (client challenge)", errorMessage);
+    if (!send_client_challenge(&session, &challengeResponsePlaintext)) {
+      return fail_pairing_phase(&session, "phase 2 (client challenge)");
+    }
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
+    }
+    if (!send_server_challenge_response(&session, challengeResponsePlaintext)) {
+      return fail_pairing_phase(&session, "phase 3 (server challenge response)");
+    }
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
+    }
+    if (!send_client_pairing_secret(&session)) {
+      return fail_pairing_phase(&session, "phase 4 (client pairing secret)");
+    }
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
+    }
+    if (!send_pair_challenge(&session)) {
+      return fail_pairing_phase(&session, "phase 5 (pairchallenge)");
+    }
+    if (pairing_session_cancelled(&session)) {
+      return session.result;
     }
 
-    const std::size_t hashLength = pairing_hash_length();
-    if (challengeResponsePlaintext.size() < hashLength + 16U) {
-      result.message = "The host returned an incomplete challenge response during pairing";
-      return result;
-    }
-
-    std::vector<unsigned char> certificateSignature;
-    if (!load_certificate_signature(clientCertificate.get(), &certificateSignature, &errorMessage)) {
-      return fail_with_phase("phase 3 (server challenge response)", errorMessage);
-    }
-
-    std::array<unsigned char, CLIENT_SECRET_BYTE_COUNT> clientSecretBytes {};
-    if (!fill_random_bytes(clientSecretBytes.data(), clientSecretBytes.size(), &errorMessage)) {
-      return fail_with_phase("phase 3 (client secret random)", errorMessage);
-    }
-
-    std::vector<unsigned char> clientHashSource;
-    clientHashSource.insert(clientHashSource.end(), challengeResponsePlaintext.begin() + static_cast<std::ptrdiff_t>(hashLength), challengeResponsePlaintext.begin() + static_cast<std::ptrdiff_t>(hashLength + 16U));
-    clientHashSource.insert(clientHashSource.end(), certificateSignature.begin(), certificateSignature.end());
-    clientHashSource.insert(clientHashSource.end(), clientSecretBytes.begin(), clientSecretBytes.end());
-
-    std::vector<unsigned char> clientHash;
-    if (!compute_digest(clientHashSource.data(), clientHashSource.size(), &clientHash, &errorMessage)) {
-      return fail_with_phase("phase 3 (server challenge response)", errorMessage);
-    }
-
-    std::vector<unsigned char> encryptedClientHash;
-    if (!aes_ecb_encrypt(clientHash.data(), clientHash.size(), aesKey, &encryptedClientHash, &errorMessage)) {
-      return fail_with_phase("phase 3 (server challenge response)", errorMessage);
-    }
-
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-    const std::string phase3Path = "/pair?uniqueid=" + uniqueId + "&uuid=" + requestUuid + "&devicename=" + deviceName + "&updateState=1&serverchallengeresp=" + hex_encode(encryptedClientHash.data(), encryptedClientHash.size());
-    trace_pairing_phase("phase 3 serverchallengeresp request");
-    if (!http_get(request.address, serverInfo.httpPort, phase3Path, false, nullptr, {}, &response, &errorMessage, cancelRequested) || !parse_pairing_tag(response, "paired", &phaseValue, &errorMessage)) {
-      return fail_with_phase("phase 3 (server challenge response)", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    if (phaseValue != "1") {
-      result.message = "The host rejected the server challenge response during pairing";
-      return result;
-    }
-
-    std::string pairingSecretHex;
-    if (!parse_pairing_tag(response, "pairingsecret", &pairingSecretHex, &errorMessage)) {
-      return fail_with_phase("phase 3 (server challenge response)", errorMessage);
-    }
-
-    std::vector<unsigned char> pairingSecretBytes;
-    if (!hex_decode(pairingSecretHex, &pairingSecretBytes, &errorMessage) || pairingSecretBytes.size() <= 16U) {
-      return fail_with_phase("phase 4 (pairing secret)", "The host returned an invalid pairing secret");
-    }
-
-    std::unique_ptr<X509, X509Deleter> plainCertificate = load_certificate(plainCertPem);
-    if (plainCertificate == nullptr) {
-      return fail_with_phase("phase 4 (pairing secret)", "The host returned an invalid server certificate during pairing");
-    }
-
-    std::vector<unsigned char> serverSecret(pairingSecretBytes.begin(), pairingSecretBytes.begin() + 16);
-    if (std::vector<unsigned char> serverSignature(pairingSecretBytes.begin() + 16, pairingSecretBytes.end()); !verify_sha256_signature(serverSecret, serverSignature, plainCertificate.get(), &errorMessage)) {
-      return fail_with_phase("phase 4 (pairing secret)", errorMessage);
-    }
-
-    std::vector<unsigned char> clientSecretVector(clientSecretBytes.begin(), clientSecretBytes.end());
-    std::vector<unsigned char> clientPairingSignature;
-    if (!sign_sha256(clientSecretVector, clientPrivateKey.get(), &clientPairingSignature, &errorMessage)) {
-      return fail_with_phase("phase 4 (client pairing secret)", errorMessage);
-    }
-
-    std::vector<unsigned char> clientPairingSecret;
-    clientPairingSecret.insert(clientPairingSecret.end(), clientSecretBytes.begin(), clientSecretBytes.end());
-    clientPairingSecret.insert(clientPairingSecret.end(), clientPairingSignature.begin(), clientPairingSignature.end());
-
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-    const std::string phase4Path = "/pair?uniqueid=" + uniqueId + "&uuid=" + requestUuid + "&devicename=" + deviceName + "&updateState=1&clientpairingsecret=" + hex_encode(clientPairingSecret.data(), clientPairingSecret.size());
-    trace_pairing_phase("phase 4 clientpairingsecret request");
-    if (!http_get(request.address, serverInfo.httpPort, phase4Path, false, nullptr, {}, &response, &errorMessage, cancelRequested) || !parse_pairing_tag(response, "paired", &phaseValue, &errorMessage)) {
-      return fail_with_phase("phase 4 (client pairing secret)", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    if (phaseValue != "1") {
-      result.message = "The host rejected the client pairing secret";
-      return result;
-    }
-
-    if (!next_pairing_uuid(&requestUuid, &errorMessage)) {
-      return result;
-    }
-    const std::string phase5Path = "/pair?uniqueid=" + uniqueId + "&uuid=" + requestUuid + "&devicename=" + deviceName + "&updateState=1&phrase=pairchallenge";
-    trace_pairing_phase("phase 5 pairchallenge request");
-    if (!http_get(request.address, serverInfo.httpsPort, phase5Path, true, &request.identity, plainCertPem, &response, &errorMessage, cancelRequested) || !parse_pairing_tag(response, "paired", &phaseValue, &errorMessage)) {
-      return fail_with_phase("phase 5 (pairchallenge)", errorMessage);
-    }
-    if (fail_if_cancelled()) {
-      return result;
-    }
-    if (phaseValue != "1") {
-      result.message = "The host rejected the final encrypted pairing challenge";
-      return result;
-    }
-
-    result.success = true;
-    result.message = "Paired successfully with " + request.address;
+    session.result.success = true;
+    session.result.message = "Paired successfully with " + request.address;
     trace_pairing_phase("pair_host succeeded");
-    return result;
+    return session.result;
   }
 
 }  // namespace network
