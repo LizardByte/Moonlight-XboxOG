@@ -21,16 +21,12 @@
 
 namespace {
 
-  inline logging::Logger *globalLogger = nullptr;
-
-  inline bool startupConsoleEnabled = true;
-
   bool is_enabled(logging::LogLevel candidateLevel, logging::LogLevel minimumLevel) {
     return static_cast<int>(candidateLevel) >= static_cast<int>(minimumLevel);
   }
 
   logging::Logger *registered_logger() {
-    return globalLogger;
+    return logging::detail::GlobalLoggingState::registeredLogger;
   }
 
   logging::LogLevel startup_console_level(logging::LogLevel level) {
@@ -189,7 +185,7 @@ namespace logging {
   }
 
   void set_global_logger(Logger *logger) {
-    globalLogger = logger;
+    detail::GlobalLoggingState::registeredLogger = logger;
   }
 
   bool has_global_logger() {
@@ -273,11 +269,11 @@ namespace logging {
   }
 
   void set_startup_console_enabled(bool enabled) {
-    startupConsoleEnabled = enabled;
+    detail::GlobalLoggingState::startupConsoleEnabled = enabled;
   }
 
   bool startup_console_enabled() {
-    return startupConsoleEnabled;
+    return detail::GlobalLoggingState::startupConsoleEnabled;
   }
 
   void print_startup_console_line(LogLevel level, std::string_view category, std::string_view message) {

@@ -96,6 +96,18 @@ namespace logging {
 
   class Logger;
 
+  namespace detail {
+
+    /**
+     * @brief Process-wide mutable logger state shared by the logging helpers.
+     */
+    struct GlobalLoggingState {
+      inline static Logger *registeredLogger = nullptr;  ///< Process-wide logger used by namespace-level helpers.
+      inline static bool startupConsoleEnabled = true;  ///< True when startup console output is enabled.
+    };
+
+  }  // namespace detail
+
   /**
    * @brief Return the display label for a log level.
    *

@@ -4220,7 +4220,7 @@ namespace {
    * @param state Client state whose logging configuration should be applied.
    * @param runtime Runtime state to prepare.
    */
-  void initialize_shell_runtime(app::ClientState &state, ShellRuntimeState *runtime) {
+  void initialize_shell_runtime(const app::ClientState &state, ShellRuntimeState *runtime) {
     if (runtime == nullptr) {
       return;
     }
@@ -4437,8 +4437,7 @@ namespace ui {
     }
 
     ShellResources resources {};
-    ShellInitializationFailure initializationFailure {};
-    if (!initialize_shell_resources(window, videoMode, &resources, &initializationFailure)) {
+    if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, videoMode, &resources, &initializationFailure)) {
       return report_shell_failure(initializationFailure.category, initializationFailure.message);
     }
 
