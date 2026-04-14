@@ -16,6 +16,8 @@
 
 // nxdk includes
 #include <hal/debug.h>
+#include <nanosvg.h>
+#include <nanosvgrast.h>
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
@@ -97,6 +99,59 @@ namespace {
     return path.rfind("icons\\", 0U) == 0U;
   }
 
+  /**
+   * @brief Build an asset texture cache key, including raster dimensions for size-aware SVG textures.
+   *
+   * @param relativePath Asset path relative to `DATA_PATH/assets`.
+   * @param maxWidth Requested maximum raster width in pixels.
+   * @param maxHeight Requested maximum raster height in pixels.
+   * @return Cache key used to store or look up the texture.
+   */
+  std::string build_asset_texture_cache_key(const std::string &relativePath, int maxWidth = 0, int maxHeight = 0) {
+    if (relativePath.empty() || maxWidth <= 0 || maxHeight <= 0 || !asset_path_uses_svg(relativePath.c_str())) {
+      return relativePath;
+    }
+
+    return relativePath + "#" + std::to_string(maxWidth) + "x" + std::to_string(maxHeight);
+  }
+
+  /**
+   * @brief Calculate the largest integer size that fits inside a destination rectangle.
+   *
+   * @param sourceWidth Source asset width.
+   * @param sourceHeight Source asset height.
+   * @param maxWidth Maximum destination width.
+   * @param maxHeight Maximum destination height.
+   * @param fittedWidth Receives the fitted width.
+   * @param fittedHeight Receives the fitted height.
+   */
+  void calculate_fitted_dimensions(double sourceWidth, double sourceHeight, int maxWidth, int maxHeight, int *fittedWidth, int *fittedHeight) {
+    if (fittedWidth != nullptr) {
+      *fittedWidth = 0;
+    }
+    if (fittedHeight != nullptr) {
+      *fittedHeight = 0;
+    }
+    if (sourceWidth <= 0.0 || sourceHeight <= 0.0 || maxWidth <= 0 || maxHeight <= 0) {
+      return;
+    }
+
+    int targetWidth = maxWidth;
+    int targetHeight = maxHeight;
+    if ((sourceWidth * static_cast<double>(maxHeight)) > (sourceHeight * static_cast<double>(maxWidth))) {
+      targetHeight = std::max(1, static_cast<int>((sourceHeight * static_cast<double>(maxWidth)) / sourceWidth));
+    } else {
+      targetWidth = std::max(1, static_cast<int>((sourceWidth * static_cast<double>(maxHeight)) / sourceHeight));
+    }
+
+    if (fittedWidth != nullptr) {
+      *fittedWidth = targetWidth;
+    }
+    if (fittedHeight != nullptr) {
+      *fittedHeight = targetHeight;
+    }
+  }
+
   SDL_Surface *normalize_asset_surface(SDL_Surface *surface) {
     if (surface == nullptr) {
       return nullptr;
@@ -119,6 +174,96 @@ namespace {
 
   SDL_Surface *prepare_asset_surface(SDL_Surface *surface) {
     return normalize_asset_surface(surface);
+  }
+
+  SDL_Texture *load_texture_from_asset(SDL_Renderer *renderer, const char *relativePath, int maxWidth, int maxHeight);
+
+  /**
+   * @brief Load and rasterize an SVG asset so it matches the requested destination bounds.
+   *
+   * @param relativePath Asset path relative to `DATA_PATH/assets`.
+   * @param maxWidth Maximum raster width in pixels.
+   * @param maxHeight Maximum raster height in pixels.
+   * @return Rasterized 32-bit RGBA surface sized to fit within the destination bounds.
+   */
+  SDL_Surface *load_svg_surface_from_asset(const char *relativePath, int maxWidth, int maxHeight) {
+    if (!asset_path_uses_svg(relativePath) || maxWidth <= 0 || maxHeight <= 0) {
+      return nullptr;
+    }
+
+    const std::string assetPath = build_asset_path(relativePath);
+    SDL_RWops *rw = SDL_RWFromFile(assetPath.c_str(), "rb");
+    if (rw == nullptr) {
+      return nullptr;
+    }
+
+    size_t dataSize = 0U;
+    auto *data = static_cast<char *>(SDL_LoadFile_RW(rw, &dataSize, 1));
+    if (data == nullptr) {
+      return nullptr;
+    }
+
+    NSVGimage *image = nsvgParse(data, "px", 96.0f);
+    SDL_free(data);
+    if (image == nullptr) {
+      return nullptr;
+    }
+
+    int targetWidth = 0;
+    int targetHeight = 0;
+    calculate_fitted_dimensions(image->width, image->height, maxWidth, maxHeight, &targetWidth, &targetHeight);
+    if (targetWidth <= 0 || targetHeight <= 0) {
+      nsvgDelete(image);
+      return nullptr;
+    }
+
+    NSVGrasterizer *rasterizer = nsvgCreateRasterizer();
+    if (rasterizer == nullptr) {
+      nsvgDelete(image);
+      return nullptr;
+    }
+
+    SDL_Surface *surface = SDL_CreateRGBSurface(
+      SDL_SWSURFACE,
+      targetWidth,
+      targetHeight,
+      32,
+      0x000000FF,
+      0x0000FF00,
+      0x00FF0000,
+      0xFF000000
+    );
+    if (surface == nullptr) {
+      nsvgDeleteRasterizer(rasterizer);
+      nsvgDelete(image);
+      return nullptr;
+    }
+
+    const bool mustLockSurface = SDL_MUSTLOCK(surface) != 0;
+    if (mustLockSurface && SDL_LockSurface(surface) != 0) {
+      SDL_FreeSurface(surface);
+      nsvgDeleteRasterizer(rasterizer);
+      nsvgDelete(image);
+      return nullptr;
+    }
+
+    SDL_memset(surface->pixels, 0, static_cast<size_t>(surface->pitch) * static_cast<size_t>(surface->h));
+    const float rasterScale = std::min(static_cast<float>(targetWidth) / image->width, static_cast<float>(targetHeight) / image->height);
+    nsvgRasterize(rasterizer, image, 0.0f, 0.0f, rasterScale, static_cast<unsigned char *>(surface->pixels), surface->w, surface->h, surface->pitch);
+
+    if (mustLockSurface) {
+      SDL_UnlockSurface(surface);
+    }
+
+    nsvgDeleteRasterizer(rasterizer);
+    nsvgDelete(image);
+
+    if (SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_BLEND) != 0) {
+      SDL_FreeSurface(surface);
+      return nullptr;
+    }
+
+    return surface;
   }
 
   SDL_Texture *create_texture_from_surface_with_scale_quality(SDL_Renderer *renderer, SDL_Surface *surface, const char *scaleQualityHint) {
@@ -466,13 +611,25 @@ namespace {
     return texture;
   }
 
-  SDL_Texture *load_texture_from_asset(SDL_Renderer *renderer, const char *relativePath) {
+  /**
+   * @brief Load an asset texture, optionally rasterizing SVG assets to requested bounds.
+   *
+   * @param renderer SDL renderer that will own the texture.
+   * @param relativePath Asset path relative to `DATA_PATH/assets`.
+   * @param maxWidth Optional maximum raster width used for SVG assets.
+   * @param maxHeight Optional maximum raster height used for SVG assets.
+   * @return Loaded texture, or null when the asset could not be prepared.
+   */
+  SDL_Texture *load_texture_from_asset(SDL_Renderer *renderer, const char *relativePath, int maxWidth = 0, int maxHeight = 0) {
     if (renderer == nullptr || relativePath == nullptr) {
       return nullptr;
     }
 
-    const std::string assetPath = build_asset_path(relativePath);
-    SDL_Surface *surface = IMG_Load(assetPath.c_str());
+    SDL_Surface *surface = (maxWidth > 0 && maxHeight > 0 && asset_path_uses_svg(relativePath)) ? load_svg_surface_from_asset(relativePath, maxWidth, maxHeight) : nullptr;
+    if (surface == nullptr) {
+      const std::string assetPath = build_asset_path(relativePath);
+      surface = IMG_Load(assetPath.c_str());
+    }
     if (surface == nullptr) {
       return nullptr;
     }
@@ -487,25 +644,27 @@ namespace {
     return texture;
   }
 
-  SDL_Texture *load_cached_asset_texture(SDL_Renderer *renderer, AssetTextureCache *cache, const std::string &relativePath) {
+  SDL_Texture *load_cached_asset_texture(SDL_Renderer *renderer, AssetTextureCache *cache, const std::string &relativePath, int maxWidth = 0, int maxHeight = 0) {
     if (renderer == nullptr || cache == nullptr || relativePath.empty()) {
       return nullptr;
     }
 
-    if (const auto existingTexture = cache->textures.find(relativePath); existingTexture != cache->textures.end()) {
+    const std::string cacheKey = build_asset_texture_cache_key(relativePath, maxWidth, maxHeight);
+
+    if (const auto existingTexture = cache->textures.find(cacheKey); existingTexture != cache->textures.end()) {
       return existingTexture->second;
     }
-    if (cache->failedKeys.find(relativePath) != cache->failedKeys.end()) {
+    if (cache->failedKeys.find(cacheKey) != cache->failedKeys.end()) {
       return nullptr;
     }
 
-    SDL_Texture *texture = load_texture_from_asset(renderer, relativePath.c_str());
+    SDL_Texture *texture = load_texture_from_asset(renderer, relativePath.c_str(), maxWidth, maxHeight);
     if (texture == nullptr) {
-      cache->failedKeys[relativePath] = true;
+      cache->failedKeys[cacheKey] = true;
       return nullptr;
     }
 
-    cache->textures.try_emplace(relativePath, texture);
+    cache->textures.try_emplace(cacheKey, texture);
     return texture;
   }
 
@@ -961,7 +1120,7 @@ namespace {
   }
 
   bool render_asset_icon(SDL_Renderer *renderer, AssetTextureCache *cache, const std::string &relativePath, const SDL_Rect &rect) {
-    SDL_Texture *texture = load_cached_asset_texture(renderer, cache, relativePath);
+    SDL_Texture *texture = load_cached_asset_texture(renderer, cache, relativePath, rect.w, rect.h);
     if (texture == nullptr) {
       return false;
     }
@@ -3280,7 +3439,6 @@ namespace {
     SDL_Renderer *renderer,
     const VIDEO_MODE &videoMode,
     unsigned long encoderSettings,
-    SDL_Texture *titleLogoTexture,
     TTF_Font *titleFont,
     TTF_Font *bodyFont,
     TTF_Font *smallFont,
@@ -3328,22 +3486,15 @@ namespace {
     const int titleTextY = headerRect.y + 12;
     int titleTextWidth = headerRect.w - 32;
 
-    if (titleLogoTexture != nullptr) {
-      int logoWidth = 0;
-      int logoHeight = 0;
-      if (SDL_QueryTexture(titleLogoTexture, nullptr, nullptr, &logoWidth, &logoHeight) == 0 && logoWidth > 0 && logoHeight > 0) {
-        const int targetLogoHeight = std::max(32, TTF_FontLineSkip(titleFont));
-        const int targetLogoWidth = std::max(32, (logoWidth * targetLogoHeight) / logoHeight);
-        const SDL_Rect logoRect {
-          headerRect.x + 16,
-          headerRect.y + 10,
-          targetLogoWidth,
-          targetLogoHeight,
-        };
-        if (SDL_RenderCopy(renderer, titleLogoTexture, nullptr, &logoRect) != 0) {
-          return false;
-        }
-
+    if (assetCache != nullptr && titleFont != nullptr) {
+      const int targetLogoHeight = std::max(32, TTF_FontLineSkip(titleFont));
+      const SDL_Rect logoRect {
+        headerRect.x + 16,
+        headerRect.y + 10,
+        targetLogoHeight,
+        targetLogoHeight,
+      };
+      if (render_asset_icon(renderer, assetCache, "moonlight-logo.svg", logoRect)) {
         titleTextX = logoRect.x + logoRect.w + 12;
         titleTextWidth = (headerRect.w / 3) - (titleTextX - headerRect.x);
       }
@@ -4041,7 +4192,6 @@ namespace {
    */
   struct ShellResources {
     SDL_Renderer *renderer = nullptr;  ///< Renderer used for all shell drawing.
-    SDL_Texture *titleLogoTexture = nullptr;  ///< Cached Moonlight title logo texture.
     TTF_Font *titleFont = nullptr;  ///< Large font used for screen titles.
     TTF_Font *bodyFont = nullptr;  ///< Standard body font.
     TTF_Font *smallFont = nullptr;  ///< Small font for secondary labels.
@@ -4129,8 +4279,6 @@ namespace {
     clear_cover_art_texture_cache(&resources->coverArtTextureCache);
     clear_asset_texture_cache(&resources->assetTextureCache);
     clear_keypad_modal_layout_cache(&resources->keypadModalLayoutCache);
-    destroy_texture(resources->titleLogoTexture);
-    resources->titleLogoTexture = nullptr;
 
     if (resources->smallFont != nullptr) {
       TTF_CloseFont(resources->smallFont);
@@ -4208,7 +4356,6 @@ namespace {
       return false;
     }
 
-    resources->titleLogoTexture = load_texture_from_asset(resources->renderer, "moonlight-logo.svg");
     resources->controller = open_primary_controller();
     resources->encoderSettings = XVideoGetEncoderSettings();
     return true;
@@ -4251,7 +4398,7 @@ namespace {
 
     const std::vector<logging::LogEntry> retainedEntries = logging::snapshot(logging::LogLevel::info);
     if (const auto viewModel = ui::build_shell_view_model(state, retainedEntries);
-        draw_shell(resources->renderer, videoMode, resources->encoderSettings, resources->titleLogoTexture, resources->titleFont, resources->bodyFont, resources->smallFont, viewModel, &resources->coverArtTextureCache, &resources->assetTextureCache, &resources->keypadModalLayoutCache)) {
+        draw_shell(resources->renderer, videoMode, resources->encoderSettings, resources->titleFont, resources->bodyFont, resources->smallFont, viewModel, &resources->coverArtTextureCache, &resources->assetTextureCache, &resources->keypadModalLayoutCache)) {
       runtime->keypadRedrawRequested = false;
       return true;
     }
