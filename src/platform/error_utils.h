@@ -1,3 +1,7 @@
+/**
+ * @file src/platform/error_utils.h
+ * @brief Declares error formatting helpers.
+ */
 #pragma once
 
 // standard includes

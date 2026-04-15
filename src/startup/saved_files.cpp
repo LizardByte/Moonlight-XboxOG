@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/saved_files.cpp
+ * @brief Implements saved file loading and cleanup helpers.
+ */
 // class header include
 #include "src/startup/saved_files.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/shell_view.h
+ * @brief Declares the shell view renderer and layout helpers.
+ */
 #pragma once
 
 // standard includes

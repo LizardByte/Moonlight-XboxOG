@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/shell_screen.cpp
+ * @brief Implements the shell screen controller.
+ */
 // class header include
 #include "src/ui/shell_screen.h"
 

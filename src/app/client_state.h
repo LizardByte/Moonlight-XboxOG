@@ -1,3 +1,7 @@
+/**
+ * @file src/app/client_state.h
+ * @brief Declares client state models and transitions.
+ */
 #pragma once
 
 // standard includes

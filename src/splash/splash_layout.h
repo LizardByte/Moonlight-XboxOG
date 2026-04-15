@@ -1,3 +1,7 @@
+/**
+ * @file src/splash/splash_layout.h
+ * @brief Declares splash screen layout calculations.
+ */
 #pragma once
 
 // nxdk includes

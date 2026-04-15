@@ -1,3 +1,7 @@
+/**
+ * @file src/splash/splash_screen.h
+ * @brief Declares the splash screen workflow.
+ */
 #pragma once
 
 // standard includes

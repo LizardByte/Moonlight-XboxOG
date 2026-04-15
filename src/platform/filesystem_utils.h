@@ -1,3 +1,7 @@
+/**
+ * @file src/platform/filesystem_utils.h
+ * @brief Declares filesystem utility helpers.
+ */
 #pragma once
 
 // standard includes

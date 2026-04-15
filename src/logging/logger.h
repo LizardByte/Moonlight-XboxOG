@@ -1,3 +1,7 @@
+/**
+ * @file src/logging/logger.h
+ * @brief Declares logging configuration and output.
+ */
 #pragma once
 
 // standard includes

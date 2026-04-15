@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/logging/logger_test.cpp
+ * @brief Verifies logging configuration and output.
+ */
 // test header include
 #include "src/logging/logger.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/ui/menu_model_test.cpp
+ * @brief Verifies menu model structures and helpers.
+ */
 #include "src/ui/menu_model.h"
 
 #include <gtest/gtest.h>

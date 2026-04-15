@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/startup/client_identity_storage_test.cpp
+ * @brief Verifies client identity persistence.
+ */
 // test header include
 #include "src/startup/client_identity_storage.h"
 

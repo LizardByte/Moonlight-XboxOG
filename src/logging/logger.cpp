@@ -1,3 +1,7 @@
+/**
+ * @file src/logging/logger.cpp
+ * @brief Implements logging configuration and output.
+ */
 // class header include
 #include "src/logging/logger.h"
 

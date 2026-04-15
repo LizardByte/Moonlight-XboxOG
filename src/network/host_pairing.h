@@ -1,3 +1,7 @@
+/**
+ * @file src/network/host_pairing.h
+ * @brief Declares host pairing helpers.
+ */
 #pragma once
 
 // standard includes

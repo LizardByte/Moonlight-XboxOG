@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/app/host_records_test.cpp
+ * @brief Verifies host record models and utilities.
+ */
 // class header include
 #include "src/app/host_records.h"
 

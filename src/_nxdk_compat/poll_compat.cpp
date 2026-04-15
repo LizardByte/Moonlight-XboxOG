@@ -1,3 +1,7 @@
+/**
+ * @file src/_nxdk_compat/poll_compat.cpp
+ * @brief Implements poll compatibility shims for nxdk.
+ */
 #ifdef NXDK
 
   #include <cerrno>

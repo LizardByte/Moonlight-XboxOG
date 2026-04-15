@@ -1,3 +1,7 @@
+/**
+ * @file src/input/navigation_input.h
+ * @brief Declares controller navigation input handling.
+ */
 #pragma once
 
 namespace input {

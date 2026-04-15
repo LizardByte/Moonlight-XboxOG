@@ -1,3 +1,7 @@
+/**
+ * @file tests/support/network_test_constants.h
+ * @brief Provides test support for shared network test constants.
+ */
 #pragma once
 
 // standard includes

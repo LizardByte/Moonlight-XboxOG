@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/saved_files.h
+ * @brief Declares saved file loading and cleanup helpers.
+ */
 #pragma once
 
 // standard includes

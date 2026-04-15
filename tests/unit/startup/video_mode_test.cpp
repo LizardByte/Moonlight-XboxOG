@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/startup/video_mode_test.cpp
+ * @brief Verifies video mode selection helpers.
+ */
 // test includes
 #include "src/startup/video_mode.h"
 

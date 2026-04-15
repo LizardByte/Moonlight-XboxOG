@@ -1,3 +1,7 @@
+/**
+ * @file src/streaming/stats_overlay.cpp
+ * @brief Implements the streaming statistics overlay.
+ */
 // class header include
 #include "src/streaming/stats_overlay.h"
 

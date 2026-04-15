@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/startup/cover_art_cache_test.cpp
+ * @brief Verifies cover art cache persistence.
+ */
 // test header include
 #include "src/startup/cover_art_cache.h"
 

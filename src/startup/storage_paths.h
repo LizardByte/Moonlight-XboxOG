@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/storage_paths.h
+ * @brief Declares persistent storage path helpers.
+ */
 #pragma once
 
 // standard includes

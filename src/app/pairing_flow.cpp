@@ -1,3 +1,7 @@
+/**
+ * @file src/app/pairing_flow.cpp
+ * @brief Implements the host pairing flow.
+ */
 // class header include
 #include "src/app/pairing_flow.h"
 

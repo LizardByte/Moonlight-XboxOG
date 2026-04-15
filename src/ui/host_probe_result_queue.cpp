@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/host_probe_result_queue.cpp
+ * @brief Implements queued host probe results.
+ */
 // class header include
 #include "src/ui/host_probe_result_queue.h"
 

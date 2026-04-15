@@ -1,3 +1,7 @@
+/**
+ * @file src/app/host_records.cpp
+ * @brief Implements host record models and utilities.
+ */
 // class header include
 #include "src/app/host_records.h"
 

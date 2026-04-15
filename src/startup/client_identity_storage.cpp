@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/client_identity_storage.cpp
+ * @brief Implements client identity persistence.
+ */
 // class header include
 #include "src/startup/client_identity_storage.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/main.cpp
+ * @brief Runs the Moonlight Xbox startup sequence and main loop.
+ */
 // nxdk includes
 #include <hal/debug.h>
 #include <SDL.h>

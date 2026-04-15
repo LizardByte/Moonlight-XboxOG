@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/video_mode.h
+ * @brief Declares video mode selection helpers.
+ */
 #pragma once
 
 // standard includes

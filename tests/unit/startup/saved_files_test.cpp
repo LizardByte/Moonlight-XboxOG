@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/startup/saved_files_test.cpp
+ * @brief Verifies saved file loading and cleanup helpers.
+ */
 // test header include
 #include "src/startup/saved_files.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/_nxdk_compat/stat_compat.cpp
+ * @brief Implements stat compatibility shims for nxdk.
+ */
 #ifdef NXDK
 
   #include <cstring>

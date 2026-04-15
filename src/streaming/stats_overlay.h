@@ -1,3 +1,7 @@
+/**
+ * @file src/streaming/stats_overlay.h
+ * @brief Declares the streaming statistics overlay.
+ */
 #pragma once
 
 // standard includes

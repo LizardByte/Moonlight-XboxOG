@@ -1,3 +1,7 @@
+/**
+ * @file src/input/navigation_input.cpp
+ * @brief Implements controller navigation input handling.
+ */
 // class header include
 #include "src/input/navigation_input.h"
 

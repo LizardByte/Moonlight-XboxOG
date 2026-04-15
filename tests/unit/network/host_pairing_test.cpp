@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/network/host_pairing_test.cpp
+ * @brief Verifies host pairing helpers.
+ */
 // test header include
 #include "src/network/host_pairing.h"
 

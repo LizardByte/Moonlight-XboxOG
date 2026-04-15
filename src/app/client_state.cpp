@@ -1,3 +1,7 @@
+/**
+ * @file src/app/client_state.cpp
+ * @brief Implements client state models and transitions.
+ */
 // class header include
 #include "src/app/client_state.h"
 

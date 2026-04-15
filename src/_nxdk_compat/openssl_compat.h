@@ -1,3 +1,7 @@
+/**
+ * @file src/_nxdk_compat/openssl_compat.h
+ * @brief Declares OpenSSL compatibility shims for nxdk.
+ */
 #pragma once
 
 #ifndef __STDC_WANT_LIB_EXT1__

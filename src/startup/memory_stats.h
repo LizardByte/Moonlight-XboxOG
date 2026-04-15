@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/memory_stats.h
+ * @brief Declares memory statistics helpers.
+ */
 #pragma once
 
 // standard includes

@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/video_mode.cpp
+ * @brief Implements video mode selection helpers.
+ */
 // class header include
 #include "src/startup/video_mode.h"
 

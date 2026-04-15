@@ -1,3 +1,7 @@
+/**
+ * @file src/platform/filesystem_utils.cpp
+ * @brief Implements filesystem utility helpers.
+ */
 // class header include
 #include "src/platform/filesystem_utils.h"
 

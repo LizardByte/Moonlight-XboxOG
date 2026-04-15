@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/client_identity_storage.h
+ * @brief Declares client identity persistence.
+ */
 #pragma once
 
 // standard includes

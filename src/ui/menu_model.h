@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/menu_model.h
+ * @brief Declares menu model structures and helpers.
+ */
 #pragma once
 
 // standard includes

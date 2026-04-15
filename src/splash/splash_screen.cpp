@@ -1,3 +1,7 @@
+/**
+ * @file src/splash/splash_screen.cpp
+ * @brief Implements the splash screen workflow.
+ */
 // class header include
 #include "src/splash/splash_screen.h"
 

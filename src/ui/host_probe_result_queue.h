@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/host_probe_result_queue.h
+ * @brief Declares queued host probe results.
+ */
 #pragma once
 
 // standard includes

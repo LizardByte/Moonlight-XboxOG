@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/app/settings_storage_test.cpp
+ * @brief Verifies application settings persistence.
+ */
 // test header include
 #include "src/app/settings_storage.h"
 

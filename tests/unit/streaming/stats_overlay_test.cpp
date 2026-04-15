@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/streaming/stats_overlay_test.cpp
+ * @brief Verifies the streaming statistics overlay.
+ */
 #include "src/streaming/stats_overlay.h"
 
 #include <gtest/gtest.h>

@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/storage_paths.cpp
+ * @brief Implements persistent storage path helpers.
+ */
 // class header include
 #include "src/startup/storage_paths.h"
 

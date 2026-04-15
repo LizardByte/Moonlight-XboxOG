@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/app/pairing_flow_test.cpp
+ * @brief Verifies the host pairing flow.
+ */
 // class header include
 #include "src/app/pairing_flow.h"
 

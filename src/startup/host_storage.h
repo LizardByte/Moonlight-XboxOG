@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/host_storage.h
+ * @brief Declares saved host persistence.
+ */
 #pragma once
 
 // standard includes

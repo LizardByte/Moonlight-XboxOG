@@ -1,3 +1,7 @@
+/**
+ * @file src/app/pairing_flow.h
+ * @brief Declares the host pairing flow.
+ */
 #pragma once
 
 // standard includes

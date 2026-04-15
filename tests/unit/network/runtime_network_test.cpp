@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/network/runtime_network_test.cpp
+ * @brief Verifies runtime network status management.
+ */
 // test header include
 #include "src/network/runtime_network.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/splash/splash_layout_test.cpp
+ * @brief Verifies splash screen layout calculations.
+ */
 // test include
 #include "src/splash/splash_layout.h"
 

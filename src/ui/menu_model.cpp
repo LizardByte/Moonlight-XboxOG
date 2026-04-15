@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/menu_model.cpp
+ * @brief Implements menu model structures and helpers.
+ */
 // class header include
 #include "src/ui/menu_model.h"
 

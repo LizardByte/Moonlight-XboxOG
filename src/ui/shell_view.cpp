@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/shell_view.cpp
+ * @brief Implements the shell view renderer and layout helpers.
+ */
 // class header include
 #include "src/ui/shell_view.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/logging/log_file.h
+ * @brief Declares log file lifecycle helpers.
+ */
 #pragma once
 
 // standard includes

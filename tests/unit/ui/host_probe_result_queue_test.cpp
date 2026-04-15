@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/ui/host_probe_result_queue_test.cpp
+ * @brief Verifies queued host probe results.
+ */
 // test header include
 #include "src/ui/host_probe_result_queue.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/input/navigation_input_test.cpp
+ * @brief Verifies controller navigation input handling.
+ */
 // class header include
 #include "src/input/navigation_input.h"
 

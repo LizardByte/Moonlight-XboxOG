@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/logging/startup_debug_test.cpp
+ * @brief Verifies startup debug logging.
+ */
 // test header include
 #include "src/logging/logger.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/startup/host_storage_test.cpp
+ * @brief Verifies saved host persistence.
+ */
 // test header include
 #include "src/startup/host_storage.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/network/host_pairing.cpp
+ * @brief Implements host pairing helpers.
+ */
 // class header include
 #include "src/network/host_pairing.h"
 

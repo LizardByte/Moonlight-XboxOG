@@ -1,3 +1,7 @@
+/**
+ * @file src/network/runtime_network.cpp
+ * @brief Implements runtime network status management.
+ */
 // class header include
 #include "src/network/runtime_network.h"
 

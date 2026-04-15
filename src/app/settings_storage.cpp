@@ -1,3 +1,7 @@
+/**
+ * @file src/app/settings_storage.cpp
+ * @brief Implements application settings persistence.
+ */
 // class header include
 #include "src/app/settings_storage.h"
 

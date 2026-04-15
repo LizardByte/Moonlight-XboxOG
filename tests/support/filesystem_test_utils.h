@@ -1,3 +1,7 @@
+/**
+ * @file tests/support/filesystem_test_utils.h
+ * @brief Provides test support for filesystem test utility helpers.
+ */
 #pragma once
 
 // standard includes

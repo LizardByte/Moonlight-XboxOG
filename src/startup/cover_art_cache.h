@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/cover_art_cache.h
+ * @brief Declares cover art cache persistence.
+ */
 #pragma once
 
 // standard includes

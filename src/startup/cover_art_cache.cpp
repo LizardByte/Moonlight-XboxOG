@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/cover_art_cache.cpp
+ * @brief Implements cover art cache persistence.
+ */
 // class header include
 #include "src/startup/cover_art_cache.h"
 

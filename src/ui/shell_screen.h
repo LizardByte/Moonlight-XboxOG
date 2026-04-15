@@ -1,3 +1,7 @@
+/**
+ * @file src/ui/shell_screen.h
+ * @brief Declares the shell screen controller.
+ */
 #pragma once
 
 // nxdk includes

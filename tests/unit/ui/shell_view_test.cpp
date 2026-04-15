@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/ui/shell_view_test.cpp
+ * @brief Verifies the shell view renderer and layout helpers.
+ */
 // test header include
 #include "src/ui/shell_view.h"
 

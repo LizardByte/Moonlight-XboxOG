@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/host_storage.cpp
+ * @brief Implements saved host persistence.
+ */
 // class header include
 #include "src/startup/host_storage.h"
 

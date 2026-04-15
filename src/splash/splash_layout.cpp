@@ -1,3 +1,7 @@
+/**
+ * @file src/splash/splash_layout.cpp
+ * @brief Implements splash screen layout calculations.
+ */
 // class header include
 #include "src/splash/splash_layout.h"
 

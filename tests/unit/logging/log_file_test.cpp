@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/logging/log_file_test.cpp
+ * @brief Verifies log file lifecycle helpers.
+ */
 // test header include
 #include "src/logging/log_file.h"
 

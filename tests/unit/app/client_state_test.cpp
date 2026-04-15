@@ -1,3 +1,7 @@
+/**
+ * @file tests/unit/app/client_state_test.cpp
+ * @brief Verifies client state models and transitions.
+ */
 // class header include
 #include "src/app/client_state.h"
 

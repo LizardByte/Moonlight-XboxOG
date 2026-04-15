@@ -1,3 +1,7 @@
+/**
+ * @file src/startup/memory_stats.cpp
+ * @brief Implements memory statistics helpers.
+ */
 // class header include
 #include "src/startup/memory_stats.h"
 

@@ -1,3 +1,7 @@
+/**
+ * @file src/logging/log_file.cpp
+ * @brief Implements log file lifecycle helpers.
+ */
 // class header include
 #include "src/logging/log_file.h"
 

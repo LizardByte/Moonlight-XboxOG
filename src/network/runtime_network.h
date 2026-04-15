@@ -1,3 +1,7 @@
+/**
+ * @file src/network/runtime_network.h
+ * @brief Declares runtime network status management.
+ */
 #pragma once
 
 // standard includes

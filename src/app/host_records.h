@@ -1,3 +1,7 @@
+/**
+ * @file src/app/host_records.h
+ * @brief Declares host record models and utilities.
+ */
 #pragma once
 
 // standard includes

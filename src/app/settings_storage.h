@@ -1,3 +1,7 @@
+/**
+ * @file src/app/settings_storage.h
+ * @brief Declares application settings persistence.
+ */
 #pragma once
 
 // standard includes
