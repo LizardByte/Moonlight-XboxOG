@@ -152,6 +152,11 @@ namespace {
 
 }  // namespace
 
+/**
+ * @brief Initialize the client runtime and enter the main shell loop.
+ *
+ * @return Process exit code.
+ */
 int main() {
   logging::Logger logger;
   logging::set_global_logger(&logger);

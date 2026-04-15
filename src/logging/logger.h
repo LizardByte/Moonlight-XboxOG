@@ -19,12 +19,12 @@ namespace logging {
    * @brief Severity levels used by the Moonlight client logger.
    */
   enum class LogLevel {
-    trace = 0,
-    debug = 1,
-    info = 2,
-    warning = 3,
-    error = 4,
-    none = 5,
+    trace = 0,  ///< Verbose diagnostic output intended for deep tracing.
+    debug = 1,  ///< Debug output for development and troubleshooting.
+    info = 2,  ///< Informational output for normal application activity.
+    warning = 3,  ///< Recoverable issue or degraded behavior.
+    error = 4,  ///< Failure that prevented an operation from completing.
+    none = 5,  ///< Sentinel level used to disable output.
   };
 
   /**

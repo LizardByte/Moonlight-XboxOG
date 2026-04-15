@@ -429,6 +429,13 @@ namespace app {
     return true;
   }
 
+  /**
+   * @brief Parse one serialized host-record line and append it to the accumulated result.
+   *
+   * @param line Raw tab-separated line to parse.
+   * @param lineNumber One-based line number used in parse errors.
+   * @param result Aggregate parse result to update.
+   */
   void append_parsed_host_record(std::string_view line, std::size_t lineNumber, ParseHostRecordsResult *result) {
     if (result == nullptr) {
       return;

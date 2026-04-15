@@ -16,7 +16,13 @@
 #include <vector>
 
 #if defined(_WIN32) && !defined(__MINGW32__) && !defined(__MINGW64__)
-// needed for toml++
+/**
+ * @brief Declare the wide-character fopen variant required by toml++ on native Windows builds.
+ *
+ * @param path Wide-character file path.
+ * @param mode Wide-character fopen mode string.
+ * @return Open FILE handle, or nullptr on failure.
+ */
 extern "C" FILE *_wfopen(const wchar_t *path, const wchar_t *mode);
 #endif
 
@@ -32,8 +38,14 @@ namespace {
   using namespace std::string_view_literals;
   using platform::append_error;
 
-  constexpr std::string_view SETTINGS_FILE_NAME = "moonlight.toml";
+  constexpr std::string_view SETTINGS_FILE_NAME = "moonlight.toml";  ///< Stable settings file name stored under the app data directory.
 
+  /**
+   * @brief Read an entire text stream into memory.
+   *
+   * @param file Open file stream to consume.
+   * @return Complete file contents.
+   */
   std::string read_all_text(FILE *file) {
     std::string content;
     std::vector<char> buffer(4096);

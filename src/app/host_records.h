@@ -12,33 +12,33 @@
 
 namespace app {
 
-  inline constexpr uint16_t DEFAULT_HOST_PORT = 47989;
+  inline constexpr uint16_t DEFAULT_HOST_PORT = 47989;  ///< Default HTTP port used by Moonlight-compatible hosts.
 
   /**
    * @brief Pairing state tracked for a saved host record.
    */
   enum class PairingState {
-    not_paired,
-    paired,
+    not_paired,  ///< The client has not completed pairing with the host.
+    paired,  ///< The client is paired and can issue authenticated requests.
   };
 
   /**
    * @brief Reachability state tracked for a discovered or saved host.
    */
   enum class HostReachability {
-    unknown,
-    online,
-    offline,
+    unknown,  ///< Reachability has not been probed yet.
+    online,  ///< The host responded to the latest reachability check.
+    offline,  ///< The host did not respond to the latest reachability check.
   };
 
   /**
    * @brief Fetch state for the per-host app library.
    */
   enum class HostAppListState {
-    idle,
-    loading,
-    ready,
-    failed,
+    idle,  ///< No app-list request is active and no fresh result is pending.
+    loading,  ///< An app-list request is currently in progress.
+    ready,  ///< A recent app list is available for display.
+    failed,  ///< The latest app-list request failed.
   };
 
   /**

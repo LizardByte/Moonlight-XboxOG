@@ -10,6 +10,14 @@
   #include <sys/socket.h>
   #include <sys/time.h>
 
+/**
+ * @brief Emulate poll by translating the requested events into select sets.
+ *
+ * @param fds File descriptor array to test.
+ * @param nfds Number of entries in @p fds.
+ * @param timeout Timeout in milliseconds, or a negative value to wait indefinitely.
+ * @return Number of ready descriptors, zero on timeout, or -1 on error.
+ */
 extern "C" int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   if (fds == nullptr && nfds != 0) {
     errno = EINVAL;

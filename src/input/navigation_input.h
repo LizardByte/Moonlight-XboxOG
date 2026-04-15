@@ -10,70 +10,70 @@ namespace input {
    * @brief Abstract UI command emitted by controller or keyboard input.
    */
   enum class UiCommand {
-    none,
-    move_up,
-    move_down,
-    move_left,
-    move_right,
-    activate,
-    confirm,
-    back,
-    open_context_menu,
-    delete_character,
-    previous_page,
-    next_page,
-    fast_previous_page,
-    fast_next_page,
-    toggle_overlay,
+    none,  ///< No UI action should be performed.
+    move_up,  ///< Move selection upward.
+    move_down,  ///< Move selection downward.
+    move_left,  ///< Move selection left.
+    move_right,  ///< Move selection right.
+    activate,  ///< Activate the focused item.
+    confirm,  ///< Confirm the current action.
+    back,  ///< Navigate back or cancel.
+    open_context_menu,  ///< Open the focused item's context menu.
+    delete_character,  ///< Delete one character from text input.
+    previous_page,  ///< Move to the previous page.
+    next_page,  ///< Move to the next page.
+    fast_previous_page,  ///< Jump backward by a larger page increment.
+    fast_next_page,  ///< Jump forward by a larger page increment.
+    toggle_overlay,  ///< Toggle the diagnostics overlay.
   };
 
   /**
    * @brief Controller buttons used by the Moonlight client UI.
    */
   enum class GamepadButton {
-    dpad_up,
-    dpad_down,
-    dpad_left,
-    dpad_right,
-    a,
-    b,
-    x,
-    y,
-    left_shoulder,
-    right_shoulder,
-    start,
-    back,
+    dpad_up,  ///< D-pad up button.
+    dpad_down,  ///< D-pad down button.
+    dpad_left,  ///< D-pad left button.
+    dpad_right,  ///< D-pad right button.
+    a,  ///< South face button.
+    b,  ///< East face button.
+    x,  ///< West face button.
+    y,  ///< North face button.
+    left_shoulder,  ///< Left shoulder button.
+    right_shoulder,  ///< Right shoulder button.
+    start,  ///< Start button.
+    back,  ///< Back button.
   };
 
   /**
    * @brief Controller axis directions mapped onto UI navigation commands.
    */
   enum class GamepadAxisDirection {
-    left_stick_up,
-    left_stick_down,
-    left_stick_left,
-    left_stick_right,
+    left_stick_up,  ///< Left stick moved upward past the navigation threshold.
+    left_stick_down,  ///< Left stick moved downward past the navigation threshold.
+    left_stick_left,  ///< Left stick moved left past the navigation threshold.
+    left_stick_right,  ///< Left stick moved right past the navigation threshold.
   };
 
   /**
    * @brief Keyboard keys mapped onto the same abstract UI commands.
    */
   enum class KeyboardKey {
-    up,
-    down,
-    left,
-    right,
-    enter,
-    escape,
-    backspace,
-    delete_key,
-    space,
-    tab,
-    page_up,
-    page_down,
-    i,
-    m,
-    f3,
+    up,  ///< Up arrow key.
+    down,  ///< Down arrow key.
+    left,  ///< Left arrow key.
+    right,  ///< Right arrow key.
+    enter,  ///< Enter or return key.
+    escape,  ///< Escape key.
+    backspace,  ///< Backspace key.
+    delete_key,  ///< Delete key.
+    space,  ///< Space bar.
+    tab,  ///< Tab key.
+    page_up,  ///< Page Up key.
+    page_down,  ///< Page Down key.
+    i,  ///< Letter I key.
+    m,  ///< Letter M key.
+    f3,  ///< F3 function key.
   };
 
   /**

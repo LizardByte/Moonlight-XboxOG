@@ -586,10 +586,22 @@ namespace {
 
 namespace ui {
 
+  /**
+   * @brief Return whether a screen uses the split menu-and-detail layout.
+   *
+   * @param screen Screen identifier to inspect.
+   * @return true when the screen renders a split menu layout.
+   */
   bool screen_uses_split_menu_layout(app::ScreenId screen) {
     return screen == app::ScreenId::settings || screen == app::ScreenId::add_host || screen == app::ScreenId::pair_host;
   }
 
+  /**
+   * @brief Populate which shell-view panels are currently active.
+   *
+   * @param state Current reducer-owned client state.
+   * @param viewModel View model being assembled for rendering.
+   */
   void fill_view_model_panel_state(const app::ClientState &state, ShellViewModel *viewModel) {
     if (!screen_uses_split_menu_layout(state.shell.activeScreen)) {
       return;
@@ -599,6 +611,12 @@ namespace ui {
     viewModel->content.rightPanelActive = state.shell.activeScreen == app::ScreenId::settings && state.settings.focusArea == app::SettingsFocusArea::options;
   }
 
+  /**
+   * @brief Copy the currently selected menu row label and description into the view model.
+   *
+   * @param state Current reducer-owned client state.
+   * @param viewModel View model being assembled for rendering.
+   */
   void fill_view_model_selected_menu_details(const app::ClientState &state, ShellViewModel *viewModel) {
     if (!screen_uses_split_menu_layout(state.shell.activeScreen)) {
       return;
@@ -615,6 +633,14 @@ namespace ui {
     }
   }
 
+  /**
+   * @brief Fill the diagnostics overlay with streaming stats and recent log lines.
+   *
+   * @param state Current reducer-owned client state.
+   * @param logEntries Retained log entries available for overlay display.
+   * @param statsLines Preformatted streaming statistics lines.
+   * @param viewModel View model being assembled for rendering.
+   */
   void fill_view_model_overlay(const app::ClientState &state, const std::vector<logging::LogEntry> &logEntries, const std::vector<std::string> &statsLines, ShellViewModel *viewModel) {
     if (!viewModel->overlay.visible) {
       return;

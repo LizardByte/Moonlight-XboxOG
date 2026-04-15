@@ -23,78 +23,78 @@ namespace app {
    * @brief Top-level screens used by the Moonlight client shell.
    */
   enum class ScreenId {
-    home,
-    hosts,
-    apps,
-    add_host,
-    pair_host,
-    settings,
+    home,  ///< Placeholder home screen identifier retained for shared shell logic.
+    hosts,  ///< Saved-host browser and primary landing screen.
+    apps,  ///< Per-host application library screen.
+    add_host,  ///< Manual host entry workflow.
+    pair_host,  ///< Pairing workflow for an unpaired host.
+    settings,  ///< Shell settings screen.
   };
 
   /**
    * @brief Focus areas on the hosts page.
    */
   enum class HostsFocusArea {
-    toolbar,
-    grid,
+    toolbar,  ///< Focus is on the hosts toolbar buttons.
+    grid,  ///< Focus is on the saved-host tile grid.
   };
 
   /**
    * @brief Active modal surfaced on top of the current page.
    */
   enum class ModalId {
-    none,
-    support,
-    host_actions,
-    host_details,
-    app_actions,
-    app_details,
-    confirmation,
-    log_viewer,
+    none,  ///< No modal is currently visible.
+    support,  ///< Support and help modal.
+    host_actions,  ///< Host action menu for the selected host.
+    host_details,  ///< Host detail sheet for the selected host.
+    app_actions,  ///< App action menu for the selected app.
+    app_details,  ///< App detail sheet for the selected app.
+    confirmation,  ///< Destructive-action confirmation dialog.
+    log_viewer,  ///< Dedicated log viewer modal.
   };
 
   /**
    * @brief Layout options for the embedded log viewer.
    */
   enum class LogViewerPlacement {
-    full,
-    left,
-    right,
+    full,  ///< Use the full modal width for the log viewer.
+    left,  ///< Dock the log viewer on the left side of the split layout.
+    right,  ///< Dock the log viewer on the right side of the split layout.
   };
 
   /**
    * @brief Focus areas used by the two-pane settings screen.
    */
   enum class SettingsFocusArea {
-    categories,
-    options,
+    categories,  ///< Focus is on the settings category list.
+    options,  ///< Focus is on the options list for the selected category.
   };
 
   /**
    * @brief Top-level categories shown on the left side of the settings screen.
    */
   enum class SettingsCategory {
-    logging,
-    display,
-    input,
-    reset,
+    logging,  ///< Logging and diagnostics options.
+    display,  ///< Display and video presentation options.
+    input,  ///< Input and controller options.
+    reset,  ///< Reset and cleanup actions.
   };
 
   /**
    * @brief Destructive confirmation requests surfaced in a modal popup.
    */
   enum class ConfirmationAction {
-    none,
-    delete_saved_file,
-    factory_reset,
+    none,  ///< No destructive action is pending confirmation.
+    delete_saved_file,  ///< Delete one saved file or directory.
+    factory_reset,  ///< Remove all persisted Moonlight state.
   };
 
   /**
    * @brief Active field for keypad-based host entry.
    */
   enum class AddHostField {
-    address,
-    port,
+    address,  ///< The host IPv4 address field.
+    port,  ///< The optional host port override field.
   };
 
   /**

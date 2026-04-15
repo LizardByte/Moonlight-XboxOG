@@ -11,11 +11,15 @@
   #include <lwip/netif.h>
   #include <nxdk/net.h>
 
+/**
+ * @brief nxdk-provided pointer to the active lwIP network interface.
+ */
 extern "C" struct netif *g_pnetif;  // NOSONAR(cpp:S5421) external symbol declared by nxdk; cannot be const
 #endif
 
 namespace {
 
+  /** @brief Cached runtime network status shared by the public query helpers. */
   network::RuntimeNetworkStatus g_runtimeNetworkStatus {};  // NOSONAR(cpp:S5421) mutable state updated at runtime
 
 #ifdef NXDK

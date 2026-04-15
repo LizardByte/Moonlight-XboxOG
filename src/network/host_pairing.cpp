@@ -57,24 +57,42 @@
 #endif
 
 #if defined(NXDK) || !defined(_WIN32)
-using SOCKET = int;
+using SOCKET = int;  ///< Native socket handle type used on nxdk and POSIX builds.
 
   #ifndef INVALID_SOCKET
+    /**
+     * @brief Sentinel socket value used when socket creation fails.
+     */
     #define INVALID_SOCKET (-1)
   #endif
 
   #ifndef SOCKET_ERROR
+    /**
+     * @brief Sentinel return value used when a socket operation fails.
+     */
     #define SOCKET_ERROR (-1)
   #endif
 #endif
 
+/**
+ * @brief Suppress deprecated OpenSSL APIs used for compatibility with bundled dependencies.
+ */
 #define OPENSSL_SUPPRESS_DEPRECATED
 
 #ifdef NXDK
+  /**
+   * @brief Request the rand_s prototype on nxdk builds.
+   */
   #define _CRT_RAND_S
 #endif
 
 #ifdef NXDK
+/**
+ * @brief Fill a buffer with secure random bytes using the nxdk compatibility entry point.
+ *
+ * @param randomValue Output integer populated with secure random bits.
+ * @return Zero on success, or a non-zero platform error code on failure.
+ */
 extern "C" int rand_s(unsigned int *randomValue);
 #endif
 
@@ -2395,6 +2413,15 @@ namespace network {
     return true;
   }
 
+  /**
+   * @brief Query host status without providing a client identity.
+   *
+   * @param address Host address to query.
+   * @param preferredHttpPort Preferred HTTP port override.
+   * @param serverInfo Output structure populated with parsed status data.
+   * @param errorMessage Optional output for request or parse failures.
+   * @return true when host status was retrieved successfully.
+   */
   bool query_server_info(const std::string &address, uint16_t preferredHttpPort, HostPairingServerInfo *serverInfo, std::string *errorMessage) {
     return query_server_info(address, preferredHttpPort, nullptr, serverInfo, errorMessage);
   }

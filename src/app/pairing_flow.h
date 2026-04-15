@@ -15,11 +15,11 @@ namespace app {
    * @brief Reducer-driven stages for the manual pairing shell flow.
    */
   enum class PairingStage {
-    idle,
-    pin_ready,
-    in_progress,
-    paired,
-    failed,
+    idle,  ///< Pairing has not started yet.
+    pin_ready,  ///< A PIN is available and ready to display to the user.
+    in_progress,  ///< A pairing request is currently running.
+    paired,  ///< Pairing completed successfully.
+    failed,  ///< Pairing failed and an error message is available.
   };
 
   /**
