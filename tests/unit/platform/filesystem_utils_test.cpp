@@ -19,7 +19,7 @@
 
 namespace {
 
-  void write_test_file(const std::string &path, const std::string &content) {
+  void write_test_file(const std::string &path, std::string_view content) {
     FILE *file = std::fopen(path.c_str(), "wb");
     ASSERT_NE(file, nullptr);
     ASSERT_EQ(std::fwrite(content.data(), 1, content.size(), file), content.size());

@@ -90,10 +90,12 @@ write_xemu_config() {
 prepare_xemu_runtime_environment() {
     if is_windows; then
         if [[ -n "${XEMU_APPDATA:-}" ]]; then
-            export APPDATA="$(to_native_path "$XEMU_APPDATA")"
+            APPDATA="$(to_native_path "$XEMU_APPDATA")"
+            export APPDATA
         fi
         if [[ -n "${XEMU_LOCALAPPDATA:-}" ]]; then
-            export LOCALAPPDATA="$(to_native_path "$XEMU_LOCALAPPDATA")"
+            LOCALAPPDATA="$(to_native_path "$XEMU_LOCALAPPDATA")"
+            export LOCALAPPDATA
         fi
         return 0
     fi
