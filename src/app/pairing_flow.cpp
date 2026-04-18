@@ -15,8 +15,8 @@ namespace app {
       std::string(targetAddress),
       targetPort,
       std::move(generatedPin),
-      PairingStage::idle,
-      "Checking whether the host is reachable before pairing begins.",
+      PairingStage::pin_ready,
+      "Enter the PIN on the host. Pairing will continue automatically.",
     };
     return draft;
   }

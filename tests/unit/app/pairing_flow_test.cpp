@@ -22,9 +22,9 @@ namespace {
 
     EXPECT_EQ(draft.targetAddress, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
     EXPECT_EQ(draft.targetPort, test_support::kTestPorts[test_support::kPortPairing]);
-    EXPECT_EQ(draft.stage, app::PairingStage::idle);
+    EXPECT_EQ(draft.stage, app::PairingStage::pin_ready);
     EXPECT_EQ(draft.generatedPin, "4821");
-    EXPECT_EQ(draft.statusMessage, "Checking whether the host is reachable before pairing begins.");
+    EXPECT_EQ(draft.statusMessage, "Enter the PIN on the host. Pairing will continue automatically.");
   }
 
   TEST(PairingFlowTest, AcceptsOnlyFourDigitPins) {

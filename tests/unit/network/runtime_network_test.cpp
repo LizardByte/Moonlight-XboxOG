@@ -80,4 +80,37 @@ namespace {
     EXPECT_EQ(lines[4], "Initialization code: 0");
   }
 
+  TEST(RuntimeNetworkTest, FormatsOnlyTheStatusFieldsThatArePresent) {
+    const network::RuntimeNetworkStatus status {
+      false,
+      false,
+      0,
+      {},
+      {},
+      {},
+      test_support::kTestIpv4Addresses[test_support::kIpRuntimeGateway],
+    };
+
+    const std::vector<std::string> lines = network::format_runtime_network_status_lines(status);
+
+    ASSERT_EQ(lines.size(), 1U);
+    EXPECT_EQ(lines[0], "Gateway: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpRuntimeGateway]));
+  }
+
+  TEST(RuntimeNetworkTest, InitializesAndCachesTheHostRuntimeNetworkStatus) {
+    const network::RuntimeNetworkStatus initialized = network::initialize_runtime_networking();
+    const network::RuntimeNetworkStatus &cached = network::runtime_network_status();
+
+    EXPECT_TRUE(initialized.initializationAttempted);
+    EXPECT_TRUE(initialized.ready);
+    EXPECT_EQ(initialized.initializationCode, 0);
+    EXPECT_EQ(initialized.summary, "Host build networking is provided by the operating system. nxdk network initialization is not required.");
+    EXPECT_TRUE(initialized.ipAddress.empty());
+    EXPECT_TRUE(initialized.subnetMask.empty());
+    EXPECT_TRUE(initialized.gateway.empty());
+    EXPECT_TRUE(network::runtime_network_ready());
+    EXPECT_EQ(cached.summary, initialized.summary);
+    EXPECT_EQ(cached.initializationCode, initialized.initializationCode);
+  }
+
 }  // namespace

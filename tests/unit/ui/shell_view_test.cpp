@@ -389,25 +389,25 @@ namespace {
     EXPECT_EQ(viewModel.notification.content.message, "Deleted saved file moonlight.log");
   }
 
-  TEST(ShellViewTest, HidesThePairingPinUntilReachabilityHasBeenConfirmed) {
+  TEST(ShellViewTest, ShowsThePairingPinAsSoonAsItHasBeenGenerated) {
     app::ClientState state = app::create_initial_state();
     state.shell.activeScreen = app::ScreenId::pair_host;
     state.pairingDraft = {
       test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
       test_support::kTestPorts[test_support::kPortPairing],
       "1234",
-      app::PairingStage::idle,
-      "Checking whether the host is reachable before pairing begins."
+      app::PairingStage::pin_ready,
+      "Enter the PIN on the host. Pairing will continue automatically."
     };
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
-    ASSERT_GE(viewModel.content.bodyLines.size(), 2U);
+    ASSERT_GE(viewModel.content.bodyLines.size(), 5U);
     EXPECT_EQ(viewModel.content.bodyLines[0], "Target host: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
-    EXPECT_EQ(viewModel.content.bodyLines[1], "Checking whether the host is reachable before showing a PIN.");
-    for (const std::string &line : viewModel.content.bodyLines) {
-      EXPECT_EQ(line.find("PIN:"), std::string::npos);
-    }
+    EXPECT_EQ(viewModel.content.bodyLines[1], "Target port: " + std::to_string(test_support::kTestPorts[test_support::kPortPairing]));
+    EXPECT_EQ(viewModel.content.bodyLines[2], "PIN: 1234");
+    EXPECT_EQ(viewModel.content.bodyLines[3], "Enter the PIN on the host.");
+    EXPECT_EQ(viewModel.content.bodyLines[4], "Status: Enter the PIN on the host. Pairing will continue automatically.");
     EXPECT_FALSE(viewModel.notification.visible);
   }
 

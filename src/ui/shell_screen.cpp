@@ -2979,39 +2979,11 @@ namespace {
       logging::info("pairing", "Discarded the previous background pairing attempt and started a fresh one");
     }
 
-    std::string reachabilityMessage;
-    network::HostPairingServerInfo serverInfo {};
-    network::PairingIdentity clientIdentity {};
-    if (const network::PairingIdentity *clientIdentityPointer = try_load_saved_pairing_identity(&clientIdentity) ? &clientIdentity : nullptr; !test_tcp_host_connection(update.requests.pairingAddress, update.requests.pairingPort, clientIdentityPointer, &reachabilityMessage, &serverInfo)) {
-      for (app::HostRecord &host : state.hosts.items) {
-        if (host.address == update.requests.pairingAddress && app::effective_host_port(host.port) == app::effective_host_port(update.requests.pairingPort)) {
-          host.reachability = app::HostReachability::offline;
-          host.manualAddress = update.requests.pairingAddress;
-          break;
-        }
-      }
-      if (state.hosts.activeLoaded && app::host_matches_endpoint(state.hosts.active, update.requests.pairingAddress, update.requests.pairingPort)) {
-        state.hosts.active.reachability = app::HostReachability::offline;
-        state.hosts.active.manualAddress = update.requests.pairingAddress;
-      }
-      state.pairingDraft.stage = app::PairingStage::failed;
-      state.pairingDraft.generatedPin.clear();
-      state.pairingDraft.statusMessage = reachabilityMessage.empty() ? "The host could not be reached for pairing." : reachabilityMessage;
-      state.shell.statusMessage = state.pairingDraft.statusMessage;
-      logging::warn("pairing", state.pairingDraft.statusMessage);
-      return;
-    }
-
-    apply_server_info_to_host(state, update.requests.pairingAddress, update.requests.pairingPort, serverInfo);
-    if (state.hosts.dirty) {
-      persist_hosts(state);
-    }
-
     auto attempt = std::make_unique<PairingAttemptState>();
     reset_pairing_attempt(attempt.get());
     attempt->request = {
       update.requests.pairingAddress,
-      update.requests.pairingPort,
+      app::effective_host_port(update.requests.pairingPort),
       update.requests.pairingPin,
       "MoonlightXboxOG",
       {},
@@ -3030,7 +3002,7 @@ namespace {
     task->activeAttempt = std::move(attempt);
 
     state.pairingDraft.stage = app::PairingStage::in_progress;
-    state.pairingDraft.statusMessage = "The host is reachable. Enter the code shown below on the host and keep this screen open for the result.";
+    state.pairingDraft.statusMessage = "Trying to reach the host now. Enter the PIN on the host when it appears and keep this screen open for the result.";
     state.shell.statusMessage.clear();
     logging::info("pairing", "Started background pairing with " + update.requests.pairingAddress + ":" + std::to_string(update.requests.pairingPort));
   }

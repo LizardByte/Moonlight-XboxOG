@@ -191,6 +191,9 @@ namespace {
     EXPECT_EQ(update.requests.pairingPort, app::DEFAULT_HOST_PORT);
     EXPECT_TRUE(app::is_valid_pairing_pin(update.requests.pairingPin));
     EXPECT_EQ(state.shell.activeScreen, app::ScreenId::pair_host);
+    EXPECT_EQ(state.pairingDraft.stage, app::PairingStage::pin_ready);
+    EXPECT_EQ(state.pairingDraft.generatedPin, update.requests.pairingPin);
+    EXPECT_EQ(state.pairingDraft.statusMessage, "Enter the PIN on the host. Pairing will continue automatically.");
     EXPECT_FALSE(state.hosts.loaded);
     EXPECT_TRUE(state.hosts.empty());
     EXPECT_TRUE(state.hosts.activeLoaded);
