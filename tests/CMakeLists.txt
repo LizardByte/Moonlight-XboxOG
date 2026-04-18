@@ -16,7 +16,8 @@ set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${GTEST_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
 
 if(NOT TARGET moonlight-common-c OR NOT TARGET Moonlight::OpenSSL)
-    message(FATAL_ERROR "tests/CMakeLists.txt requires the shared Moonlight dependency targets from the top-level configure")
+    message(FATAL_ERROR
+            "tests/CMakeLists.txt requires the shared Moonlight dependency targets from the top-level configure")
 endif()
 
 set(TEST_COVERAGE_COMPILE_OPTIONS)
