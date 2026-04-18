@@ -1,6 +1,7 @@
 include_guard(GLOBAL)
 
-macro(moonlight_prepare_common_dependencies)
+# Prepare dependencies that are common to multiple Moonlight components
+macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
     include(GetOpenSSL REQUIRED)
 
     if(NOT TARGET moonlight-openssl)

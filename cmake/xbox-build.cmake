@@ -49,7 +49,7 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
-moonlight_prepare_common_dependencies()
+MOONLIGHT_PREPARE_COMMON_DEPENDENCIES()
 
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}

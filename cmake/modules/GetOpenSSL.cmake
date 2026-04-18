@@ -24,31 +24,34 @@ set(MOONLIGHT_OPENSSL_EXTERNAL_TARGET "openssl_external_${MOONLIGHT_OPENSSL_PLAT
 
 set(MOONLIGHT_OPENSSL_PROVIDER "BUNDLED")
 
+# Convert a Windows path to an MSYS2-style path (e.g. C:/path -> /c/path) for use in MSYS2 shell commands.
 function(_moonlight_to_msys_path out_var path)
-    file(TO_CMAKE_PATH "${path}" _normalized_path)
+    file(TO_CMAKE_PATH "${path}" normalized_path)
 
-    if(_normalized_path MATCHES "^([A-Za-z]):/(.*)$")
+    if(normalized_path MATCHES "^([A-Za-z]):/(.*)$")
         string(TOLOWER "${CMAKE_MATCH_1}" _drive)
-        set(_normalized_path "/${_drive}/${CMAKE_MATCH_2}")
+        set(normalized_path "/${_drive}/${CMAKE_MATCH_2}")
     endif()
 
-    set(${out_var} "${_normalized_path}" PARENT_SCOPE)
+    set(${out_var} "${normalized_path}" PARENT_SCOPE)
 endfunction()
 
+# Quote a string for safe inclusion in a shell command
 function(_moonlight_shell_quote out_var value)
     string(REPLACE "'" "'\"'\"'" _escaped_value "${value}")
     set(${out_var} "'${_escaped_value}'" PARENT_SCOPE)
 endfunction()
 
+# Join a list of arguments into a single shell command string, quoting each argument as needed
 function(_moonlight_join_shell_command out_var)
-    set(_quoted_args)
+    set(quoted_args)
     foreach(arg IN LISTS ARGN)
         _moonlight_shell_quote(_quoted_arg "${arg}")
-        list(APPEND _quoted_args "${_quoted_arg}")
+        list(APPEND quoted_args "${_quoted_arg}")
     endforeach()
 
-    list(JOIN _quoted_args " " _command)
-    set(${out_var} "${_command}" PARENT_SCOPE)
+    list(JOIN quoted_args " " command)
+    set(${out_var} "${command}" PARENT_SCOPE)
 endfunction()
 
 file(MAKE_DIRECTORY "${OPENSSL_BUILD_DIR}")
