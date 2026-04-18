@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -117,6 +118,7 @@ namespace {
   constexpr std::string_view DEFAULT_SERVERINFO_UNIQUE_ID = "0123456789ABCDEF";
   constexpr std::string_view DEFAULT_SERVERINFO_UUID = "11111111-2222-3333-4444-555555555555";
   constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again.";
+  network::testing::HostPairingHttpTestHandler g_host_pairing_http_test_handler;  ///< Optional scripted transport used by host-native unit tests.
 
   struct WsaGuard {
     WsaGuard():
@@ -1725,6 +1727,30 @@ namespace {
       return append_cancelled_pairing_error(errorMessage);
     }
 
+    if (g_host_pairing_http_test_handler) {
+      network::testing::HostPairingHttpTestRequest testRequest {
+        address,
+        port,
+        std::string(pathAndQuery),
+        useTls,
+        tlsClientIdentity,
+        std::string(expectedTlsCertificatePem),
+      };
+      network::testing::HostPairingHttpTestResponse testResponse {};
+      std::string testError;
+      if (!g_host_pairing_http_test_handler(testRequest, &testResponse, &testError, cancelRequested)) {
+        return append_error(errorMessage, testError.empty() ? "The scripted host pairing request failed" : testError);
+      }
+
+      if (response != nullptr) {
+        *response = {testResponse.statusCode, testResponse.body};
+      }
+      if (errorMessage != nullptr) {
+        errorMessage->clear();
+      }
+      return true;
+    }
+
     trace_pairing_phase("http_get: socket initialization");
     if (WsaGuard wsaGuard; !wsaGuard.initialized) {
       return append_error(errorMessage, "Failed to initialize socket support for host pairing");
@@ -1934,7 +1960,8 @@ namespace {
       return {false, false, "Pairing failed"};
     }
 
-    session->result.message = "Pairing failed during " + std::string(phase) + ": " + session->errorMessage;
+    const std::string detail = !session->errorMessage.empty() ? session->errorMessage : (session->result.message.empty() ? "Pairing failed" : session->result.message);
+    session->result.message = "Pairing failed during " + std::string(phase) + ": " + detail;
     trace_pairing_detail(session->result.message);
     return session->result;
   }
@@ -2614,5 +2641,17 @@ namespace network {
     trace_pairing_phase("pair_host succeeded");
     return session.result;
   }
+
+  namespace testing {
+
+    void set_host_pairing_http_test_handler(HostPairingHttpTestHandler handler) {
+      g_host_pairing_http_test_handler = std::move(handler);
+    }
+
+    void clear_host_pairing_http_test_handler() {
+      g_host_pairing_http_test_handler = {};
+    }
+
+  }  // namespace testing
 
 }  // namespace network

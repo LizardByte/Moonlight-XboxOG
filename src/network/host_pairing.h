@@ -7,6 +7,7 @@
 // standard includes
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -209,5 +210,46 @@ namespace network {
    * @return Pairing outcome including success state and user-visible detail.
    */
   HostPairingResult pair_host(const HostPairingRequest &request, const std::atomic<bool> *cancelRequested = nullptr);
+
+  namespace testing {
+
+    /**
+     * @brief Scripted HTTP request details exposed to host-pairing unit tests.
+     */
+    struct HostPairingHttpTestRequest {
+      std::string address;  ///< Destination host address requested by the pairing helper.
+      uint16_t port = 0;  ///< Destination host port requested by the pairing helper.
+      std::string pathAndQuery;  ///< Raw HTTP path and query string.
+      bool useTls = false;  ///< True when the request would normally use TLS.
+      const PairingIdentity *tlsClientIdentity = nullptr;  ///< Optional client identity attached to TLS requests.
+      std::string expectedTlsCertificatePem;  ///< Optional pinned host certificate expected by the request.
+    };
+
+    /**
+     * @brief Scripted HTTP response returned by a host-pairing unit-test handler.
+     */
+    struct HostPairingHttpTestResponse {
+      int statusCode = 0;  ///< HTTP status code returned to the caller.
+      std::string body;  ///< HTTP response body returned to the caller.
+    };
+
+    /**
+     * @brief Callback used by tests to replace host-pairing HTTP and TLS traffic.
+     */
+    using HostPairingHttpTestHandler = std::function<bool(const HostPairingHttpTestRequest &, HostPairingHttpTestResponse *, std::string *, const std::atomic<bool> *)>;
+
+    /**
+     * @brief Install a scripted HTTP handler for host-pairing unit tests.
+     *
+     * @param handler Callback that should service subsequent host-pairing HTTP requests.
+     */
+    void set_host_pairing_http_test_handler(HostPairingHttpTestHandler handler);
+
+    /**
+     * @brief Remove any scripted HTTP handler previously installed for host-pairing tests.
+     */
+    void clear_host_pairing_http_test_handler();
+
+  }  // namespace testing
 
 }  // namespace network

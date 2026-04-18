@@ -6,15 +6,227 @@
 #include "src/network/host_pairing.h"
 
 // standard includes
+#include <array>
 #include <atomic>
+#include <functional>
+#include <memory>
+#include <string_view>
+#include <vector>
 
 // lib includes
 #include <gtest/gtest.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 
 // test includes
 #include "tests/support/network_test_constants.h"
 
 namespace {
+
+  using network::testing::HostPairingHttpTestRequest;
+  using network::testing::HostPairingHttpTestResponse;
+
+  constexpr std::string_view kUnpairedClientErrorMessage = "The host reports that this client is no longer paired. Pair the host again.";
+
+  class ScopedHostPairingHttpTestHandler {
+  public:
+    explicit ScopedHostPairingHttpTestHandler(network::testing::HostPairingHttpTestHandler handler) {
+      network::testing::set_host_pairing_http_test_handler(std::move(handler));
+    }
+
+    ~ScopedHostPairingHttpTestHandler() {
+      network::testing::clear_host_pairing_http_test_handler();
+    }
+
+    ScopedHostPairingHttpTestHandler(const ScopedHostPairingHttpTestHandler &) = delete;
+    ScopedHostPairingHttpTestHandler &operator=(const ScopedHostPairingHttpTestHandler &) = delete;
+  };
+
+  struct ScriptedHttpExchange {
+    std::function<void(const HostPairingHttpTestRequest &)> validateRequest;
+    bool success = true;
+    int statusCode = 200;
+    std::string body;
+    std::string errorMessage;
+  };
+
+  class ScriptedHostPairingHttpHandler {
+  public:
+    explicit ScriptedHostPairingHttpHandler(std::vector<ScriptedHttpExchange> exchanges):
+        exchanges_(std::move(exchanges)) {
+    }
+
+    bool operator()(const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *) {
+      if (index_ >= exchanges_.size()) {
+        ADD_FAILURE() << "Unexpected host_pairing HTTP request: " << request.pathAndQuery;
+        if (errorMessage != nullptr) {
+          *errorMessage = "Unexpected host_pairing HTTP request";
+        }
+        return false;
+      }
+
+      const ScriptedHttpExchange &exchange = exchanges_[index_++];
+      if (exchange.validateRequest) {
+        exchange.validateRequest(request);
+      }
+      if (!exchange.success) {
+        if (errorMessage != nullptr) {
+          *errorMessage = exchange.errorMessage;
+        }
+        return false;
+      }
+
+      if (response != nullptr) {
+        response->statusCode = exchange.statusCode;
+        response->body = exchange.body;
+      }
+      if (errorMessage != nullptr) {
+        errorMessage->clear();
+      }
+      return true;
+    }
+
+    [[nodiscard]] bool all_consumed() const {
+      return index_ == exchanges_.size();
+    }
+
+  private:
+    std::vector<ScriptedHttpExchange> exchanges_;
+    std::size_t index_ = 0U;
+  };
+
+  struct PkeyDeleter {
+    void operator()(EVP_PKEY *key) const {
+      if (key != nullptr) {
+        EVP_PKEY_free(key);
+      }
+    }
+  };
+
+  struct BioDeleter {
+    void operator()(BIO *bio) const {
+      if (bio != nullptr) {
+        BIO_free(bio);
+      }
+    }
+  };
+
+  std::string extract_query_parameter(std::string_view pathAndQuery, std::string_view parameterName) {
+    const std::string needle = std::string(parameterName) + "=";
+    const std::size_t parameterStart = pathAndQuery.find(needle);
+    if (parameterStart == std::string_view::npos) {
+      return {};
+    }
+
+    const std::size_t valueStart = parameterStart + needle.size();
+    const std::size_t valueEnd = pathAndQuery.find('&', valueStart);
+    return std::string(pathAndQuery.substr(valueStart, valueEnd == std::string_view::npos ? std::string_view::npos : valueEnd - valueStart));
+  }
+
+  std::string hex_encode_bytes(const unsigned char *data, std::size_t size) {
+    static constexpr char kHexDigits[] = "0123456789abcdef";
+
+    std::string output(size * 2U, '\0');
+    for (std::size_t index = 0; index < size; ++index) {
+      output[index * 2U] = kHexDigits[(data[index] >> 4U) & 0x0F];
+      output[(index * 2U) + 1U] = kHexDigits[data[index] & 0x0F];
+    }
+    return output;
+  }
+
+  std::string hex_encode_text(std::string_view text) {
+    return hex_encode_bytes(reinterpret_cast<const unsigned char *>(text.data()), text.size());
+  }
+
+  bool hex_value(char character, unsigned char *value) {
+    if (character >= '0' && character <= '9') {
+      *value = static_cast<unsigned char>(character - '0');
+      return true;
+    }
+    if (character >= 'a' && character <= 'f') {
+      *value = static_cast<unsigned char>(10 + (character - 'a'));
+      return true;
+    }
+    if (character >= 'A' && character <= 'F') {
+      *value = static_cast<unsigned char>(10 + (character - 'A'));
+      return true;
+    }
+    return false;
+  }
+
+  std::vector<unsigned char> hex_decode_text(std::string_view text) {
+    std::vector<unsigned char> bytes;
+    EXPECT_EQ(text.size() % 2U, 0U);
+    bytes.reserve(text.size() / 2U);
+    for (std::size_t index = 0; index + 1U < text.size(); index += 2U) {
+      unsigned char upper = 0;
+      unsigned char lower = 0;
+      EXPECT_TRUE(hex_value(text[index], &upper));
+      EXPECT_TRUE(hex_value(text[index + 1U], &lower));
+      bytes.push_back(static_cast<unsigned char>((upper << 4U) | lower));
+    }
+    return bytes;
+  }
+
+  std::vector<unsigned char> sha256_digest(const unsigned char *data, std::size_t size) {
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digestBuffer {};
+    unsigned int digestSize = 0U;
+    EXPECT_EQ(EVP_Digest(data, size, digestBuffer.data(), &digestSize, EVP_sha256(), nullptr), 1);
+    return {digestBuffer.begin(), digestBuffer.begin() + static_cast<std::ptrdiff_t>(digestSize)};
+  }
+
+  std::vector<unsigned char> derive_pairing_aes_key(std::string_view saltHex, std::string_view pin) {
+    std::vector<unsigned char> source = hex_decode_text(saltHex);
+    source.insert(source.end(), pin.begin(), pin.end());
+    return sha256_digest(source.data(), source.size());
+  }
+
+  std::vector<unsigned char> aes_128_ecb_encrypt(const std::vector<unsigned char> &plaintext, const std::vector<unsigned char> &key) {
+    std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> context(EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free);
+    EXPECT_NE(context, nullptr);
+    EXPECT_EQ(EVP_EncryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, key.data(), nullptr), 1);
+    EXPECT_EQ(EVP_CIPHER_CTX_set_padding(context.get(), 0), 1);
+
+    std::vector<unsigned char> ciphertext(plaintext.size() + 16U);
+    int ciphertextSize = 0;
+    EXPECT_EQ(EVP_EncryptUpdate(context.get(), ciphertext.data(), &ciphertextSize, plaintext.data(), static_cast<int>(plaintext.size())), 1);
+    ciphertext.resize(static_cast<std::size_t>(ciphertextSize));
+    return ciphertext;
+  }
+
+  std::string sign_sha256_hex(const std::vector<unsigned char> &data, std::string_view privateKeyPem) {
+    std::unique_ptr<BIO, BioDeleter> bio(BIO_new_mem_buf(privateKeyPem.data(), static_cast<int>(privateKeyPem.size())));
+    EXPECT_NE(bio, nullptr);
+    std::unique_ptr<EVP_PKEY, PkeyDeleter> privateKey(PEM_read_bio_PrivateKey(bio.get(), nullptr, nullptr, nullptr));
+    EXPECT_NE(privateKey, nullptr);
+
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    EXPECT_NE(context, nullptr);
+    EXPECT_EQ(EVP_DigestSignInit(context.get(), nullptr, EVP_sha256(), nullptr, privateKey.get()), 1);
+    EXPECT_EQ(EVP_DigestSignUpdate(context.get(), data.data(), data.size()), 1);
+
+    std::size_t signatureSize = 0U;
+    EXPECT_EQ(EVP_DigestSignFinal(context.get(), nullptr, &signatureSize), 1);
+    std::vector<unsigned char> signature(signatureSize);
+    EXPECT_EQ(EVP_DigestSignFinal(context.get(), signature.data(), &signatureSize), 1);
+    signature.resize(signatureSize);
+    return hex_encode_bytes(signature.data(), signature.size());
+  }
+
+  std::string make_server_info_xml(bool paired, uint16_t httpPort, uint16_t httpsPort, std::string_view hostName = "Scripted Host", std::string_view uuid = "scripted-host") {
+    return "<root status_code=\"200\"><hostname>" + std::string(hostName) + "</hostname><appversion>7.1.0.0</appversion><uuid>" + std::string(uuid) + "</uuid><LocalIP>" +
+           std::string(test_support::kTestIpv4Addresses[test_support::kIpServerLocal]) + "</LocalIP><ExternalIP>" + std::string(test_support::kTestIpv4Addresses[test_support::kIpServerExternal]) +
+           "</ExternalIP><ExternalPort>" + std::to_string(httpPort) + "</ExternalPort><HttpsPort>" + std::to_string(httpsPort) + "</HttpsPort><PairStatus>" + (paired ? "1" : "0") + "</PairStatus></root>";
+  }
+
+  std::string make_pair_phase_response(std::string_view pairedValue, std::string_view tagName = {}, std::string_view tagValue = {}) {
+    std::string response = "<root><paired>" + std::string(pairedValue) + "</paired>";
+    if (!tagName.empty()) {
+      response += "<" + std::string(tagName) + ">" + std::string(tagValue) + "</" + std::string(tagName) + ">";
+    }
+    response += "</root>";
+    return response;
+  }
 
   TEST(HostPairingTest, CreatesAValidClientIdentity) {
     std::string errorMessage;
@@ -336,6 +548,518 @@ namespace {
 
     serverInfo.remoteAddress.clear();
     EXPECT_TRUE(network::resolve_reachable_address({}, serverInfo).empty());
+  }
+
+  TEST(HostPairingTest, QueriesServerInfoAcrossFallbackPortsWhenTheDefaultPortFails) {
+    ScriptedHostPairingHttpHandler handler({
+      {
+        [](const HostPairingHttpTestRequest &request) {
+          EXPECT_EQ(request.port, 47989U);
+          EXPECT_FALSE(request.useTls);
+          EXPECT_EQ(request.pathAndQuery, "/serverinfo?uniqueid=0123456789ABCDEF&uuid=11111111-2222-3333-4444-555555555555");
+        },
+        false,
+        0,
+        {},
+        "default port failed",
+      },
+      {
+        [](const HostPairingHttpTestRequest &request) {
+          EXPECT_EQ(request.port, 47984U);
+          EXPECT_FALSE(request.useTls);
+        },
+        true,
+        200,
+        make_server_info_xml(false, 47984U, 47990U, "Fallback Host", "fallback-host"),
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_server_info(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, nullptr, &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_TRUE(handler.all_consumed());
+    EXPECT_EQ(serverInfo.httpPort, 47984U);
+    EXPECT_EQ(serverInfo.httpsPort, 47990U);
+    EXPECT_EQ(serverInfo.hostName, "Fallback Host");
+  }
+
+  TEST(HostPairingTest, QueriesAuthorizedServerInfoForTheCurrentClientWhenIdentityIsAvailable) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_FALSE(request.useTls);
+          EXPECT_EQ(request.tlsClientIdentity, nullptr);
+          EXPECT_NE(request.pathAndQuery.find("uniqueid=" + identity.uniqueId), std::string::npos);
+        },
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Base Host", "base-host"),
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          ASSERT_NE(request.tlsClientIdentity, nullptr);
+          EXPECT_TRUE(request.useTls);
+          EXPECT_EQ(request.port, 47990U);
+          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+        },
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Authorized Host", "authorized-host"),
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_server_info(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], &identity, &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_TRUE(handler.all_consumed());
+    EXPECT_TRUE(serverInfo.pairingStatusCurrentClientKnown);
+    EXPECT_TRUE(serverInfo.pairingStatusCurrentClient);
+    EXPECT_TRUE(serverInfo.paired);
+    EXPECT_EQ(serverInfo.hostName, "Authorized Host");
+    EXPECT_EQ(serverInfo.uuid, "authorized-host");
+  }
+
+  TEST(HostPairingTest, MarksTheCurrentClientUnpairedWhenAuthorizedServerInfoReturnsUnauthorized) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Base Host", "base-host"),
+      },
+      {
+        {},
+        true,
+        401,
+        "",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_server_info(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], &identity, &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_TRUE(serverInfo.pairingStatusCurrentClientKnown);
+    EXPECT_FALSE(serverInfo.pairingStatusCurrentClient);
+    EXPECT_FALSE(serverInfo.paired);
+  }
+
+  TEST(HostPairingTest, LeavesCurrentClientPairingStatusUnknownWhenAuthorizedServerInfoCannotBeParsed) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Base Host", "base-host"),
+      },
+      {
+        {},
+        true,
+        200,
+        "<root><bad>response</bad></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_server_info(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], &identity, &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_FALSE(serverInfo.pairingStatusCurrentClientKnown);
+    EXPECT_TRUE(serverInfo.paired);
+    EXPECT_EQ(serverInfo.hostName, "Base Host");
+  }
+
+  TEST(HostPairingTest, QueryAppListPropagatesServerInfoFailures) {
+    ScopedHostPairingHttpTestHandler guard([](const HostPairingHttpTestRequest &, HostPairingHttpTestResponse *, std::string *errorMessage, const std::atomic<bool> *) {
+      if (errorMessage != nullptr) {
+        *errorMessage = "serverinfo unavailable";
+      }
+      return false;
+    });
+
+    std::vector<network::HostAppEntry> apps;
+    std::string errorMessage;
+
+    EXPECT_FALSE(network::query_app_list(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], nullptr, &apps, nullptr, &errorMessage));
+    EXPECT_NE(errorMessage.find("serverinfo unavailable"), std::string::npos);
+  }
+
+  TEST(HostPairingTest, QueryAppListMapsUnauthorizedHttpResponsesToTheUnpairedMessage) {
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U),
+      },
+      {
+        [](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("/applist?uniqueid=0123456789ABCDEF"), std::string::npos);
+        },
+        true,
+        401,
+        "",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    std::vector<network::HostAppEntry> apps;
+    std::string errorMessage;
+
+    EXPECT_FALSE(network::query_app_list(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], nullptr, &apps, nullptr, &errorMessage));
+    EXPECT_EQ(errorMessage, kUnpairedClientErrorMessage);
+    EXPECT_TRUE(handler.all_consumed());
+  }
+
+  TEST(HostPairingTest, QueryAppListMapsUnauthorizedPayloadsToTheUnpairedMessage) {
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U),
+      },
+      {
+        {},
+        true,
+        200,
+        "<root status_code=\"403\" status_message=\"unauthorized\"></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    std::vector<network::HostAppEntry> apps;
+    std::string errorMessage;
+
+    EXPECT_FALSE(network::query_app_list(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], nullptr, &apps, nullptr, &errorMessage));
+    EXPECT_EQ(errorMessage, kUnpairedClientErrorMessage);
+  }
+
+  TEST(HostPairingTest, QueryAppListReturnsAppsAndResolvedServerInfoOnSuccess) {
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Apps Host", "apps-host"),
+      },
+      {
+        {},
+        true,
+        200,
+        "<root status_code=\"200\"><App><AppTitle>Steam</AppTitle><ID>101</ID></App><App><AppTitle>Desktop</AppTitle><ID>102</ID><Hidden>1</Hidden></App></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    std::vector<network::HostAppEntry> apps;
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_app_list(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], nullptr, &apps, &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_TRUE(handler.all_consumed());
+    ASSERT_EQ(apps.size(), 2U);
+    EXPECT_EQ(apps[0].name, "Steam");
+    EXPECT_EQ(apps[1].name, "Desktop");
+    EXPECT_TRUE(serverInfo.pairingStatusCurrentClient);
+    EXPECT_EQ(serverInfo.hostName, "Apps Host");
+    EXPECT_EQ(serverInfo.uuid, "apps-host");
+  }
+
+  TEST(HostPairingTest, QueryAppAssetRejectsInvalidRequestsBeforeStartingTransport) {
+    std::vector<unsigned char> assetBytes;
+    std::string errorMessage;
+
+    EXPECT_FALSE(network::query_app_asset({}, 47990U, nullptr, 77, &assetBytes, &errorMessage));
+    EXPECT_EQ(errorMessage, "The app-asset request requires a valid host address, port, and app ID");
+  }
+
+  TEST(HostPairingTest, QueryAppAssetFallsBackAcrossCandidatePathsUntilOneSucceeds) {
+    std::vector<std::string> requestedPaths;
+    ScriptedHostPairingHttpHandler handler({
+      {
+        [&requestedPaths](const HostPairingHttpTestRequest &request) {
+          requestedPaths.push_back(request.pathAndQuery);
+          EXPECT_TRUE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("AssetIdx=0"), std::string::npos);
+        },
+        true,
+        200,
+        "<root status_code=\"200\"></root>",
+      },
+      {
+        [&requestedPaths](const HostPairingHttpTestRequest &request) {
+          requestedPaths.push_back(request.pathAndQuery);
+          EXPECT_TRUE(request.useTls);
+        },
+        true,
+        200,
+        std::string("\x89PNG", 4),
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard([&handler](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *cancelRequested) {
+      return handler(request, response, errorMessage, cancelRequested);
+    });
+
+    std::vector<unsigned char> assetBytes;
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::query_app_asset(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 47990U, nullptr, 77, &assetBytes, &errorMessage)) << errorMessage;
+    EXPECT_TRUE(handler.all_consumed());
+    ASSERT_EQ(requestedPaths.size(), 2U);
+    EXPECT_FALSE(assetBytes.empty());
+    EXPECT_EQ(assetBytes[0], 0x89U);
+  }
+
+  TEST(HostPairingTest, QueryAppAssetAggregatesAttemptFailuresWhenNoCandidateSucceeds) {
+    std::size_t callCount = 0U;
+    ScopedHostPairingHttpTestHandler guard([&callCount](const HostPairingHttpTestRequest &, HostPairingHttpTestResponse *, std::string *errorMessage, const std::atomic<bool> *) {
+      ++callCount;
+      if (errorMessage != nullptr) {
+        *errorMessage = "network down";
+      }
+      return false;
+    });
+
+    std::vector<unsigned char> assetBytes;
+    std::string errorMessage;
+
+    EXPECT_FALSE(network::query_app_asset(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 47990U, nullptr, 77, &assetBytes, &errorMessage));
+    EXPECT_EQ(callCount, 6U);
+    EXPECT_NE(errorMessage.find("Failed to fetch app artwork for app ID 77"), std::string::npos);
+    EXPECT_NE(errorMessage.find("network down"), std::string::npos);
+  }
+
+  TEST(HostPairingTest, PairHostRejectsInvalidRequestsBeforeStartingTransport) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    EXPECT_EQ(network::pair_host({{}, 47989U, "1234", "MoonlightXboxOG", identity}).message, "Pairing requires a valid host address");
+    EXPECT_EQ(network::pair_host({test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 47989U, "123", "MoonlightXboxOG", identity}).message, "Pairing requires a four-digit PIN");
+    EXPECT_EQ(network::pair_host({test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 47989U, "1234", "MoonlightXboxOG", {}}).message, "Client pairing identity is missing or invalid");
+  }
+
+  TEST(HostPairingTest, PairHostShortCircuitsWhenTheHostAlreadyReportsTheClientAsPaired) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    std::size_t callCount = 0U;
+    ScopedHostPairingHttpTestHandler guard([&callCount](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *, const std::atomic<bool> *) {
+      ++callCount;
+      EXPECT_FALSE(request.useTls);
+      response->statusCode = 200;
+      response->body = make_server_info_xml(true, 47989U, 47990U, "Already Paired Host", "already-paired-host");
+      return true;
+    });
+
+    const network::HostPairingResult result = network::pair_host({
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      47989U,
+      "1234",
+      "MoonlightXboxOG",
+      identity,
+    });
+
+    EXPECT_EQ(callCount, 1U);
+    EXPECT_TRUE(result.success);
+    EXPECT_TRUE(result.alreadyPaired);
+    EXPECT_EQ(result.message, "The host already reports this client as paired");
+  }
+
+  TEST(HostPairingTest, PairHostPreservesThePhaseOneRejectionMessage) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    std::size_t callCount = 0U;
+    ScopedHostPairingHttpTestHandler guard([&callCount](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *, const std::atomic<bool> *) {
+      if (callCount++ == 0U) {
+        response->statusCode = 200;
+        response->body = make_server_info_xml(false, 47989U, 47990U, "Pair Host", "pair-host");
+        return true;
+      }
+
+      EXPECT_NE(request.pathAndQuery.find("phrase=getservercert"), std::string::npos);
+      response->statusCode = 200;
+      response->body = make_pair_phase_response("0");
+      return true;
+    });
+
+    const network::HostPairingResult result = network::pair_host({
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      47989U,
+      "1234",
+      "MoonlightXboxOG",
+      identity,
+    });
+
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.message, "Pairing failed during phase 1 (getservercert): The host rejected the initial pairing request");
+  }
+
+  TEST(HostPairingTest, PairHostFailsWhenTheChallengeResponseIsTooShort) {
+    const network::PairingIdentity clientIdentity = network::create_pairing_identity();
+    const network::PairingIdentity serverIdentity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(clientIdentity));
+    ASSERT_TRUE(network::is_valid_pairing_identity(serverIdentity));
+
+    const std::string pin = "1234";
+    std::size_t callCount = 0U;
+    std::string saltHex;
+    ScopedHostPairingHttpTestHandler guard([&](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *, const std::atomic<bool> *) {
+      switch (callCount++) {
+        case 0U:
+          response->statusCode = 200;
+          response->body = make_server_info_xml(false, 47989U, 47990U, "Pair Host", "pair-host");
+          return true;
+        case 1U:
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "phrase"), "getservercert");
+          saltHex = extract_query_parameter(request.pathAndQuery, "salt");
+          response->statusCode = 200;
+          response->body = make_pair_phase_response("1", "plaincert", hex_encode_text(serverIdentity.certificatePem));
+          return true;
+        case 2U:
+          {
+            const std::vector<unsigned char> aesKey = derive_pairing_aes_key(saltHex, pin);
+            const std::vector<unsigned char> shortPlaintext(16U, 0x2AU);
+            const std::vector<unsigned char> encryptedResponse = aes_128_ecb_encrypt(shortPlaintext, aesKey);
+            response->statusCode = 200;
+            response->body = make_pair_phase_response("1", "challengeresponse", hex_encode_bytes(encryptedResponse.data(), encryptedResponse.size()));
+            return true;
+          }
+        default:
+          ADD_FAILURE() << "Unexpected extra pairing request";
+          return false;
+      }
+    });
+
+    const network::HostPairingResult result = network::pair_host({
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      47989U,
+      pin,
+      "MoonlightXboxOG",
+      clientIdentity,
+    });
+
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.message, "Pairing failed during phase 2 (client challenge): The host returned an incomplete challenge response during pairing");
+  }
+
+  TEST(HostPairingTest, PairHostCanCompleteAScriptedHandshakeSuccessfully) {
+    const network::PairingIdentity clientIdentity = network::create_pairing_identity();
+    const network::PairingIdentity serverIdentity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(clientIdentity));
+    ASSERT_TRUE(network::is_valid_pairing_identity(serverIdentity));
+
+    const std::string pin = "1234";
+    std::size_t callCount = 0U;
+    std::string saltHex;
+    ScopedHostPairingHttpTestHandler guard([&](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *) {
+      switch (callCount++) {
+        case 0U:
+          EXPECT_FALSE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + clientIdentity.uniqueId), std::string::npos);
+          response->statusCode = 200;
+          response->body = make_server_info_xml(false, 47989U, 47990U, "Pair Host", "pair-host");
+          return true;
+        case 1U:
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "phrase"), "getservercert");
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "clientcert"), hex_encode_text(clientIdentity.certificatePem));
+          saltHex = extract_query_parameter(request.pathAndQuery, "salt");
+          response->statusCode = 200;
+          response->body = make_pair_phase_response("1", "plaincert", hex_encode_text(serverIdentity.certificatePem));
+          return true;
+        case 2U:
+          {
+            const std::vector<unsigned char> aesKey = derive_pairing_aes_key(saltHex, pin);
+            std::vector<unsigned char> challengePlaintext(48U);
+            for (std::size_t index = 0; index < challengePlaintext.size(); ++index) {
+              challengePlaintext[index] = static_cast<unsigned char>(index + 1U);
+            }
+            const std::vector<unsigned char> encryptedResponse = aes_128_ecb_encrypt(challengePlaintext, aesKey);
+            EXPECT_FALSE(extract_query_parameter(request.pathAndQuery, "clientchallenge").empty());
+            response->statusCode = 200;
+            response->body = make_pair_phase_response("1", "challengeresponse", hex_encode_bytes(encryptedResponse.data(), encryptedResponse.size()));
+            return true;
+          }
+        case 3U:
+          {
+            std::vector<unsigned char> serverSecret(16U, 0x5AU);
+            EXPECT_FALSE(extract_query_parameter(request.pathAndQuery, "serverchallengeresp").empty());
+            response->statusCode = 200;
+            response->body = make_pair_phase_response("1", "pairingsecret", hex_encode_bytes(serverSecret.data(), serverSecret.size()) + sign_sha256_hex(serverSecret, serverIdentity.privateKeyPem));
+            return true;
+          }
+        case 4U:
+          EXPECT_FALSE(extract_query_parameter(request.pathAndQuery, "clientpairingsecret").empty());
+          response->statusCode = 200;
+          response->body = make_pair_phase_response("1");
+          return true;
+        case 5U:
+          EXPECT_TRUE(request.useTls);
+          if (request.tlsClientIdentity == nullptr) {
+            if (errorMessage != nullptr) {
+              *errorMessage = "Expected a TLS client identity during pairchallenge";
+            }
+            ADD_FAILURE() << "Expected a TLS client identity during pairchallenge";
+            return false;
+          }
+          EXPECT_EQ(request.tlsClientIdentity->uniqueId, clientIdentity.uniqueId);
+          EXPECT_EQ(request.expectedTlsCertificatePem, serverIdentity.certificatePem);
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "phrase"), "pairchallenge");
+          response->statusCode = 200;
+          response->body = make_pair_phase_response("1");
+          return true;
+        default:
+          if (errorMessage != nullptr) {
+            *errorMessage = "Unexpected extra pairing request";
+          }
+          ADD_FAILURE() << "Unexpected extra pairing request";
+          return false;
+      }
+    });
+
+    const network::HostPairingResult result = network::pair_host({
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      47989U,
+      pin,
+      "MoonlightXboxOG",
+      clientIdentity,
+    });
+
+    EXPECT_EQ(callCount, 6U);
+    EXPECT_TRUE(result.success);
+    EXPECT_FALSE(result.alreadyPaired);
+    EXPECT_EQ(result.message, "Paired successfully with " + std::string(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]));
   }
 
 }  // namespace
