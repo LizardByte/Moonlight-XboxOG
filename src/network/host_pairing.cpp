@@ -1731,8 +1731,7 @@ namespace {
       return append_cancelled_pairing_error(errorMessage);
     }
 
-    network::testing::HostPairingHttpTestHandler &testHandler = host_pairing_http_test_handler();
-    if (testHandler) {
+    if (const network::testing::HostPairingHttpTestHandler &testHandler = host_pairing_http_test_handler(); testHandler) {
       network::testing::HostPairingHttpTestRequest testRequest {
         address,
         port,

@@ -135,12 +135,22 @@ namespace {
     return std::string(pathAndQuery.substr(valueStart, valueEnd == std::string_view::npos ? std::string_view::npos : valueEnd - valueStart));
   }
 
-  const unsigned char *openssl_bytes(const std::byte *data) {
-    return reinterpret_cast<const unsigned char *>(data);
+  std::vector<unsigned char> to_unsigned_bytes(const std::byte *data, std::size_t size) {
+    std::vector<unsigned char> bytes;
+    bytes.reserve(size);
+    for (std::size_t index = 0; index < size; ++index) {
+      bytes.push_back(std::to_integer<unsigned char>(data[index]));
+    }
+    return bytes;
   }
 
-  unsigned char *openssl_bytes(std::byte *data) {
-    return reinterpret_cast<unsigned char *>(data);
+  std::vector<std::byte> to_std_bytes(const unsigned char *data, std::size_t size) {
+    std::vector<std::byte> bytes;
+    bytes.reserve(size);
+    for (std::size_t index = 0; index < size; ++index) {
+      bytes.push_back(static_cast<std::byte>(data[index]));
+    }
+    return bytes;
   }
 
   std::string hex_encode_bytes(const std::byte *data, std::size_t size) {
@@ -157,7 +167,14 @@ namespace {
   }
 
   std::string hex_encode_text(std::string_view text) {
-    return hex_encode_bytes(reinterpret_cast<const std::byte *>(text.data()), text.size());
+    std::string output;
+    output.reserve(text.size() * 2U);
+    for (const char character : text) {
+      const unsigned int byteValue = static_cast<unsigned char>(character);
+      output.push_back("0123456789abcdef"[(byteValue >> 4U) & 0x0F]);
+      output.push_back("0123456789abcdef"[byteValue & 0x0F]);
+    }
+    return output;
   }
 
   std::vector<std::byte> hex_decode_text(std::string_view text) {
@@ -165,11 +182,11 @@ namespace {
     EXPECT_EQ(text.size() % 2U, 0U);
     bytes.reserve(text.size() / 2U);
     for (std::size_t index = 0; index + 1U < text.size(); index += 2U) {
-      char encodedByte[] = {text[index], text[index + 1U], '\0'};
+      const std::string encodedByte(text.substr(index, 2U));
       unsigned int value = 0U;
-      const std::from_chars_result decodeResult = std::from_chars(encodedByte, encodedByte + 2, value, 16);
+      const std::from_chars_result decodeResult = std::from_chars(encodedByte.data(), encodedByte.data() + encodedByte.size(), value, 16);
       EXPECT_EQ(decodeResult.ec, std::errc());
-      EXPECT_EQ(decodeResult.ptr, encodedByte + 2);
+      EXPECT_EQ(decodeResult.ptr, encodedByte.data() + encodedByte.size());
       bytes.push_back(static_cast<std::byte>(value));
     }
     return bytes;
@@ -178,14 +195,9 @@ namespace {
   std::vector<std::byte> sha256_digest(const std::byte *data, std::size_t size) {
     std::array<unsigned char, EVP_MAX_MD_SIZE> digestBuffer {};
     unsigned int digestSize = 0U;
-    EXPECT_EQ(EVP_Digest(openssl_bytes(data), size, digestBuffer.data(), &digestSize, EVP_sha256(), nullptr), 1);
-
-    std::vector<std::byte> digest;
-    digest.reserve(digestSize);
-    for (unsigned int index = 0; index < digestSize; ++index) {
-      digest.push_back(static_cast<std::byte>(digestBuffer[index]));
-    }
-    return digest;
+    const std::vector<unsigned char> unsignedData = to_unsigned_bytes(data, size);
+    EXPECT_EQ(EVP_Digest(unsignedData.data(), unsignedData.size(), digestBuffer.data(), &digestSize, EVP_sha256(), nullptr), 1);
+    return to_std_bytes(digestBuffer.data(), digestSize);
   }
 
   std::vector<std::byte> derive_pairing_aes_key(std::string_view saltHex, std::string_view pin) {
@@ -200,14 +212,16 @@ namespace {
   std::vector<std::byte> aes_128_ecb_encrypt(const std::vector<std::byte> &plaintext, const std::vector<std::byte> &key) {
     std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> context(EVP_CIPHER_CTX_new(), &EVP_CIPHER_CTX_free);
     EXPECT_NE(context, nullptr);
-    EXPECT_EQ(EVP_EncryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, openssl_bytes(key.data()), nullptr), 1);
+    const std::vector<unsigned char> unsignedKey = to_unsigned_bytes(key.data(), key.size());
+    const std::vector<unsigned char> unsignedPlaintext = to_unsigned_bytes(plaintext.data(), plaintext.size());
+    EXPECT_EQ(EVP_EncryptInit_ex(context.get(), EVP_aes_128_ecb(), nullptr, unsignedKey.data(), nullptr), 1);
     EXPECT_EQ(EVP_CIPHER_CTX_set_padding(context.get(), 0), 1);
 
-    std::vector<std::byte> ciphertext(plaintext.size() + 16U);
+    std::vector<unsigned char> ciphertext(plaintext.size() + 16U);
     int ciphertextSize = 0;
-    EXPECT_EQ(EVP_EncryptUpdate(context.get(), openssl_bytes(ciphertext.data()), &ciphertextSize, openssl_bytes(plaintext.data()), static_cast<int>(plaintext.size())), 1);
+    EXPECT_EQ(EVP_EncryptUpdate(context.get(), ciphertext.data(), &ciphertextSize, unsignedPlaintext.data(), static_cast<int>(unsignedPlaintext.size())), 1);
     ciphertext.resize(static_cast<std::size_t>(ciphertextSize));
-    return ciphertext;
+    return to_std_bytes(ciphertext.data(), ciphertext.size());
   }
 
   std::string sign_sha256_hex(const std::vector<std::byte> &data, std::string_view privateKeyPem) {
@@ -219,7 +233,8 @@ namespace {
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
     EXPECT_NE(context, nullptr);
     EXPECT_EQ(EVP_DigestSignInit(context.get(), nullptr, EVP_sha256(), nullptr, privateKey.get()), 1);
-    EXPECT_EQ(EVP_DigestSignUpdate(context.get(), openssl_bytes(data.data()), data.size()), 1);
+    const std::vector<unsigned char> unsignedData = to_unsigned_bytes(data.data(), data.size());
+    EXPECT_EQ(EVP_DigestSignUpdate(context.get(), unsignedData.data(), unsignedData.size()), 1);
 
     std::size_t signatureSize = 0U;
     EXPECT_EQ(EVP_DigestSignFinal(context.get(), nullptr, &signatureSize), 1);
@@ -297,33 +312,37 @@ namespace {
     }
   }
 
+  struct SuccessfulPairingScriptContext {
+    std::size_t *callCount;
+    std::string *saltHex;
+    std::string_view pin;
+    const network::PairingIdentity &clientIdentity;
+    const network::PairingIdentity &serverIdentity;
+  };
+
   bool handle_successful_pairing_request(
-    std::size_t *callCount,
-    std::string *saltHex,
-    std::string_view pin,
-    const network::PairingIdentity &clientIdentity,
-    const network::PairingIdentity &serverIdentity,
+    const SuccessfulPairingScriptContext &contextData,
     const HostPairingHttpTestRequest &request,
     HostPairingHttpTestResponse *response,
     std::string *errorMessage
   ) {
-    switch ((*callCount)++) {
+    switch ((*contextData.callCount)++) {
       case 0U:
         EXPECT_FALSE(request.useTls);
-        EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + clientIdentity.uniqueId), std::string::npos);
+        EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + contextData.clientIdentity.uniqueId), std::string::npos);
         response->statusCode = 200;
         response->body = make_server_info_xml(false, 47989U, 47990U, "Pair Host", "pair-host");
         return true;
       case 1U:
         EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "phrase"), "getservercert");
-        EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "clientcert"), hex_encode_text(clientIdentity.certificatePem));
-        *saltHex = extract_query_parameter(request.pathAndQuery, "salt");
+        EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "clientcert"), hex_encode_text(contextData.clientIdentity.certificatePem));
+        *contextData.saltHex = extract_query_parameter(request.pathAndQuery, "salt");
         response->statusCode = 200;
-        response->body = make_pair_phase_response("1", "plaincert", hex_encode_text(serverIdentity.certificatePem));
+        response->body = make_pair_phase_response("1", "plaincert", hex_encode_text(contextData.serverIdentity.certificatePem));
         return true;
       case 2U:
         {
-          const std::vector<std::byte> aesKey = derive_pairing_aes_key(*saltHex, pin);
+          const std::vector<std::byte> aesKey = derive_pairing_aes_key(*contextData.saltHex, contextData.pin);
           const std::vector<std::byte> challengePlaintext = sequential_bytes(48U);
           const std::vector<std::byte> encryptedResponse = aes_128_ecb_encrypt(challengePlaintext, aesKey);
           EXPECT_FALSE(extract_query_parameter(request.pathAndQuery, "clientchallenge").empty());
@@ -336,7 +355,7 @@ namespace {
           const std::vector<std::byte> serverSecret = filled_bytes(16U, std::byte {0x5A});
           EXPECT_FALSE(extract_query_parameter(request.pathAndQuery, "serverchallengeresp").empty());
           response->statusCode = 200;
-          response->body = make_pair_phase_response("1", "pairingsecret", hex_encode_bytes(serverSecret.data(), serverSecret.size()) + sign_sha256_hex(serverSecret, serverIdentity.privateKeyPem));
+          response->body = make_pair_phase_response("1", "pairingsecret", hex_encode_bytes(serverSecret.data(), serverSecret.size()) + sign_sha256_hex(serverSecret, contextData.serverIdentity.privateKeyPem));
           return true;
         }
       case 4U:
@@ -353,8 +372,8 @@ namespace {
           ADD_FAILURE() << "Expected a TLS client identity during pairchallenge";
           return false;
         }
-        EXPECT_EQ(request.tlsClientIdentity->uniqueId, clientIdentity.uniqueId);
-        EXPECT_EQ(request.expectedTlsCertificatePem, serverIdentity.certificatePem);
+        EXPECT_EQ(request.tlsClientIdentity->uniqueId, contextData.clientIdentity.uniqueId);
+        EXPECT_EQ(request.expectedTlsCertificatePem, contextData.serverIdentity.certificatePem);
         EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "phrase"), "pairchallenge");
         response->statusCode = 200;
         response->body = make_pair_phase_response("1");
@@ -1080,8 +1099,15 @@ namespace {
     const std::string pin = "1234";
     std::size_t callCount = 0U;
     std::string saltHex;
+    const SuccessfulPairingScriptContext scriptContext {
+      &callCount,
+      &saltHex,
+      pin,
+      clientIdentity,
+      serverIdentity,
+    };
     ScopedHostPairingHttpTestHandler guard([&](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *errorMessage, const std::atomic<bool> *) {
-      return handle_successful_pairing_request(&callCount, &saltHex, pin, clientIdentity, serverIdentity, request, response, errorMessage);
+      return handle_successful_pairing_request(scriptContext, request, response, errorMessage);
     });
 
     const network::HostPairingResult result = network::pair_host({
