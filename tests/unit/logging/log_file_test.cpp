@@ -17,6 +17,13 @@
 
 namespace {
 
+  void write_raw_text_file(const std::string &path, const std::string &content) {
+    FILE *file = std::fopen(path.c_str(), "wb");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(std::fwrite(content.data(), 1, content.size(), file), content.size());
+    ASSERT_EQ(std::fclose(file), 0);
+  }
+
   std::string test_log_file_path(const char *name) {
     return test_support::join_path(test_support::join_path("test-output", "logging"), name);
   }
@@ -112,6 +119,26 @@ namespace {
     ASSERT_TRUE(loadedLog.fileFound);
     ASSERT_EQ(loadedLog.lines.size(), 1U);
     EXPECT_EQ(loadedLog.lines.front(), "[2026-04-05 13:00:04.000] [INFO] [src/main.cpp:241] app: with location");
+  }
+
+  TEST(LogFileTest, LoadsTheFinalLineEvenWhenTheFileDoesNotEndWithANewline) {
+    const std::string filePath = test_log_file_path("unterminated.log");
+    std::remove(filePath.c_str());
+    ASSERT_TRUE(test_support::create_directory(test_support::join_path("test-output", "logging")));
+    write_raw_text_file(filePath, "first line\r\nsecond line\r\nthird line");
+
+    const logging::LoadLogFileResult loadedLog = logging::load_log_file(filePath, 0U);
+
+    ASSERT_TRUE(loadedLog.fileFound);
+    ASSERT_EQ(loadedLog.lines.size(), 3U);
+    EXPECT_EQ(loadedLog.lines.back(), "third line");
+  }
+
+  TEST(LogFileTest, RuntimeLogFileSinkExposesItsConfiguredPath) {
+    const std::string filePath = test_log_file_path("accessor.log");
+    const logging::RuntimeLogFileSink sink(filePath);
+
+    EXPECT_EQ(sink.file_path(), filePath);
   }
 
 }  // namespace

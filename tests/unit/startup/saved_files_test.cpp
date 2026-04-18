@@ -36,6 +36,8 @@ namespace {
     std::string pairingKeyPath = test_support::join_path(pairingDirectory, "key.pem");
     std::string coverArtDirectory = test_support::join_path(testDirectory, "cover-art-cache");
     std::string coverArtFilePath = test_support::join_path(coverArtDirectory, "cover-101.bin");
+    std::string nestedCoverArtDirectory = test_support::join_path(coverArtDirectory, "nested");
+    std::string nestedCoverArtFilePath = test_support::join_path(nestedCoverArtDirectory, "cover-202.bin");
     startup::SavedFileCatalogConfig config {
       hostStoragePath,
       settingsFilePath,
@@ -48,9 +50,11 @@ namespace {
       ASSERT_TRUE(test_support::create_directory(testDirectory));
       ASSERT_TRUE(test_support::create_directory(pairingDirectory));
       ASSERT_TRUE(test_support::create_directory(coverArtDirectory));
+      ASSERT_TRUE(test_support::create_directory(nestedCoverArtDirectory));
     }
 
     void TearDown() override {
+      test_support::remove_if_present(nestedCoverArtFilePath);
       test_support::remove_if_present(coverArtFilePath);
       test_support::remove_if_present(pairingKeyPath);
       test_support::remove_if_present(pairingCertificatePath);
@@ -58,6 +62,7 @@ namespace {
       test_support::remove_if_present(logFilePath);
       test_support::remove_if_present(settingsFilePath);
       test_support::remove_if_present(hostStoragePath);
+      test_support::remove_directory_if_present(nestedCoverArtDirectory);
       test_support::remove_directory_if_present(coverArtDirectory);
       test_support::remove_directory_if_present(pairingDirectory);
       test_support::remove_directory_if_present(testDirectory);
@@ -121,6 +126,32 @@ namespace {
 
     const startup::ListSavedFilesResult result = startup::list_saved_files(config);
     EXPECT_TRUE(result.files.empty());
+  }
+
+  TEST_F(SavedFilesTest, ListsNestedCoverArtFilesAndDeduplicatesRepeatedPaths) {
+    write_file_bytes(hostStoragePath, {'h', 'o', 's', 't'});
+    write_file_bytes(nestedCoverArtFilePath, {0x89, 0x50, 0x4E, 0x47});
+
+    startup::SavedFileCatalogConfig deduplicatedConfig = config;
+    deduplicatedConfig.settingsFilePath = hostStoragePath;
+
+    const startup::ListSavedFilesResult result = startup::list_saved_files(deduplicatedConfig);
+
+    EXPECT_TRUE(result.warnings.empty());
+    ASSERT_EQ(result.files.size(), 2U);
+    EXPECT_EQ(result.files[0].displayName, test_support::join_path("cover-art-cache", "cover-202.bin"));
+    EXPECT_EQ(result.files[1].displayName, "moonlight-hosts.tsv");
+  }
+
+  TEST_F(SavedFilesTest, RejectsEmptyPathsAndAllowsMissingManagedFilesToBeDeleted) {
+    std::string errorMessage;
+
+    EXPECT_FALSE(startup::delete_saved_file({}, &errorMessage, config));
+    EXPECT_NE(errorMessage.find("requires a valid path"), std::string::npos);
+
+    errorMessage.clear();
+    EXPECT_TRUE(startup::delete_saved_file(logFilePath, &errorMessage, config)) << errorMessage;
+    EXPECT_TRUE(errorMessage.empty());
   }
 
 }  // namespace

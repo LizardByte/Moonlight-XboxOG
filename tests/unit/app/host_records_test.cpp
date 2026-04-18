@@ -45,6 +45,17 @@ namespace {
     EXPECT_FALSE(errorMessage.empty());
   }
 
+  TEST(HostRecordsTest, RejectsDisplayNamesWithTabsAndNonNormalizedAddresses) {
+    std::string errorMessage;
+
+    EXPECT_FALSE(app::validate_host_record({"Living\tRoom", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired}, &errorMessage));
+    EXPECT_NE(errorMessage.find("tabs or new lines"), std::string::npos);
+
+    errorMessage.clear();
+    EXPECT_FALSE(app::validate_host_record({"Living Room", "192.168.001.010", 0, app::PairingState::paired}, &errorMessage));
+    EXPECT_NE(errorMessage.find("already be normalized"), std::string::npos);
+  }
+
   TEST(HostRecordsTest, SerializesAndParsesRoundTripHostLists) {
     const std::vector<app::HostRecord> records = {
       {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::paired},
@@ -100,6 +111,30 @@ namespace {
     EXPECT_TRUE(parsedRecords.records.front().apps[1].running);
   }
 
+  TEST(HostRecordsTest, PercentEncodesCachedAppFieldsThatContainSeparators) {
+    app::HostRecord host {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+    };
+    host.apps = {
+      {"Steam, Desktop|HDR", 101, true, true, true, "cover/key,101|hdr", true, false},
+    };
+
+    const std::string serialized = app::serialize_host_records({host});
+    const app::ParseHostRecordsResult parsedRecords = app::parse_host_records(serialized);
+
+    ASSERT_TRUE(parsedRecords.errors.empty());
+    ASSERT_EQ(parsedRecords.records.size(), 1U);
+    ASSERT_EQ(parsedRecords.records.front().apps.size(), 1U);
+    EXPECT_EQ(parsedRecords.records.front().apps.front().name, "Steam, Desktop|HDR");
+    EXPECT_EQ(parsedRecords.records.front().apps.front().boxArtCacheKey, "cover/key,101|hdr");
+    EXPECT_TRUE(parsedRecords.records.front().apps.front().hidden);
+    EXPECT_TRUE(parsedRecords.records.front().apps.front().favorite);
+    EXPECT_TRUE(parsedRecords.records.front().apps.front().boxArtCached);
+  }
+
   TEST(HostRecordsTest, ReportsMalformedSerializedLinesWithoutDroppingValidRecords) {
     const std::string serializedRecords =
       "Living Room PC\t192.168.1.20\t\tpaired\t0,0,0,0\t\n"
@@ -129,6 +164,22 @@ namespace {
     EXPECT_FALSE(app::contains_host_address(records, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortDefaultHost]));
   }
 
+  TEST(HostRecordsTest, MatchesHostEndpointsAgainstResolvedHttpAndHttpsPorts) {
+    app::HostRecord host {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+    };
+    host.resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
+    host.httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
+
+    EXPECT_TRUE(app::host_matches_endpoint(host, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
+    EXPECT_TRUE(app::host_matches_endpoint(host, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttp]));
+    EXPECT_TRUE(app::host_matches_endpoint(host, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortResolvedHttps]));
+    EXPECT_FALSE(app::host_matches_endpoint(host, test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortPairing]));
+  }
+
   TEST(HostRecordsTest, ParsesPortOverridesAndFallsBackToTheDefaultPort) {
     uint16_t parsedPort = 0;
 
@@ -142,6 +193,15 @@ namespace {
 
     EXPECT_FALSE(app::try_parse_host_port("0", &parsedPort));
     EXPECT_FALSE(app::try_parse_host_port("70000", &parsedPort));
+    EXPECT_FALSE(app::try_parse_host_port("47a89", &parsedPort));
+  }
+
+  TEST(HostRecordsTest, ReturnsStableEnumNames) {
+    EXPECT_STREQ(app::to_string(app::PairingState::not_paired), "not_paired");
+    EXPECT_STREQ(app::to_string(app::PairingState::paired), "paired");
+    EXPECT_STREQ(app::to_string(app::HostReachability::unknown), "unknown");
+    EXPECT_STREQ(app::to_string(app::HostReachability::online), "online");
+    EXPECT_STREQ(app::to_string(app::HostReachability::offline), "offline");
   }
 
 }  // namespace

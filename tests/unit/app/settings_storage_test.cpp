@@ -59,6 +59,17 @@ namespace {
     EXPECT_FALSE(loadResult.cleanupRequired);
   }
 
+  TEST_F(SettingsStorageTest, MissingFilesReturnDefaultsWithoutWarnings) {
+    const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
+
+    EXPECT_FALSE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.warnings.empty());
+    EXPECT_FALSE(loadResult.cleanupRequired);
+    EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::none);
+    EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
+    EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
+  }
+
   TEST_F(SettingsStorageTest, InvalidValuesFallBackToDefaultsWithWarnings) {
     write_text_file(
       settingsPath,
@@ -96,6 +107,73 @@ namespace {
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::error);
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::right);
+  }
+
+  TEST_F(SettingsStorageTest, AcceptsMixedCaseLoggingValuesAndWarnAlias) {
+    write_text_file(
+      settingsPath,
+      "[logging]\n"
+      "file_minimum_level = \"DeBuG\"\n"
+      "xemu_console_minimum_level = \"WARN\"\n\n"
+      "[ui]\n"
+      "log_viewer_placement = \"RIGHT\"\n"
+    );
+
+    const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
+
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.warnings.empty());
+    EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::debug);
+    EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::warning);
+    EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::right);
+  }
+
+  TEST_F(SettingsStorageTest, MarksUnknownKeysAndLegacySectionsForCleanup) {
+    write_text_file(
+      settingsPath,
+      "[logging]\n"
+      "file_minimum_level = \"info\"\n"
+      "obsolete_key = true\n\n"
+      "[ui]\n"
+      "log_viewer_placement = \"left\"\n"
+      "theme = \"green\"\n\n"
+      "[debug]\n"
+      "startup_console_enabled = true\n\n"
+      "[other]\n"
+      "value = 1\n"
+    );
+
+    const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
+
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.cleanupRequired);
+    EXPECT_GE(loadResult.warnings.size(), 4U);
+    EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::info);
+    EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::left);
+  }
+
+  TEST_F(SettingsStorageTest, ReportsParseAndTypeErrorsAsWarnings) {
+    write_text_file(
+      settingsPath,
+      "[logging]\n"
+      "file_minimum_level = 7\n"
+      "xemu_console_minimum_level = false\n\n"
+      "[ui]\n"
+      "log_viewer_placement = 42\n"
+    );
+
+    app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_GE(loadResult.warnings.size(), 3U);
+    EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::none);
+    EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
+    EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
+
+    write_text_file(settingsPath, "[logging\nfile_minimum_level = \"info\"\n");
+    loadResult = app::load_app_settings(settingsPath);
+    EXPECT_TRUE(loadResult.fileFound);
+    ASSERT_FALSE(loadResult.warnings.empty());
+    EXPECT_NE(loadResult.warnings.front().find("Failed to parse settings file"), std::string::npos);
   }
 
 }  // namespace

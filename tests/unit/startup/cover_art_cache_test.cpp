@@ -78,4 +78,33 @@ namespace {
     EXPECT_TRUE(errorMessage.empty());
   }
 
+  TEST_F(CoverArtCacheTest, SavesEntriesUnderNestedCachePathsWhenRequested) {
+    const std::string nestedCacheKey = test_support::join_path("nested", "cover-404");
+    const std::vector<unsigned char> bytes = {0x10, 0x20, 0x30};
+
+    const startup::SaveCoverArtResult saveResult = startup::save_cover_art(nestedCacheKey, bytes, testDirectory);
+    ASSERT_TRUE(saveResult.success) << saveResult.errorMessage;
+
+    const startup::LoadCoverArtResult loadResult = startup::load_cover_art(nestedCacheKey, testDirectory);
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_EQ(loadResult.bytes, bytes);
+
+    test_support::remove_if_present(test_support::join_path(test_support::join_path(testDirectory, "nested"), "cover-404.bin"));
+    test_support::remove_directory_if_present(test_support::join_path(testDirectory, "nested"));
+  }
+
+  TEST_F(CoverArtCacheTest, EmptyCacheKeysDeleteAsANoOpAndFallbackKeysUseTheHostAddress) {
+    std::string errorMessage;
+
+    EXPECT_TRUE(startup::delete_cover_art({}, &errorMessage, testDirectory)) << errorMessage;
+    EXPECT_TRUE(errorMessage.empty());
+
+    const std::string addressOnlyKey = startup::build_cover_art_cache_key({}, test_support::kTestIpv4Addresses[test_support::kIpHostGridA], 42);
+    const std::string uuidKey = startup::build_cover_art_cache_key("host-uuid-123", test_support::kTestIpv4Addresses[test_support::kIpHostGridA], 42);
+
+    EXPECT_NE(addressOnlyKey, uuidKey);
+    EXPECT_NE(addressOnlyKey.find("-42"), std::string::npos);
+    EXPECT_NE(uuidKey.find("-42"), std::string::npos);
+  }
+
 }  // namespace

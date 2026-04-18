@@ -28,6 +28,12 @@ namespace {
     EXPECT_EQ(logging::format_source_location({"C:\\repo\\Moonlight-XboxOG\\tests\\unit\\logging\\logger_test.cpp", 19}), "tests/unit/logging/logger_test.cpp:19");
   }
 
+  TEST(LoggerTest, FormatsSourceLocationsAndEntriesWhenOnlyBasenamesAreAvailable) {
+    EXPECT_TRUE(logging::format_source_location({}).empty());
+    EXPECT_EQ(logging::format_source_location({"C:\\temp\\standalone_file.cpp", 8}), "standalone_file.cpp:8");
+    EXPECT_EQ(logging::format_entry({1, logging::LogLevel::warning, {}, "plain message", {2026, 4, 5, 13, 7, 9, 42}, {}}), "[WARN] plain message");
+  }
+
   TEST(LoggerTest, StoresEntriesAboveTheConfiguredMinimumLevel) {
     logging::Logger logger(4, []() {
       return logging::LogTimestamp {2026, 4, 5, 13, 7, 9, 42};
@@ -122,6 +128,36 @@ namespace {
     EXPECT_FALSE(logging::info("ui", "ignored"));
   }
 
+  TEST(LoggerTest, NamespaceLevelHelpersForwardConfigurationToTheRegisteredLogger) {
+    logging::Logger logger(3, []() {
+      return logging::LogTimestamp {2026, 4, 5, 13, 7, 9, 42};
+    });
+    std::vector<std::string> fileMessages;
+
+    logging::set_global_logger(&logger);
+    logging::set_minimum_level(logging::LogLevel::warning);
+    logging::set_file_sink([&fileMessages](const logging::LogEntry &entry) {
+      fileMessages.push_back(logging::format_entry(entry));
+    });
+    logging::set_file_minimum_level(logging::LogLevel::info);
+    logging::set_debugger_console_minimum_level(logging::LogLevel::error);
+    logging::set_startup_debug_enabled(false);
+
+    EXPECT_EQ(logger.minimum_level(), logging::LogLevel::warning);
+    EXPECT_EQ(logger.file_minimum_level(), logging::LogLevel::info);
+    EXPECT_EQ(logger.debugger_console_minimum_level(), logging::LogLevel::error);
+    EXPECT_FALSE(logger.startup_debug_enabled());
+    EXPECT_TRUE(logging::has_global_logger());
+
+    EXPECT_TRUE(logging::warn("ui", "retained"));
+    EXPECT_EQ(logging::snapshot(logging::LogLevel::warning).size(), 1U);
+    ASSERT_EQ(fileMessages.size(), 1U);
+    EXPECT_EQ(fileMessages.front(), logging::format_entry(logger.entries().front()));
+
+    logging::set_global_logger(nullptr);
+    EXPECT_FALSE(logging::has_global_logger());
+  }
+
   TEST(LoggerTest, DispatchesTheDedicatedRuntimeFileSinkIndependentlyFromTheRetainedBufferLevel) {
     logging::Logger logger;
     std::vector<std::string> fileMessages;
@@ -140,6 +176,23 @@ namespace {
     EXPECT_TRUE(logger.entries().empty());
     ASSERT_EQ(fileMessages.size(), 1U);
     EXPECT_EQ(fileMessages.front(), "[WARN] [tests/unit/logging/logger_test.cpp:" + std::to_string(expectedLine) + "] ui: written");
+  }
+
+  TEST(LoggerTest, AdditionalSinksHonorTheirOwnMinimumLevels) {
+    logging::Logger logger;
+    std::vector<std::string> seenMessages;
+    logger.set_minimum_level(logging::LogLevel::none);
+    logger.set_startup_debug_enabled(false);
+
+    logger.add_sink([&seenMessages](const logging::LogEntry &entry) {
+      seenMessages.push_back(entry.message);
+    },
+                    logging::LogLevel::error);
+
+    EXPECT_FALSE(logger.log(logging::LogLevel::warning, "ui", "ignored"));
+    EXPECT_TRUE(logger.log(logging::LogLevel::error, "ui", "accepted"));
+    ASSERT_EQ(seenMessages.size(), 1U);
+    EXPECT_EQ(seenMessages.front(), "accepted");
   }
 
   TEST(LoggerTest, SnapshotFiltersByMinimumLevel) {
@@ -166,6 +219,32 @@ namespace {
     EXPECT_FALSE(logger.should_log(logging::LogLevel::error));
     EXPECT_FALSE(logger.log(logging::LogLevel::error, "app", "suppressed"));
     EXPECT_TRUE(logger.entries().empty());
+  }
+
+  TEST(LoggerTest, CapacityZeroFallsBackToASingleRetainedEntry) {
+    logging::Logger logger(0, []() {
+      return logging::LogTimestamp {2026, 4, 5, 13, 7, 9, 42};
+    });
+    logger.set_minimum_level(logging::LogLevel::info);
+    logger.set_startup_debug_enabled(false);
+
+    EXPECT_EQ(logger.capacity(), 1U);
+    EXPECT_TRUE(logger.info("app", "first"));
+    EXPECT_TRUE(logger.error("app", "second"));
+    ASSERT_EQ(logger.entries().size(), 1U);
+    EXPECT_EQ(logger.entries().front().message, "second");
+  }
+
+  TEST(LoggerTest, StartupConsoleHelpersPreserveLabelsAndCanBeToggled) {
+    logging::set_startup_console_enabled(true);
+    EXPECT_TRUE(logging::startup_console_enabled());
+    EXPECT_EQ(logging::format_startup_console_line(logging::LogLevel::none, {}, "booting"), "[INFO] booting");
+    EXPECT_EQ(logging::format_startup_console_line(logging::LogLevel::warning, "network", "offline"), "[WARN] network: offline");
+
+    logging::set_startup_console_enabled(false);
+    EXPECT_FALSE(logging::startup_console_enabled());
+    logging::print_startup_console_line(logging::LogLevel::info, "app", "muted in host tests");
+    logging::set_startup_console_enabled(true);
   }
 
 }  // namespace

@@ -91,7 +91,7 @@ namespace {
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
     EXPECT_EQ(viewModel.frame.pageTitle, "Add Host");
-    ASSERT_GE(viewModel.content.bodyLines.size(), 4U);
+    ASSERT_GE(viewModel.content.bodyLines.size(), 5U);
     EXPECT_EQ(viewModel.content.bodyLines[0], "Manual host entry with a keypad modal.");
     EXPECT_EQ(viewModel.content.bodyLines[1], "Address: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
     EXPECT_EQ(viewModel.content.bodyLines[2], "Port: 48000");
@@ -109,7 +109,7 @@ namespace {
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::activate);
     ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
-    app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
+    app::set_log_file_path(state, R"(E:\UDATA\12345678\moonlight.log)");
 
     const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
 
@@ -137,7 +137,7 @@ namespace {
 
     state.settings.selectedCategory = app::SettingsCategory::reset;
     app::replace_saved_files(state, {
-                                      {"E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", "pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin", 1536U},
+                                      {R"(E:\UDATA\12345678\pairing\a-very-long-file-name-that-needs-the-detail-pane.bin)", R"(pairing\a-very-long-file-name-that-needs-the-detail-pane.bin)", 1536U},
                                     });
     state.settings.focusArea = app::SettingsFocusArea::options;
     ASSERT_TRUE(state.detailMenu.select_item_by_id("delete-saved-file:E:\\UDATA\\12345678\\pairing\\a-very-long-file-name-that-needs-the-detail-pane.bin"));
@@ -318,7 +318,7 @@ namespace {
 
   TEST(ShellViewTest, BuildsDedicatedLogViewerModalState) {
     app::ClientState state = app::create_initial_state();
-    app::set_log_file_path(state, "E:\\UDATA\\12345678\\moonlight.log");
+    app::set_log_file_path(state, R"(E:\UDATA\12345678\moonlight.log)");
     state.settings.logViewerPlacement = app::LogViewerPlacement::right;
     app::apply_log_viewer_contents(state, {
                                             "[000001] [INFO] app: Entered shell",
@@ -340,6 +340,68 @@ namespace {
     ASSERT_EQ(viewModel.modal.footerActions.size(), 6U);
     EXPECT_EQ(viewModel.modal.footerActions[0].iconAssetPath, "icons\\button-lb.svg");
     EXPECT_EQ(viewModel.modal.footerActions[5].iconAssetPath, "icons\\button-b.svg");
+  }
+
+  TEST(ShellViewTest, RendersSavedFileSizesUsingByteKilobyteAndMegabyteLabels) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.activeScreen = app::ScreenId::settings;
+    state.settings.selectedCategory = app::SettingsCategory::reset;
+    state.settings.savedFiles = {
+      {"E:\\UDATA\\bytes.bin", "bytes.bin", 12U},
+      {"E:\\UDATA\\kb.bin", "kb.bin", 1025U},
+      {"E:\\UDATA\\mb.bin", "mb.bin", 1048577U},
+    };
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_GE(viewModel.content.bodyLines.size(), 4U);
+    EXPECT_EQ(viewModel.content.bodyLines[1], "Saved files on disk:");
+    EXPECT_EQ(viewModel.content.bodyLines[2], "- bytes.bin (12 B)");
+    EXPECT_EQ(viewModel.content.bodyLines[3], "- kb.bin (2 KB)");
+    EXPECT_EQ(viewModel.content.bodyLines[4], "- mb.bin (2 MB)");
+  }
+
+  TEST(ShellViewTest, ShowsHiddenAndFavoriteAppBadgesWhenHiddenAppsAreVisible) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.activeScreen = app::ScreenId::apps;
+    state.hosts.activeLoaded = true;
+    state.apps.showHiddenApps = true;
+    state.hosts.active = {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+      app::HostReachability::online,
+    };
+    state.hosts.active.apps = {
+      {"Favorite App", 101, true, false, true, "favorite-cover", true, false},
+      {"Hidden App", 102, false, true, false, "hidden-cover", false, false},
+    };
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_EQ(viewModel.content.appTiles.size(), 2U);
+    EXPECT_EQ(viewModel.content.appTiles[0].badgeLabel, "Favorite");
+    EXPECT_EQ(viewModel.content.appTiles[1].badgeLabel, "Hidden");
+  }
+
+  TEST(ShellViewTest, BuildsThePortKeypadAndDefaultPortLabel) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::activate);
+    state.addHostDraft.activeField = app::AddHostField::port;
+    state.addHostDraft.keypad.visible = true;
+    state.addHostDraft.keypad.selectedButtonIndex = 9U;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    EXPECT_TRUE(viewModel.keypad.visible);
+    EXPECT_EQ(viewModel.keypad.title, "Port Keypad");
+    ASSERT_GE(viewModel.keypad.lines.size(), 4U);
+    EXPECT_EQ(viewModel.keypad.lines[0], "Editing field: Port");
+    EXPECT_EQ(viewModel.keypad.lines[1], "Staged value: default (47989)");
+    ASSERT_EQ(viewModel.keypad.buttons.size(), 10U);
+    EXPECT_EQ(viewModel.keypad.buttons.back().label, "0");
+    EXPECT_TRUE(viewModel.keypad.buttons[9].selected);
   }
 
   TEST(ShellViewTest, BuildsSupportModalFooterActionsWithControllerIcons) {
@@ -411,6 +473,25 @@ namespace {
     EXPECT_FALSE(viewModel.notification.visible);
   }
 
+  TEST(ShellViewTest, DescribesTheInitialPairHostReachabilityCheckBeforeAPinExists) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.activeScreen = app::ScreenId::pair_host;
+    state.pairingDraft = {
+      test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
+      test_support::kTestPorts[test_support::kPortPairing],
+      {},
+      app::PairingStage::idle,
+      "Pairing is preparing the client identity",
+    };
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_GE(viewModel.content.bodyLines.size(), 3U);
+    EXPECT_EQ(viewModel.content.bodyLines[0], "Target host: " + std::string(test_support::kTestIpv4Addresses[test_support::kIpHostGridA]));
+    EXPECT_EQ(viewModel.content.bodyLines[1], "Checking whether the host is reachable before showing a PIN.");
+    EXPECT_EQ(viewModel.content.bodyLines[2], "Status: Pairing is preparing the client identity");
+  }
+
   TEST(ShellViewTest, AddsStatsAndRecentLogsToTheOverlayWhenVisible) {
     app::ClientState state = app::create_initial_state();
     state.shell.overlayVisible = true;
@@ -450,6 +531,16 @@ namespace {
 
     ASSERT_FALSE(viewModel.overlay.lines.empty());
     EXPECT_EQ(viewModel.overlay.lines.front(), "Showing earlier log entries");
+  }
+
+  TEST(ShellViewTest, OverlayShowsAFallbackMessageWhenNoStreamStatsAreAvailable) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.overlayVisible = true;
+
+    const ui::ShellViewModel viewModel = ui::build_shell_view_model(state, {});
+
+    ASSERT_FALSE(viewModel.overlay.lines.empty());
+    EXPECT_EQ(viewModel.overlay.lines.front(), "No active stream");
   }
 
 }  // namespace

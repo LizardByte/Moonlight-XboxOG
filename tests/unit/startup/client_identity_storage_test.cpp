@@ -7,6 +7,7 @@
 
 // standard includes
 #include <cstdio>
+#include <string_view>
 
 // lib includes
 #include <gtest/gtest.h>
@@ -15,6 +16,13 @@
 #include "tests/support/filesystem_test_utils.h"
 
 namespace {
+
+  void write_text_file(const std::string &path, std::string_view content) {
+    FILE *file = std::fopen(path.c_str(), "wb");
+    ASSERT_NE(file, nullptr);
+    ASSERT_EQ(std::fwrite(content.data(), 1, content.size(), file), content.size());
+    ASSERT_EQ(std::fclose(file), 0);
+  }
 
   class ClientIdentityStorageTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
@@ -93,6 +101,35 @@ namespace {
 
     EXPECT_TRUE(startup::delete_client_identity(&errorMessage, testDirectory)) << errorMessage;
     EXPECT_TRUE(errorMessage.empty());
+  }
+
+  TEST_F(ClientIdentityStorageTest, TrimsTrailingNewlinesFromThePersistedUniqueId) {
+    ASSERT_TRUE(test_support::create_directory(testDirectory));
+    write_text_file(test_support::join_path(testDirectory, "uniqueid.dat"), "unique-id\r\n");
+    write_text_file(test_support::join_path(testDirectory, "client.pem"), "certificate");
+    write_text_file(test_support::join_path(testDirectory, "key.pem"), "private-key");
+
+    const startup::LoadClientIdentityResult loadResult = startup::load_client_identity(testDirectory);
+
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.warnings.empty());
+    EXPECT_EQ(loadResult.identity.uniqueId, "unique-id");
+  }
+
+  TEST_F(ClientIdentityStorageTest, MissingCertificateOrPrivateKeyProducesWarnings) {
+    ASSERT_TRUE(test_support::create_directory(testDirectory));
+    write_text_file(test_support::join_path(testDirectory, "uniqueid.dat"), "unique-id");
+
+    startup::LoadClientIdentityResult loadResult = startup::load_client_identity(testDirectory);
+    EXPECT_FALSE(loadResult.fileFound);
+    ASSERT_EQ(loadResult.warnings.size(), 1U);
+    EXPECT_NE(loadResult.warnings.front().find("certificate"), std::string::npos);
+
+    write_text_file(test_support::join_path(testDirectory, "client.pem"), "certificate");
+    loadResult = startup::load_client_identity(testDirectory);
+    EXPECT_FALSE(loadResult.fileFound);
+    ASSERT_EQ(loadResult.warnings.size(), 1U);
+    EXPECT_NE(loadResult.warnings.front().find("private key"), std::string::npos);
   }
 
 }  // namespace

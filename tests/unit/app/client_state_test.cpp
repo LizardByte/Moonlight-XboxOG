@@ -623,7 +623,7 @@ namespace {
     ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
 
     app::replace_saved_files(state, {
-                                      {"E:\\UDATA\\12345678\\moonlight.log", "moonlight.log", 128U},
+                                      {R"(E:\UDATA\12345678\moonlight.log)", "moonlight.log", 128U},
                                     });
     app::handle_command(state, input::UiCommand::move_down);
     app::handle_command(state, input::UiCommand::move_down);
@@ -827,6 +827,174 @@ namespace {
 
     app::handle_command(state, input::UiCommand::move_down);
     EXPECT_EQ(state.addHostDraft.keypad.selectedButtonIndex, 1U);
+  }
+
+  TEST(ClientStateTest, ApplyingConnectionTestResultsUpdatesTheVisibleDraftAndActiveHost) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::activate);
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpHostGridA];
+    state.hosts.activeLoaded = true;
+    state.hosts.active = {
+      "Host A",
+      test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::not_paired,
+      app::HostReachability::unknown,
+    };
+
+    app::apply_connection_test_result(state, true, "Connected successfully");
+
+    EXPECT_TRUE(state.addHostDraft.lastConnectionSucceeded);
+    EXPECT_EQ(state.addHostDraft.connectionMessage, "Connected successfully");
+    EXPECT_EQ(state.shell.statusMessage, "Connected successfully");
+    EXPECT_EQ(state.hosts.active.reachability, app::HostReachability::online);
+  }
+
+  TEST(ClientStateTest, AddHostStartPairingValidatesInputAndAddsNewHostsWhenNeeded) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::add_host);
+    ASSERT_TRUE(state.menu.select_item_by_id("start-pairing"));
+
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_FALSE(update.requests.pairingRequested);
+    EXPECT_EQ(state.addHostDraft.validationMessage, "Enter a valid IPv4 host address");
+
+    state.addHostDraft.addressInput = test_support::kTestIpv4Addresses[test_support::kIpLivingRoom];
+    state.addHostDraft.portInput = "48000";
+    update = app::handle_command(state, input::UiCommand::activate);
+
+    EXPECT_TRUE(update.persistence.hostsChanged);
+    EXPECT_TRUE(update.requests.pairingRequested);
+    EXPECT_EQ(update.requests.pairingAddress, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
+    EXPECT_EQ(update.requests.pairingPort, test_support::kTestPorts[test_support::kPortDefaultHost]);
+    EXPECT_EQ(state.shell.activeScreen, app::ScreenId::pair_host);
+    EXPECT_TRUE(state.hosts.activeLoaded);
+  }
+
+  TEST(ClientStateTest, HostActionsModalCanRequestConnectionTestsAndOpenDetails) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::paired, app::HostReachability::online},
+                              });
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_TRUE(update.requests.connectionTestRequested);
+    EXPECT_EQ(update.requests.connectionTestAddress, test_support::kTestIpv4Addresses[test_support::kIpOffice]);
+    EXPECT_EQ(update.requests.connectionTestPort, test_support::kTestPorts[test_support::kPortDefaultHost]);
+
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(state.modal.id, app::ModalId::host_details);
+    EXPECT_FALSE(update.navigation.modalClosed);
+  }
+
+  TEST(ClientStateTest, AppActionsModalCanToggleFlagsAndShowDetails) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.activeScreen = app::ScreenId::apps;
+    state.hosts.activeLoaded = true;
+    state.apps.showHiddenApps = true;
+    state.hosts.active = {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+      app::HostReachability::online,
+    };
+    state.hosts.active.apps = {
+      {"Steam", 101, false, false, false, "steam-cover", true, false},
+    };
+
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_TRUE(update.persistence.hostsChanged);
+    EXPECT_TRUE(state.hosts.active.apps.front().hidden);
+
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(state.modal.id, app::ModalId::app_details);
+    EXPECT_FALSE(update.navigation.modalClosed);
+
+    app::handle_command(state, input::UiCommand::back);
+    app::handle_command(state, input::UiCommand::open_context_menu);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_TRUE(update.persistence.hostsChanged);
+    EXPECT_TRUE(state.hosts.active.apps.front().favorite);
+  }
+
+  TEST(ClientStateTest, SettingsPlaceholderActivationAndBackNavigationUpdateFocusAndStatus) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "settings-category:display");
+    EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(state.shell.statusMessage, "display-placeholder is not implemented yet");
+
+    update = app::handle_command(state, input::UiCommand::back);
+    EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::categories);
+    EXPECT_FALSE(update.navigation.screenChanged);
+  }
+
+  TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {
+    app::ClientState state = app::create_initial_state();
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::reset);
+
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.modal.id, app::ModalId::confirmation);
+    EXPECT_TRUE(update.navigation.modalOpened);
+
+    app::handle_command(state, input::UiCommand::move_right);
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_TRUE(update.navigation.modalClosed);
+    EXPECT_FALSE(update.persistence.factoryResetRequested);
+    EXPECT_EQ(state.shell.statusMessage, "Cancelled the pending reset action");
+  }
+
+  TEST(ClientStateTest, AppsScreenCanLaunchSelectionsAndClearStatusWithDeleteCharacter) {
+    app::ClientState state = app::create_initial_state();
+    state.shell.activeScreen = app::ScreenId::apps;
+    state.hosts.activeLoaded = true;
+    state.hosts.active = {
+      "Office PC",
+      test_support::kTestIpv4Addresses[test_support::kIpOffice],
+      test_support::kTestPorts[test_support::kPortDefaultHost],
+      app::PairingState::paired,
+      app::HostReachability::online,
+    };
+    state.hosts.active.apps = {
+      {"Steam", 101, false, false, false, "steam-cover", true, false},
+    };
+
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "launch-app");
+    EXPECT_EQ(state.shell.statusMessage, "Launching Steam is not implemented yet");
+
+    update = app::handle_command(state, input::UiCommand::delete_character);
+    EXPECT_TRUE(state.shell.statusMessage.empty());
+    EXPECT_FALSE(update.navigation.screenChanged);
   }
 
   TEST(ClientStateTest, SuccessfulPairingReturnsToHostsAndKeepsTheHostSelected) {
