@@ -9,10 +9,15 @@ file(GLOB_RECURSE MOONLIGHT_SOURCES CONFIGURE_DEPENDS
         "${MOONLIGHT_SOURCE_ROOT}/src/*.cpp"
 )
 
+list(REMOVE_ITEM MOONLIGHT_SOURCES
+        "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/poll_compat.cpp"
+        "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/stat_compat.cpp")
+
 set(MOONLIGHT_TEST_EXCLUDED_SOURCES
         "${MOONLIGHT_SOURCE_ROOT}/src/main.cpp"
         "${MOONLIGHT_SOURCE_ROOT}/src/splash/splash_screen.cpp"
         "${MOONLIGHT_SOURCE_ROOT}/src/startup/memory_stats.cpp"
+        "${MOONLIGHT_SOURCE_ROOT}/src/ui/shell_screen.cpp"
 )
 
 set(MOONLIGHT_HOST_TESTABLE_SOURCES ${MOONLIGHT_SOURCES})

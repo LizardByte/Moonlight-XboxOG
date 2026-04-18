@@ -3,6 +3,7 @@
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/moonlight-dependencies.cmake")
 
 #
 # metadata
@@ -22,6 +23,7 @@ endif()
 find_package(NXDK REQUIRED)
 find_package(NXDK_SDL2 REQUIRED)
 find_package(NXDK_SDL2_Image REQUIRED)
+find_package(NXDK_SDL2_TTF REQUIRED)
 
 # add the automount_d_drive symbol to the linker flags, this is automatic with nxdk when using the Makefile option
 # if this is not used, we must add some code to the main function to automount the D drive
@@ -35,6 +37,9 @@ add_custom_target(sync_xbe_assets ALL
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/xbe"
             "${XBOX_XBE_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy
+            "${NXDK_DIR}/samples/sdl_ttf/vegur-regular.ttf"
+            "${XBOX_XBE_DIR}/assets/fonts/vegur-regular.ttf"
         COMMENT "Sync XBE assets"
 )
 
@@ -44,41 +49,44 @@ endif()
 set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 set(CMAKE_C_FLAGS_RELEASE "-O2")
 
-# moonlight-common-c submodule
-include(GetOpenSSL REQUIRED)
-set(ENET_NO_INSTALL ON CACHE BOOL "Do not install libraries built for enet" FORCE)
-set(BUILD_SHARED_LIBS OFF)
-add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c")
-if(TARGET moonlight-common-c AND TARGET openssl_external)
-    add_dependencies(moonlight-common-c openssl_external)
-endif()
-target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net NXDK::ws2_32)
-target_compile_options(enet PRIVATE -Wno-unused-function -Wno-error=unused-function)
-if(TARGET moonlight-common-c)
-    target_compile_options(moonlight-common-c PRIVATE -Wno-unused-function -Wno-error=unused-function)
-    target_link_libraries(moonlight-common-c PRIVATE NXDK::ws2_32)
-endif()
+MOONLIGHT_PREPARE_COMMON_DEPENDENCIES()
 
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}
 )
+target_sources(${CMAKE_PROJECT_NAME}
+        PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/stat_compat.cpp")
 target_include_directories(${CMAKE_PROJECT_NAME}
         SYSTEM PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/third-party/tomlplusplus/include"
+        "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
+        "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
+        "${MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR}"
 )
 target_link_libraries(${CMAKE_PROJECT_NAME}
         PUBLIC
         NXDK::NXDK
         NXDK::NXDK_CXX
+        NXDK::Net
         NXDK::SDL2
         NXDK::SDL2_Image
+        NXDK::SDL2_TTF
+        OpenSSL::Crypto
+        OpenSSL::SSL
 )
 target_compile_options(${CMAKE_PROJECT_NAME}
         PRIVATE
         ${MOONLIGHT_COMPILE_OPTIONS}
         $<$<COMPILE_LANGUAGE:CXX>:-std=gnu++17>
 )
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE XBOX NXDK)
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+        PRIVATE
+        XBOX
+        NXDK
+        TOML_EXCEPTIONS=0
+        TOML_ENABLE_WINDOWS_COMPAT=0)
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 if(BUILD_DOCS)

@@ -1,5 +1,11 @@
+/**
+ * @file src/splash/splash_layout.cpp
+ * @brief Implements splash screen layout calculations.
+ */
+// class header include
 #include "src/splash/splash_layout.h"
 
+// standard includes
 #include <algorithm>
 #include <cmath>
 
@@ -27,14 +33,15 @@ namespace splash {
 
   float get_display_aspect_ratio(const VIDEO_MODE &videoMode, unsigned long encoderSettings) {
     const float framebufferAspectRatio = get_framebuffer_aspect_ratio(videoMode);
-    const float preferredDisplayAspectRatio = ((encoderSettings & VIDEO_WIDESCREEN) != 0UL) ? (16.0f / 9.0f) : (4.0f / 3.0f);
-    const bool isStandardDefinitionRaster = videoMode.height <= 576;
-
-    if (const bool needsAspectCorrection = isStandardDefinitionRaster && std::fabs(framebufferAspectRatio - preferredDisplayAspectRatio) > SPLASH_ASPECT_RATIO_EPSILON) {
+    if (const float preferredDisplayAspectRatio = ((encoderSettings & VIDEO_WIDESCREEN) != 0UL) ? (16.0f / 9.0f) : (4.0f / 3.0f); std::fabs(framebufferAspectRatio - preferredDisplayAspectRatio) > SPLASH_ASPECT_RATIO_EPSILON) {
       return preferredDisplayAspectRatio;
     }
 
     return framebufferAspectRatio;
+  }
+
+  int calculate_display_width(int screenHeight, const VIDEO_MODE &videoMode, unsigned long encoderSettings) {
+    return clamp_scaled_dimension(static_cast<float>(screenHeight) * get_display_aspect_ratio(videoMode, encoderSettings));
   }
 
   float get_logo_width_aspect_correction(const VIDEO_MODE &videoMode, unsigned long encoderSettings) {

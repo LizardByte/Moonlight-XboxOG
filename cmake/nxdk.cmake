@@ -249,6 +249,7 @@ function(moonlight_prepare_nxdk nxdk_dir state_dir)
             "${nxdk_dir}/lib/libc++.lib"
             "${nxdk_dir}/lib/libSDL2.lib"
             "${nxdk_dir}/lib/libSDL2_image.lib"
+            "${nxdk_dir}/lib/libxboxrt.lib"
     )
     set(required_tools
             "${cxbe_path}"

@@ -34,6 +34,40 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
+    },
+    {
+      "name": "xbox-release (mingw64)",
+      "displayName": "Xbox Release (mingw64)",
+      "description": "Direct nxdk Xbox configure for IDE/code-model support on Xbox-only sources",
+      "generator": "Unix Makefiles",
+      "toolchainFile": "${sourceDir}/third-party/nxdk/share/toolchain-nxdk.cmake",
+      "binaryDir": "${sourceDir}/cmake-build-xbox-release",
+      "environment": {
+        "CHERE_INVOKING": "1",
+        "MSYSTEM": "MINGW64",
+        "NXDK_DIR": "${sourceDir}/third-party/nxdk"
+      },
+      "cacheVariables": {
+        "BUILD_DOCS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_DEPENDS_USE_COMPILER": "FALSE",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_MAKE_PROGRAM": "C:/msys64/usr/bin/make.exe",
+        "CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
+        "MOONLIGHT_BUILD_KIND": "XBOX",
+        "MOONLIGHT_SKIP_NXDK_PREP": "ON",
+        "NXDK_DIR": "${sourceDir}/third-party/nxdk"
+      }
+    },
+    {
+      "name": "xbox-debug (mingw64)",
+      "displayName": "Xbox Debug (mingw64)",
+      "description": "Direct nxdk Xbox configure for IDE/code-model support on Xbox-only sources",
+      "inherits": "xbox-release (mingw64)",
+      "binaryDir": "${sourceDir}/cmake-build-xbox-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     }
   ],
   "buildPresets": [
@@ -44,6 +78,14 @@
     {
       "name": "nxdk-debug (mingw64)",
       "configurePreset": "nxdk-debug (mingw64)"
+    },
+    {
+      "name": "xbox-release (mingw64)",
+      "configurePreset": "xbox-release (mingw64)"
+    },
+    {
+      "name": "xbox-debug (mingw64)",
+      "configurePreset": "xbox-debug (mingw64)"
     }
   ]
 }

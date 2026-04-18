@@ -1,3 +1,7 @@
+/**
+ * @file src/splash/splash_layout.h
+ * @brief Declares splash screen layout calculations.
+ */
 #pragma once
 
 // nxdk includes
@@ -38,6 +42,20 @@ namespace splash {
    * @return The effective display aspect ratio.
    */
   float get_display_aspect_ratio(const VIDEO_MODE &videoMode, unsigned long encoderSettings);
+
+  /**
+   * @brief Calculate the logical display width for square-pixel UI layout.
+   *
+   * When the framebuffer aspect ratio differs from the effective display aspect,
+   * this returns the width that should be used for layout before horizontal
+   * scaling is applied back onto the framebuffer.
+   *
+   * @param screenHeight Height of the destination surface.
+   * @param videoMode The video mode being rendered.
+   * @param encoderSettings The value returned by XVideoGetEncoderSettings().
+   * @return The logical display width corresponding to the effective aspect ratio.
+   */
+  int calculate_display_width(int screenHeight, const VIDEO_MODE &videoMode, unsigned long encoderSettings);
 
   /**
    * @brief Return the width correction factor applied before scaling the logo.

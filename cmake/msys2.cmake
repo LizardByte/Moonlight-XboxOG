@@ -56,19 +56,30 @@ function(_moonlight_try_msys2_root_from_tool out_var tool_path)
     set(${out_var} "" PARENT_SCOPE)
 endfunction()
 
-# Detect the MSYS2 installation root on Windows and cache the resolved path.
-function(moonlight_detect_windows_msys2_root out_var)
-    if(NOT WIN32)
-        message(FATAL_ERROR "moonlight_detect_windows_msys2_root is only available on Windows hosts")
-    endif()
+# Cache one resolved MSYS2 root path.
+function(_moonlight_cache_detected_msys2_root resolved_root)
+    set(MOONLIGHT_MSYS2_ROOT "${resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
+endfunction()
 
+# Build the configured MSYS2 root candidates from cache and environment overrides.
+function(_moonlight_get_configured_msys2_root_candidates out_var)
     set(candidate_roots)
     if(DEFINED MOONLIGHT_MSYS2_ROOT AND NOT MOONLIGHT_MSYS2_ROOT STREQUAL "")
         list(APPEND candidate_roots "${MOONLIGHT_MSYS2_ROOT}")
     endif()
+    if(DEFINED ENV{MOONLIGHT_MSYS2_ROOT} AND NOT "$ENV{MOONLIGHT_MSYS2_ROOT}" STREQUAL "")
+        list(APPEND candidate_roots "$ENV{MOONLIGHT_MSYS2_ROOT}")
+    endif()
     if(DEFINED ENV{MSYS2_ROOT} AND NOT "$ENV{MSYS2_ROOT}" STREQUAL "")
         list(APPEND candidate_roots "$ENV{MSYS2_ROOT}")
     endif()
+
+    set(${out_var} "${candidate_roots}" PARENT_SCOPE)
+endfunction()
+
+# Build the default MSYS2 root candidates used when no explicit configuration is available.
+function(_moonlight_get_default_msys2_root_candidates out_var)
+    set(candidate_roots)
     if(DEFINED ENV{SystemDrive} AND NOT "$ENV{SystemDrive}" STREQUAL "")
         list(APPEND candidate_roots "$ENV{SystemDrive}/msys64")
     endif()
@@ -77,16 +88,62 @@ function(moonlight_detect_windows_msys2_root out_var)
             "C:/tools/msys64"
     )
 
-    foreach(candidate_root IN LISTS candidate_roots)
+    set(${out_var} "${candidate_roots}" PARENT_SCOPE)
+endfunction()
+
+# Try to resolve an MSYS2 root from a list of candidate root directories.
+function(_moonlight_try_msys2_root_candidates out_var)
+    foreach(candidate_root IN LISTS ARGN)
         _moonlight_set_msys2_root_if_valid(_resolved_root "${candidate_root}")
         if(NOT _resolved_root STREQUAL "")
-            set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
             set(${out_var} "${_resolved_root}" PARENT_SCOPE)
             return()
         endif()
     endforeach()
 
-    set(program_hints ${candidate_roots})
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# Try to resolve an MSYS2 root by walking up from the given tool paths.
+function(_moonlight_try_msys2_root_from_tools out_var)
+    foreach(tool_path IN LISTS ARGN)
+        _moonlight_try_msys2_root_from_tool(_resolved_root "${tool_path}")
+        if(NOT _resolved_root STREQUAL "")
+            set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# Try to resolve an MSYS2 root by searching PATH for common MSYS2 tool names.
+function(_moonlight_try_msys2_root_from_path_tools out_var)
+    foreach(tool_name
+            msys2_shell.cmd
+            bash.exe
+            make.exe
+            mingw32-make.exe
+            clang++.exe
+            clang.exe
+            g++.exe
+            gcc.exe
+            c++.exe
+            cc.exe)
+        find_program(_tool_path NAMES ${tool_name})
+        _moonlight_try_msys2_root_from_tool(_resolved_root "${_tool_path}")
+        if(NOT _resolved_root STREQUAL "")
+            set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# Try to resolve an MSYS2 root by searching under hinted installation roots.
+function(_moonlight_try_hinted_msys2_root out_var)
+    set(program_hints ${ARGN})
 
     find_program(_msys2_shell_path
             NAMES msys2_shell.cmd
@@ -95,12 +152,11 @@ function(moonlight_detect_windows_msys2_root out_var)
     )
     _moonlight_try_msys2_root_from_tool(_resolved_root "${_msys2_shell_path}")
     if(NOT _resolved_root STREQUAL "")
-        set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
         set(${out_var} "${_resolved_root}" PARENT_SCOPE)
         return()
     endif()
 
-    foreach(tool_name bash.exe mingw32-make.exe clang++.exe clang.exe)
+    foreach(tool_name bash.exe make.exe mingw32-make.exe clang++.exe clang.exe g++.exe gcc.exe c++.exe cc.exe)
         find_program(_tool_path
                 NAMES ${tool_name}
                 HINTS ${program_hints}
@@ -108,11 +164,58 @@ function(moonlight_detect_windows_msys2_root out_var)
         )
         _moonlight_try_msys2_root_from_tool(_resolved_root "${_tool_path}")
         if(NOT _resolved_root STREQUAL "")
-            set(MOONLIGHT_MSYS2_ROOT "${_resolved_root}" CACHE PATH "Path to the detected MSYS2 installation" FORCE)
             set(${out_var} "${_resolved_root}" PARENT_SCOPE)
             return()
         endif()
     endforeach()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
+# Detect the MSYS2 installation root on Windows and cache the resolved path.
+function(moonlight_detect_windows_msys2_root out_var)
+    if(NOT WIN32)
+        message(FATAL_ERROR "moonlight_detect_windows_msys2_root is only available on Windows hosts")
+    endif()
+
+    _moonlight_get_configured_msys2_root_candidates(candidate_roots)
+    _moonlight_try_msys2_root_candidates(_resolved_root ${candidate_roots})
+    if(NOT _resolved_root STREQUAL "")
+        _moonlight_cache_detected_msys2_root("${_resolved_root}")
+        set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+        return()
+    endif()
+
+    _moonlight_try_msys2_root_from_tools(_resolved_root "${CMAKE_COMMAND}" "${CMAKE_MAKE_PROGRAM}")
+    if(NOT _resolved_root STREQUAL "")
+        _moonlight_cache_detected_msys2_root("${_resolved_root}")
+        set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+        return()
+    endif()
+
+    _moonlight_try_msys2_root_from_path_tools(_resolved_root)
+    if(NOT _resolved_root STREQUAL "")
+        _moonlight_cache_detected_msys2_root("${_resolved_root}")
+        set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+        return()
+    endif()
+
+    _moonlight_get_default_msys2_root_candidates(default_candidate_roots)
+    list(APPEND candidate_roots ${default_candidate_roots})
+
+    _moonlight_try_msys2_root_candidates(_resolved_root ${candidate_roots})
+    if(NOT _resolved_root STREQUAL "")
+        _moonlight_cache_detected_msys2_root("${_resolved_root}")
+        set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+        return()
+    endif()
+
+    _moonlight_try_hinted_msys2_root(_resolved_root ${candidate_roots})
+    if(NOT _resolved_root STREQUAL "")
+        _moonlight_cache_detected_msys2_root("${_resolved_root}")
+        set(${out_var} "${_resolved_root}" PARENT_SCOPE)
+        return()
+    endif()
 
     message(FATAL_ERROR
             "Could not find an MSYS2 installation. "

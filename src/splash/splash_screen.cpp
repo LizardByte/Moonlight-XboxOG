@@ -1,40 +1,43 @@
+/**
+ * @file src/splash/splash_screen.cpp
+ * @brief Implements the splash screen workflow.
+ */
 // class header include
 #include "src/splash/splash_screen.h"
 
 // standard includes
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstring>
 #include <string>
 
 // nxdk includes
-#include <hal/debug.h>
 #include <hal/xbox.h>
 #include <SDL.h>
 #include <SDL_image.h>
-#include <windows.h>
+#include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // local includes
+#include "src/logging/logger.h"
 #include "src/os.h"
 #include "src/splash/splash_layout.h"
 
 namespace {
 
-  constexpr Uint8 SPLASH_BACKGROUND_RED = 0x2A;
-  constexpr Uint8 SPLASH_BACKGROUND_GREEN = 0x2D;
-  constexpr Uint8 SPLASH_BACKGROUND_BLUE = 0x30;
+  constexpr Uint8 SPLASH_BACKGROUND_RED = 0x56;
+  constexpr Uint8 SPLASH_BACKGROUND_GREEN = 0x5C;
+  constexpr Uint8 SPLASH_BACKGROUND_BLUE = 0x64;
 
   void printSDLErrorAndReboot() {
-    debugPrint("SDL_Error: %s\n", SDL_GetError());
-    debugPrint("Rebooting in 5 seconds.\n");
+    logging::error("splash", std::string("SDL error: ") + SDL_GetError());
+    logging::warn("splash", "Rebooting in 5 seconds.");
     Sleep(5000);
     XReboot();
   }
 
   void printIMGErrorAndReboot() {
-    debugPrint("SDL_Image Error: %s\n", IMG_GetError());
-    debugPrint("Rebooting in 5 seconds.\n");
+    logging::error("splash", std::string("SDL_image error: ") + IMG_GetError());
+    logging::warn("splash", "Rebooting in 5 seconds.");
     Sleep(5000);
     XReboot();
   }
@@ -140,20 +143,20 @@ namespace {
     const SDL_Rect targetDestination = calculateLogoDestination(screenSurface, sourceSurface->w, sourceSurface->h, videoMode);
     SDL_Surface *scaledSurface = SDL_CreateRGBSurfaceWithFormat(0, targetDestination.w, targetDestination.h, 32, SDL_PIXELFORMAT_ARGB8888);
     if (scaledSurface == nullptr) {
-      debugPrint("Failed to create scaled splash asset surface: %s\n", SDL_GetError());
+      logging::error("splash", std::string("Failed to create scaled splash asset surface: ") + SDL_GetError());
       SDL_FreeSurface(sourceSurface);
       return nullptr;
     }
 
     if (SDL_LockSurface(sourceSurface) < 0) {
-      debugPrint("Failed to lock source splash asset surface: %s\n", SDL_GetError());
+      logging::error("splash", std::string("Failed to lock source splash asset surface: ") + SDL_GetError());
       SDL_FreeSurface(sourceSurface);
       SDL_FreeSurface(scaledSurface);
       return nullptr;
     }
 
     if (SDL_LockSurface(scaledSurface) < 0) {
-      debugPrint("Failed to lock scaled splash asset surface: %s\n", SDL_GetError());
+      logging::error("splash", std::string("Failed to lock scaled splash asset surface: ") + SDL_GetError());
       SDL_UnlockSurface(sourceSurface);
       SDL_FreeSurface(sourceSurface);
       SDL_FreeSurface(scaledSurface);
@@ -173,7 +176,7 @@ namespace {
     SDL_FreeSurface(sourceSurface);
 
     if (SDL_SetSurfaceBlendMode(scaledSurface, SDL_BLENDMODE_BLEND) < 0) {
-      debugPrint("Failed to enable alpha blending for scaled splash asset: %s\n", SDL_GetError());
+      logging::error("splash", std::string("Failed to enable alpha blending for scaled splash asset: ") + SDL_GetError());
       SDL_FreeSurface(scaledSurface);
       return nullptr;
     }
@@ -188,7 +191,10 @@ namespace {
 
     SDL_Surface *normalizedSurface = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ARGB8888, 0);
     if (normalizedSurface == nullptr) {
-      debugPrint("Failed to normalize splash asset surface format %s: %s\n", SDL_GetPixelFormatName(surface->format->format), SDL_GetError());
+      logging::error(
+        "splash",
+        std::string("Failed to normalize splash asset surface format ") + SDL_GetPixelFormatName(surface->format->format) + ": " + SDL_GetError()
+      );
       SDL_FreeSurface(surface);
       return nullptr;
     }
@@ -196,100 +202,72 @@ namespace {
     SDL_FreeSurface(surface);
 
     if (SDL_SetSurfaceBlendMode(normalizedSurface, SDL_BLENDMODE_BLEND) < 0) {
-      debugPrint("Failed to enable alpha blending for splash asset: %s\n", SDL_GetError());
+      logging::error("splash", std::string("Failed to enable alpha blending for splash asset: ") + SDL_GetError());
       SDL_FreeSurface(normalizedSurface);
       return nullptr;
     }
 
-    debugPrint("Normalized splash asset to format: %s\n", SDL_GetPixelFormatName(normalizedSurface->format->format));
     return normalizedSurface;
   }
 
   SDL_Surface *loadSplashLogoSurface() {
-    const std::array<const char *, 2> assetNames = {
-      "moonlight-logo.svg",
-      "moonlight-logo.ppm",
-    };
-
-    for (const char *assetName : assetNames) {
-      const std::string assetPath = buildAssetPath(assetName);
-      if (SDL_Surface *loadedSurface = IMG_Load(assetPath.c_str()); loadedSurface != nullptr) {
-        if (SDL_Surface *normalizedSurface = normalizeSplashLogoSurface(loadedSurface); normalizedSurface != nullptr) {
-          return normalizedSurface;
-        }
-
-        debugPrint("Failed to prepare splash asset %s for rendering.\n", assetPath.c_str());
+    const std::string assetPath = buildAssetPath("moonlight-logo-wedges.svg");
+    if (SDL_Surface *loadedSurface = IMG_Load(assetPath.c_str()); loadedSurface != nullptr) {
+      if (SDL_Surface *normalizedSurface = normalizeSplashLogoSurface(loadedSurface); normalizedSurface != nullptr) {
+        return normalizedSurface;
       }
 
-      debugPrint("Failed to load splash asset %s: %s\n", assetPath.c_str(), IMG_GetError());
+      logging::error("splash", "Failed to prepare splash asset " + assetPath + " for rendering.");
     }
+
+    logging::error("splash", "Failed to load splash asset " + assetPath + ": " + IMG_GetError());
 
     return nullptr;
   }
 
-  void cleanupSplashScreen(SDL_Window *window, SDL_Surface *imageSurface) {
+  void cleanupSplashScreen(SDL_Surface *imageSurface) {
     if (imageSurface != nullptr) {
       SDL_FreeSurface(imageSurface);
     }
 
-    if (window != nullptr) {
-      SDL_DestroyWindow(window);
-    }
-
     IMG_Quit();
-    SDL_VideoQuit();
   }
 
-}  // namespace
-
-namespace splash {
-
-  void show_splash_screen(const VIDEO_MODE &videoMode) {
+  void runSplashScreen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {  // NOSONAR(cpp:S5213) splash callback API is cold-path and already shared by callers
     int done = 0;
     const int imageInitFlags = IMG_INIT_JPG | IMG_INIT_PNG;
     const int initializedImageFlags = IMG_Init(imageInitFlags);
-    SDL_Window *window = nullptr;
     SDL_Event event;
     SDL_Surface *screenSurface = nullptr;
     SDL_Surface *imageSurface = nullptr;
 
     SDL_LogSetPriority(SDL_LOG_CATEGORY_APPLICATION, SDL_LOG_PRIORITY_INFO);
 
-    if (SDL_VideoInit(nullptr) < 0) {
-      SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Couldn't initialize SDL video.\n");
-      printSDLErrorAndReboot();
-      return;
-    }
-
-    window = SDL_CreateWindow("splash", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, videoMode.width, videoMode.height, SDL_WINDOW_SHOWN);
     if (window == nullptr) {
-      debugPrint("Window could not be created!\n");
-      SDL_VideoQuit();
+      SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Splash screen requires a valid SDL window.\n");
       printSDLErrorAndReboot();
       return;
     }
 
-    if ((initializedImageFlags & imageInitFlags) != imageInitFlags) {
-      debugPrint("SDL_image initialized without all raster fallback decoders. Flags: %d\n", initializedImageFlags);
-    }
+    (void) initializedImageFlags;
 
     screenSurface = SDL_GetWindowSurface(window);
     if (!screenSurface) {
-      cleanupSplashScreen(window, nullptr);
+      cleanupSplashScreen(nullptr);
       printSDLErrorAndReboot();
       return;
     }
 
     imageSurface = loadSplashLogoSurface();
     if (!imageSurface) {
-      cleanupSplashScreen(window, nullptr);
+      cleanupSplashScreen(nullptr);
       printIMGErrorAndReboot();
       return;
     }
 
     imageSurface = createScaledSplashLogoSurface(screenSurface, imageSurface, videoMode);
     if (!imageSurface) {
-      cleanupSplashScreen(window, nullptr);
+      cleanupSplashScreen(nullptr);
       printSDLErrorAndReboot();
       return;
     }
@@ -304,27 +282,46 @@ namespace splash {
       }
 
       if (const Uint32 backgroundColor = SDL_MapRGB(screenSurface->format, SPLASH_BACKGROUND_RED, SPLASH_BACKGROUND_GREEN, SPLASH_BACKGROUND_BLUE); SDL_FillRect(screenSurface, nullptr, backgroundColor) < 0) {
-        cleanupSplashScreen(window, imageSurface);
+        cleanupSplashScreen(imageSurface);
         printSDLErrorAndReboot();
         return;
       }
 
       if (SDL_BlitSurface(imageSurface, nullptr, screenSurface, &logoDestination) < 0) {
-        cleanupSplashScreen(window, imageSurface);
+        cleanupSplashScreen(imageSurface);
         printSDLErrorAndReboot();
         return;
       }
 
       if (SDL_UpdateWindowSurface(window) < 0) {
-        cleanupSplashScreen(window, imageSurface);
+        cleanupSplashScreen(imageSurface);
         printSDLErrorAndReboot();
         return;
       }
 
-      Sleep(1000);
+      if (!keepShowing()) {
+        done = 1;
+      }
+
+      SDL_Delay(16);
     }
 
-    cleanupSplashScreen(window, imageSurface);
+    cleanupSplashScreen(imageSurface);
+  }
+
+}  // namespace
+
+namespace splash {
+
+  void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, unsigned int durationMilliseconds) {
+    const Uint32 startTicks = SDL_GetTicks();
+    runSplashScreen(window, videoMode, [startTicks, durationMilliseconds]() {
+      return SDL_GetTicks() - startTicks < durationMilliseconds;
+    });
+  }
+
+  void show_splash_screen(SDL_Window *window, const VIDEO_MODE &videoMode, const std::function<bool()> &keepShowing) {
+    runSplashScreen(window, videoMode, keepShowing);
   }
 
 }  // namespace splash

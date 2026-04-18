@@ -16,4 +16,8 @@
 [submodule "third-party/openssl"]
 	path = third-party/openssl
 	url = https://github.com/openssl/openssl.git
+	branch = OpenSSL_1_1_1-stable
+[submodule "third-party/tomlplusplus"]
+	path = third-party/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus.git
 	branch = master

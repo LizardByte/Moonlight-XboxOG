@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.18)
 
 # Allow third-party subdirectories that use cmake_minimum_required < 3.5 (removed in CMake 4.x)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands for IDE tooling" FORCE)
 
 set(MOONLIGHT_BUILD_KIND "HOST" CACHE STRING "Internal Moonlight build mode")
 set_property(CACHE MOONLIGHT_BUILD_KIND PROPERTY STRINGS HOST XBOX)
@@ -51,12 +52,14 @@ option(BUILD_XBOX "Build the Xbox target through an internal child configure" ON
 option(MOONLIGHT_FORCE_NXDK_DISTCLEAN "Force a fresh nxdk distclean during configure" OFF)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/moonlight-dependencies.cmake")
 
 if(BUILD_DOCS)
     add_subdirectory(third-party/doxyconfig docs)
 endif()
 
 if(BUILD_TESTS)
+    moonlight_prepare_common_dependencies()
     enable_testing()
     add_subdirectory(tests)
 endif()

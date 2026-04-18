@@ -7,9 +7,12 @@
 
 Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT use!
 
-Nothing works, except the splash screen.
+> [!WARNING]
+> Streaming does not work yet.
 
-![Splash Screen](./docs/images/loading.png)
+![Splash Screen](./docs/images/screenshots/01-splash.png)
+![Hosts Screen](./docs/images/screenshots/02-hosts.png)
+![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
 ## Build
@@ -33,14 +36,15 @@ Nothing works, except the splash screen.
 pacman -Syu
 nxdk_dependencies=(
   "bison"
-  "cmake"
   "flex"
   "git"
   "make"
+  "mingw-w64-x86_64-cmake"
   "mingw-w64-x86_64-clang"
   "mingw-w64-x86_64-gcc"
   "mingw-w64-x86_64-lld"
   "mingw-w64-x86_64-llvm"
+  "mingw-w64-x86_64-make"
 )
 moonlight_dependencies=(
   "mingw-w64-x86_64-doxygen"
@@ -188,6 +192,10 @@ If you only want the emulator without the ROM/HDD support bundle, run:
 scripts\setup-xemu.cmd --skip-support-files
 ```
 
+> [!NOTE]
+> You can set Xemu to use widescreen mode by using https://github.com/Ernegien/XboxEepromEditor
+> but 1080i does not work in Xemu.
+
 ## Todo
 
 - Build
@@ -204,18 +212,19 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] Enable sonarcloud
    - [x] Build moonlight-common-c
       - [x] Build custom enet
+   - [x] Docs via doxygen
 - Menus / Screens
    - [x] Loading/splash screen
       - [x] Initial loading screen, see https://github.com/XboxDev/nxdk/blob/master/samples/sdl_image/main.c
       - [x] Set video mode based on the best available mode
       - [x] dynamic splash screen (size based on current resolution)
       - [x] simplify (draw background color and overlay logo) to reduce total size
-   - [ ] Main/Home
-   - [ ] Settings
-   - [ ] Add Host
-   - [ ] Game/App Selection
-   - [ ] Host Details
-   - [ ] App Details
+   - [x] Main/Home
+   - [x] Settings
+   - [x] Add Host
+   - [x] Game/App Selection
+   - [x] Host Details
+   - [x] App Details
    - [ ] Pause/Hotkey overlay
 - Streaming
    - [ ] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions
@@ -230,10 +239,9 @@ scripts\setup-xemu.cmd --skip-support-files
    - [ ] Mouse Input
    - [ ] Mouse Emulation via Gamepad
 - Misc.
-  - [ ] Save config and pairing states, probably use nlohmann/json
-  - [ ] Host pairing
+  - [x] Save config and pairing states
+  - [x] Host pairing
   - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
-  - [x] Docs via doxygen
 
 <details style="display: none;">
   <summary></summary>

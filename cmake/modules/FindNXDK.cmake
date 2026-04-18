@@ -62,13 +62,6 @@ if(NOT TARGET NXDK::NXDK)
             IMPORTED_LOCATION "${NXDK_DIR}/lib/winmm.lib"
     )
 
-    add_library(ws2_32 STATIC IMPORTED)
-    set_target_properties(
-            ws2_32
-            PROPERTIES
-            IMPORTED_LOCATION "${NXDK_DIR}/lib/ws2_32.lib"
-    )
-
     add_library(xboxrt STATIC IMPORTED)
     set_target_properties(
             xboxrt
@@ -128,19 +121,5 @@ if (NOT TARGET NXDK::Net)
             "${NXDK_DIR}/lib/net/lwip/src/include"
             "${NXDK_DIR}/lib/net/nforceif/include"
             "${NXDK_DIR}/lib/net/nvnetdrv"
-    )
-endif ()
-
-if (NOT TARGET NXDK::ws2_32)
-    add_library(NXDK::ws2_32 INTERFACE IMPORTED)
-    target_link_libraries(
-            NXDK::ws2_32
-            INTERFACE
-            ws2_32
-    )
-    target_include_directories(
-            NXDK::ws2_32
-            SYSTEM INTERFACE
-            "${NXDK_DIR}/lib/winapi/ws2_32"
     )
 endif ()

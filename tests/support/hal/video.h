@@ -1,3 +1,7 @@
+/**
+ * @file tests/support/hal/video.h
+ * @brief Provides test support for a host-side nxdk video shim.
+ */
 #pragma once
 
 struct VIDEO_MODE {

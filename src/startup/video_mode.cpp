@@ -1,12 +1,32 @@
+/**
+ * @file src/startup/video_mode.cpp
+ * @brief Implements video mode selection helpers.
+ */
 // class header include
 #include "src/startup/video_mode.h"
 
-// nxdk includes
-#include <hal/debug.h>
+// local includes
+#include "src/logging/logger.h"
 
 namespace startup {
 
+  namespace {
+
+    bool is_1080i_mode(const VIDEO_MODE &videoMode) {
+      return videoMode.width >= 1920 && videoMode.height >= 1080;
+    }
+
+  }  // namespace
+
   bool is_preferred_video_mode(const VIDEO_MODE &candidateVideoMode, const VIDEO_MODE &currentBestVideoMode) {
+    if (is_1080i_mode(candidateVideoMode) && !is_1080i_mode(currentBestVideoMode) && currentBestVideoMode.width >= 1280 && currentBestVideoMode.height >= 720) {
+      return false;
+    }
+
+    if (!is_1080i_mode(candidateVideoMode) && is_1080i_mode(currentBestVideoMode) && candidateVideoMode.width >= 1280 && candidateVideoMode.height >= 720) {
+      return true;
+    }
+
     if (candidateVideoMode.height < currentBestVideoMode.height) {
       return false;
     }
@@ -52,14 +72,25 @@ namespace startup {
     return selection;
   }
 
-  void log_video_modes(const VideoModeSelection &selection) {
-    debugPrint("Available video modes:\n");
+  std::vector<std::string> format_video_mode_lines(const VideoModeSelection &selection) {
+    std::vector<std::string> lines;
+    lines.reserve(selection.availableVideoModes.size() + 2U);
+    lines.emplace_back("Available video modes:");
     for (const VIDEO_MODE &availableVideoMode : selection.availableVideoModes) {
-      debugPrint("Width: %d, Height: %d, BPP: %d, Refresh: %d\n", availableVideoMode.width, availableVideoMode.height, availableVideoMode.bpp, availableVideoMode.refresh);
+      lines.push_back(
+        "Width: " + std::to_string(availableVideoMode.width) + ", Height: " + std::to_string(availableVideoMode.height) + ", BPP: " + std::to_string(availableVideoMode.bpp) + ", Refresh: " + std::to_string(availableVideoMode.refresh)
+      );
     }
+    lines.push_back(
+      "Best video mode: Width: " + std::to_string(selection.bestVideoMode.width) + ", Height: " + std::to_string(selection.bestVideoMode.height) + ", BPP: " + std::to_string(selection.bestVideoMode.bpp) + ", Refresh: " + std::to_string(selection.bestVideoMode.refresh)
+    );
+    return lines;
+  }
 
-    debugPrint("Best video mode:\n");
-    debugPrint("Width: %d, Height: %d, BPP: %d, Refresh: %d\n", selection.bestVideoMode.width, selection.bestVideoMode.height, selection.bestVideoMode.bpp, selection.bestVideoMode.refresh);
+  void log_video_modes(const VideoModeSelection &selection) {
+    for (const std::string &line : format_video_mode_lines(selection)) {
+      logging::info("video", line);
+    }
   }
 
 }  // namespace startup

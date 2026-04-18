@@ -34,6 +34,18 @@ if /I "%~1"=="-h" exit /b 1
 if /I "%~1"=="--help" exit /b 1
 if /I "%~1"=="--build-dir" exit /b 0
 if /I "%~1"=="--iso" exit /b 0
+if /I "%~1"=="--network" (
+    shift
+    if "%~1"=="" exit /b 1
+    shift
+    goto has_explicit_target
+)
+if /I "%~1"=="--tap-ifname" (
+    shift
+    if "%~1"=="" exit /b 1
+    shift
+    goto has_explicit_target
+)
 if /I "%~1"=="--" (
     shift
     if "%~1"=="" exit /b 1
