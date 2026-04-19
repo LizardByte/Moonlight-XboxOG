@@ -19,11 +19,11 @@
 // local includes
 #include "src/app/host_records.h"
 #include "src/logging/logger.h"
-#include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 
 #ifdef NXDK
   // nxdk includes
+  #include <cstddef>
   #include <lwip/apps/mdns.h>
   #include <lwip/apps/mdns_domain.h>
   #include <lwip/err.h>
@@ -46,9 +46,10 @@ namespace {
   constexpr uint32_t DEFAULT_DISCOVERY_TIMEOUT_MILLISECONDS = 1500U;
 
 #ifdef NXDK
-  constexpr char kXemuUserModeGatewayAddress[] = "10.0.2.2";
   constexpr char kMdnsDiscoveryHostName[] = "moonlight-xbox";
 #endif
+
+  constexpr std::string_view kMdnsDiscoveryMethodName = "mDNS";
 
   network::testing::HostDiscoveryTestHandler &host_discovery_test_handler() {
     static network::testing::HostDiscoveryTestHandler handler;  ///< Optional scripted discovery handler used by host-native unit tests.
@@ -71,31 +72,6 @@ namespace {
   }
 
   /**
-   * @brief Discovery mechanisms used by the NXDK host search flow.
-   */
-  enum class HostDiscoveryMethod {
-    mdns,
-    directGatewayProbe,
-  };
-
-  /**
-   * @brief Return a stable log label for one discovery mechanism.
-   *
-   * @param method Discovery mechanism to describe.
-   * @return Lowercase text suitable for runtime logs.
-   */
-  std::string_view host_discovery_method_name(HostDiscoveryMethod method) {
-    switch (method) {
-      case HostDiscoveryMethod::mdns:
-        return "mDNS";
-      case HostDiscoveryMethod::directGatewayProbe:
-        return "direct gateway check";
-      default:
-        return "unknown";
-    }
-  }
-
-  /**
    * @brief Format one host endpoint for discovery diagnostics.
    *
    * @param address Canonical IPv4 address for the host.
@@ -114,10 +90,9 @@ namespace {
    * @param displayName User-facing label for the discovered host.
    * @param address Reachable IPv4 address for the host.
    * @param port Host HTTP port, or zero for the default Moonlight port.
-   * @param method Discovery mechanism that found the host.
    * @return True when a new host was appended.
    */
-  bool append_discovered_host(network::DiscoverHostsResult *result, std::string displayName, const std::string &address, uint16_t port, HostDiscoveryMethod method) {
+  bool append_discovered_host(network::DiscoverHostsResult *result, std::string displayName, const std::string &address, uint16_t port) {
     if (result == nullptr) {
       return false;
     }
@@ -134,7 +109,7 @@ namespace {
         duplicate != result->hosts.end()) {
       logging::debug(
         "hosts",
-        "Ignoring duplicate host from " + std::string(host_discovery_method_name(method)) + ": " + format_discovered_host_endpoint(normalizedAddress, storedPort)
+        "Ignoring duplicate host from " + std::string(kMdnsDiscoveryMethodName) + ": " + format_discovered_host_endpoint(normalizedAddress, storedPort)
       );
       if (duplicate->displayName.empty() && !displayName.empty()) {
         duplicate->displayName = std::move(displayName);
@@ -154,9 +129,27 @@ namespace {
     const network::DiscoveredHost &host = result->hosts.back();
     logging::debug(
       "hosts",
-      "Discovered host via " + std::string(host_discovery_method_name(method)) + ": " + host.displayName + " (" + format_discovered_host_endpoint(host.address, host.port) + ')'
+      "Discovered host via " + std::string(kMdnsDiscoveryMethodName) + ": " + host.displayName + " (" + format_discovered_host_endpoint(host.address, host.port) + ')'
     );
     return true;
+  }
+
+  bool discovered_host_less(const network::DiscoveredHost &left, const network::DiscoveredHost &right) {
+    if (left.displayName != right.displayName) {
+      return left.displayName < right.displayName;
+    }
+    if (left.address != right.address) {
+      return left.address < right.address;
+    }
+    return app::effective_host_port(left.port) < app::effective_host_port(right.port);
+  }
+
+  void sort_discovered_hosts_in_place(std::vector<network::DiscoveredHost> *hosts) {
+    if (hosts == nullptr) {
+      return;
+    }
+
+    std::sort(hosts->begin(), hosts->end(), discovered_host_less);
   }
 
 #ifdef NXDK
@@ -337,59 +330,12 @@ namespace {
         &result,
         service.displayName.empty() ? first_dns_label(service.targetDomain) : service.displayName,
         addressIterator->second,
-        service.port,
-        HostDiscoveryMethod::mdns
+        service.port
       );
     }
 
-    std::sort(result.hosts.begin(), result.hosts.end(), [](const network::DiscoveredHost &left, const network::DiscoveredHost &right) {
-      if (left.displayName != right.displayName) {
-        return left.displayName < right.displayName;
-      }
-      if (left.address != right.address) {
-        return left.address < right.address;
-      }
-      return app::effective_host_port(left.port) < app::effective_host_port(right.port);
-    });
+    sort_discovered_hosts_in_place(&result.hosts);
     return result;
-  }
-
-  /**
-   * @brief Probe xemu's user-mode NAT gateway for a directly reachable host.
-   *
-   * xemu's default `-nic user` network exposes the host machine at `10.0.2.2`
-   * but does not reliably forward multicast mDNS traffic. When the runtime
-   * network reports that gateway address, try a direct Moonlight `/serverinfo`
-   * query so the host still appears automatically in the common xemu setup.
-   *
-   * @param result Discovery result to extend.
-   */
-  void append_xemu_gateway_host_if_available(network::DiscoverHostsResult *result) {
-    if (result == nullptr) {
-      return;
-    }
-
-    if (const network::RuntimeNetworkStatus &status = network::runtime_network_status(); app::normalize_ipv4_address(status.gateway) != kXemuUserModeGatewayAddress) {
-      return;
-    }
-
-    logging::debug("hosts", "Running direct gateway host check via " + std::string(kXemuUserModeGatewayAddress));
-
-    network::HostPairingServerInfo serverInfo {};
-    if (std::string errorMessage; !network::query_server_info(kXemuUserModeGatewayAddress, 0, nullptr, &serverInfo, &errorMessage)) {
-      if (!errorMessage.empty()) {
-        logging::debug("hosts", "Direct gateway host check failed: " + errorMessage);
-      }
-      return;
-    }
-
-    append_discovered_host(
-      result,
-      trim_ascii_whitespace(serverInfo.hostName),
-      kXemuUserModeGatewayAddress,
-      serverInfo.httpPort,
-      HostDiscoveryMethod::directGatewayProbe
-    );
   }
 
   /**
@@ -407,7 +353,9 @@ namespace {
       return ERR_ARG;
     }
 
-    netif->flags |= NETIF_FLAG_ETHERNET | NETIF_FLAG_IGMP;
+    const std::byte multicastFlags = static_cast<std::byte>(NETIF_FLAG_ETHERNET) | static_cast<std::byte>(NETIF_FLAG_IGMP);
+    const std::byte preparedFlags = static_cast<std::byte>(netif->flags) | multicastFlags;
+    netif->flags = static_cast<decltype(netif->flags)>(std::to_integer<unsigned int>(preparedFlags));
     if (netif_igmp_data(netif) == nullptr) {
       const err_t igmpStartResult = igmp_start(netif);
       if (igmpStartResult != ERR_OK) {
@@ -489,11 +437,9 @@ namespace network {
     DiscoveryCollector collector {};
     u8_t requestId = 0;
     LOCK_TCPIP_CORE();
-    const err_t mdnsBootstrapResult = ensure_mdns_initialized_for_discovery(g_pnetif);
-    if (mdnsBootstrapResult != ERR_OK) {
+    if (const err_t mdnsBootstrapResult = ensure_mdns_initialized_for_discovery(g_pnetif); mdnsBootstrapResult != ERR_OK) {
       UNLOCK_TCPIP_CORE();
       result.errorMessage = "Failed to initialize host auto discovery mDNS support (lwIP error " + std::to_string(mdnsBootstrapResult) + ")";
-      append_xemu_gateway_host_if_available(&result);
       return result;
     }
     const err_t searchResult = mdns_search_service(nullptr, kGameStreamServiceType, DNSSD_PROTO_TCP, g_pnetif, collect_mdns_search_result, &collector, &requestId);
@@ -508,18 +454,7 @@ namespace network {
     mdns_search_stop(requestId);
     UNLOCK_TCPIP_CORE();
 
-    result = build_discover_hosts_result(collector);
-    append_xemu_gateway_host_if_available(&result);
-    std::sort(result.hosts.begin(), result.hosts.end(), [](const network::DiscoveredHost &left, const network::DiscoveredHost &right) {
-      if (left.displayName != right.displayName) {
-        return left.displayName < right.displayName;
-      }
-      if (left.address != right.address) {
-        return left.address < right.address;
-      }
-      return app::effective_host_port(left.port) < app::effective_host_port(right.port);
-    });
-    return result;
+    return build_discover_hosts_result(collector);
 #else
     (void) timeoutMilliseconds;
     return {};
@@ -534,6 +469,48 @@ namespace network {
 
     void clear_host_discovery_test_handler() {
       host_discovery_test_handler() = {};
+    }
+
+    /**
+     * @brief Expose the internal whitespace trimmer to host-native unit tests.
+     *
+     * @param text Raw discovery text.
+     * @return Discovery text with surrounding ASCII whitespace removed.
+     */
+    std::string trim_host_discovery_text(std::string_view text) {
+      return trim_ascii_whitespace(text);
+    }
+
+    /**
+     * @brief Expose the internal DNS-label parser to host-native unit tests.
+     *
+     * @param domainText Service instance or host domain text.
+     * @return The first DNS label after discovery-style trimming.
+     */
+    std::string first_host_discovery_label(std::string_view domainText) {
+      return first_dns_label(domainText);
+    }
+
+    /**
+     * @brief Expose host normalization and deduplication to host-native unit tests.
+     *
+     * @param result Discovery result to update.
+     * @param displayName Candidate user-facing label.
+     * @param address Candidate IPv4 address.
+     * @param port Candidate HTTP port, or zero for the default port.
+     * @return True when a new host was appended.
+     */
+    bool append_mdns_discovered_host(DiscoverHostsResult *result, std::string displayName, const std::string &address, uint16_t port) {
+      return append_discovered_host(result, std::move(displayName), address, port);
+    }
+
+    /**
+     * @brief Expose the runtime host ordering rules to host-native unit tests.
+     *
+     * @param hosts Hosts to sort in place.
+     */
+    void sort_discovered_hosts(std::vector<DiscoveredHost> *hosts) {
+      sort_discovered_hosts_in_place(hosts);
     }
 
   }  // namespace testing

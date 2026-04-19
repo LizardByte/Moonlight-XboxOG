@@ -2940,10 +2940,8 @@ namespace {
       if (nextHostProbeTick != nullptr) {
         *nextHostProbeTick = 0U;
       }
-    } else if (app::normalize_ipv4_address(network::runtime_network_status().gateway) == "10.0.2.2") {
-      logging::info("hosts", "Auto discovery did not find any hosts. xemu's default user-mode network does not forward mDNS reliably, so only the direct gateway check at 10.0.2.2 was available.");
     } else {
-      logging::info("hosts", "Auto discovery completed without finding any Moonlight-compatible hosts");
+      logging::info("hosts", "Auto discovery completed without finding any Moonlight-compatible hosts. If you are using xemu's default user-mode network, use TAP networking or add the host manually.");
     }
     if (persistedHostCount > 0U && state.hosts.dirty) {
       persist_hosts(state);
