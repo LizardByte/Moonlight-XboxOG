@@ -32,6 +32,7 @@
 #include "src/input/navigation_input.h"
 #include "src/logging/log_file.h"
 #include "src/logging/logger.h"
+#include "src/network/host_discovery.h"
 #include "src/network/host_pairing.h"
 #include "src/network/runtime_network.h"
 #include "src/os.h"
@@ -48,6 +49,8 @@
 namespace {
 
   constexpr std::size_t PAIRING_THREAD_STACK_SIZE = 1024U * 1024U;
+  constexpr Uint32 HOST_DISCOVERY_REFRESH_INTERVAL_MILLISECONDS = 10000U;
+  constexpr uint32_t HOST_DISCOVERY_TIMEOUT_MILLISECONDS = 1500U;
   constexpr Uint32 HOST_PROBE_REFRESH_INTERVAL_MILLISECONDS = 10000U;
   constexpr Uint32 APP_LIST_REFRESH_INTERVAL_MILLISECONDS = 30000U;
 
@@ -2497,6 +2500,13 @@ namespace {
     std::size_t failureCount = 0;
   };
 
+  struct HostDiscoveryTaskState {
+    SDL_Thread *thread = nullptr;
+    std::atomic<bool> completed = false;
+    std::vector<network::DiscoveredHost> hosts;
+    std::string errorMessage;
+  };
+
   struct HostProbeTaskState {
     struct ProbeWorkerState {
       SDL_Thread *thread = nullptr;
@@ -2655,6 +2665,21 @@ namespace {
   }
 
   bool app_art_task_is_active(const AppArtTaskState &task) {
+    return task.thread != nullptr && !task.completed.load();
+  }
+
+  void reset_host_discovery_task(HostDiscoveryTaskState *task) {
+    if (task == nullptr) {
+      return;
+    }
+
+    task->thread = nullptr;
+    task->completed.store(false);
+    task->hosts.clear();
+    task->errorMessage.clear();
+  }
+
+  bool host_discovery_task_is_active(const HostDiscoveryTaskState &task) {
     return task.thread != nullptr && !task.completed.load();
   }
 
@@ -2867,6 +2892,62 @@ namespace {
     return 0;
   }
 
+  int run_host_discovery_task(void *context) {  // NOSONAR(cpp:S5008) SDL_CreateThread requires void* callback signature
+    auto *task = static_cast<HostDiscoveryTaskState *>(context);
+    if (task == nullptr) {
+      return -1;
+    }
+
+    const network::DiscoverHostsResult result = network::discover_hosts(HOST_DISCOVERY_TIMEOUT_MILLISECONDS);
+    task->hosts = result.hosts;
+    task->errorMessage = result.errorMessage;
+    task->completed.store(true);
+    return 0;
+  }
+
+  void finish_host_discovery_task_if_ready(app::ClientState &state, HostDiscoveryTaskState *task, Uint32 *nextHostProbeTick) {
+    if (task == nullptr || task->thread == nullptr || !task->completed.load()) {
+      return;
+    }
+
+    SDL_Thread *thread = task->thread;
+    task->thread = nullptr;
+    int threadResult = 0;
+    SDL_WaitThread(thread, &threadResult);
+    (void) threadResult;
+
+    std::vector<network::DiscoveredHost> discoveredHosts = std::move(task->hosts);
+    const std::string errorMessage = task->errorMessage;
+    reset_host_discovery_task(task);
+
+    if (state.shell.activeScreen != app::ScreenId::hosts || !state.hosts.loaded) {
+      return;
+    }
+    if (!errorMessage.empty()) {
+      logging::warn("hosts", errorMessage);
+      return;
+    }
+
+    std::size_t persistedHostCount = 0U;
+    for (const network::DiscoveredHost &host : discoveredHosts) {
+      if (app::merge_discovered_host(state, host.displayName, host.address, host.port)) {
+        ++persistedHostCount;
+      }
+    }
+
+    if (!discoveredHosts.empty()) {
+      logging::debug("hosts", "Auto discovery found " + std::to_string(discoveredHosts.size()) + " Moonlight-compatible host(s)");
+      if (nextHostProbeTick != nullptr) {
+        *nextHostProbeTick = 0U;
+      }
+    } else {
+      logging::info("hosts", "Auto discovery completed without finding any Moonlight-compatible hosts. If you are using xemu's default user-mode network, use TAP networking or add the host manually.");
+    }
+    if (persistedHostCount > 0U && state.hosts.dirty) {
+      persist_hosts(state);
+    }
+  }
+
   void apply_published_host_probe_results(app::ClientState &state, HostProbeTaskState *task) {
     if (task == nullptr) {
       return;
@@ -2964,6 +3045,31 @@ namespace {
 
     if (nextHostProbeTick != nullptr) {
       *nextHostProbeTick = now + HOST_PROBE_REFRESH_INTERVAL_MILLISECONDS;
+    }
+  }
+
+  void start_host_discovery_task_if_needed(const app::ClientState &state, HostDiscoveryTaskState *task, Uint32 now, Uint32 *nextHostDiscoveryTick) {
+    if (task == nullptr || host_discovery_task_is_active(*task) || state.shell.activeScreen != app::ScreenId::hosts || !state.hosts.loaded || !network::runtime_network_ready()) {
+      return;
+    }
+    if (nextHostDiscoveryTick != nullptr && *nextHostDiscoveryTick != 0U && now < *nextHostDiscoveryTick) {
+      return;
+    }
+
+    reset_host_discovery_task(task);
+    logging::debug("hosts", "Starting host auto discovery");
+    task->thread = SDL_CreateThread(run_host_discovery_task, "discover-hosts", task);
+    if (task->thread == nullptr) {
+      logging::error("hosts", std::string("Failed to start the host auto-discovery task: ") + SDL_GetError());
+      reset_host_discovery_task(task);
+      if (nextHostDiscoveryTick != nullptr) {
+        *nextHostDiscoveryTick = now + HOST_DISCOVERY_REFRESH_INTERVAL_MILLISECONDS;
+      }
+      return;
+    }
+
+    if (nextHostDiscoveryTick != nullptr) {
+      *nextHostDiscoveryTick = now + HOST_DISCOVERY_REFRESH_INTERVAL_MILLISECONDS;
     }
   }
 
@@ -4187,10 +4293,12 @@ namespace {
     bool running = true;  ///< False when the shell should stop processing frames.
     bool keypadRedrawRequested = true;  ///< True when the add-host keypad must redraw immediately.
     ShellInputState inputState {};  ///< Current controller and trigger input state.
+    Uint32 nextHostDiscoveryTick = 0;  ///< Next scheduled host auto-discovery time.
     Uint32 nextHostProbeTick = 0;  ///< Next scheduled host probe time.
     PairingTaskState pairingTask {};  ///< Background pairing workflow state.
     AppListTaskState appListTask {};  ///< Background app-list fetch state.
     AppArtTaskState appArtTask {};  ///< Background box-art download state.
+    HostDiscoveryTaskState hostDiscoveryTask {};  ///< Background host auto-discovery state.
     HostProbeTaskState hostProbeTask {};  ///< Background host probe state.
   };
 
@@ -4351,6 +4459,7 @@ namespace {
     reset_pairing_task(&runtime->pairingTask);
     reset_app_list_task(&runtime->appListTask);
     reset_app_art_task(&runtime->appArtTask);
+    reset_host_discovery_task(&runtime->hostDiscoveryTask);
     reset_host_probe_task(&runtime->hostProbeTask);
     logging::set_minimum_level(logging::LogLevel::trace);
     logging::set_file_minimum_level(state.settings.loggingLevel);
@@ -4400,6 +4509,7 @@ namespace {
     finish_pairing_task_if_ready(state, &runtime->pairingTask);
     finish_app_list_task_if_ready(state, &runtime->appListTask);
     finish_app_art_task_if_ready(state, &runtime->appArtTask, &resources->coverArtTextureCache);
+    finish_host_discovery_task_if_ready(state, &runtime->hostDiscoveryTask, &runtime->nextHostProbeTick);
     finish_host_probe_task_if_ready(state, &runtime->hostProbeTask);
   }
 
@@ -4415,6 +4525,7 @@ namespace {
       return;
     }
 
+    start_host_discovery_task_if_needed(state, &runtime->hostDiscoveryTask, now, &runtime->nextHostDiscoveryTick);
     start_host_probe_task_if_needed(state, &runtime->hostProbeTask, now, &runtime->nextHostProbeTick);
     start_app_list_task_if_needed(state, &runtime->appListTask, now);
     start_app_art_task_if_needed(state, &runtime->appArtTask);
@@ -4537,6 +4648,7 @@ namespace {
 
     wait_for_thread(runtime->appListTask.thread);
     wait_for_thread(runtime->appArtTask.thread);
+    wait_for_thread(runtime->hostDiscoveryTask.thread);
     for (const std::unique_ptr<HostProbeTaskState::ProbeWorkerState> &worker : runtime->hostProbeTask.workers) {
       if (worker == nullptr) {
         continue;

@@ -7,6 +7,7 @@ usage() {
 Usage: setup-xemu.sh [--force] [--skip-support-files]
 
 Downloads a portable xemu build into .local/xemu and refreshes launcher manifests.
+Existing .local/xemu files are preserved unless --force is passed.
 EOF
     return 0
 }
@@ -66,6 +67,33 @@ extract_archive() {
 
     echo 'Could not extract archive: no unzip, bsdtar, or tar found.' >&2
     return 1
+}
+
+copy_tree_preserving_existing() {
+    local source_root="$1"
+    local destination_root="$2"
+    local source_path relative_path destination_path
+
+    mkdir -p "$destination_root"
+
+    while IFS= read -r -d '' source_path; do
+        relative_path="${source_path#"$source_root"/}"
+        destination_path="$destination_root/$relative_path"
+
+        if [[ -d "$source_path" ]]; then
+            mkdir -p "$destination_path"
+            continue
+        fi
+
+        if [[ -e "$destination_path" ]]; then
+            continue
+        fi
+
+        mkdir -p "$(dirname "$destination_path")"
+        cp -p "$source_path" "$destination_path"
+    done < <(find "$source_root" -mindepth 1 -print0)
+
+    return 0
 }
 
 latest_xemu_tag() {
@@ -147,6 +175,22 @@ find_first_file() {
     return 1
 }
 
+find_existing_xemu_executable() {
+    local root="$1"
+
+    find_first_file "$root" 'xemu.exe' 'xemu' 'xemu.AppImage'
+    return $?
+}
+
+support_assets_ready() {
+    local root="$1"
+
+    [[ -n "$(find_first_file "$root" 'mcpx*.bin' 2>/dev/null || true)" ]] || return 1
+    [[ -n "$(find_first_file "$root" 'Complex*.bin' '*4627*.bin' 2>/dev/null || true)" ]] || return 1
+    [[ -n "$(find_first_file "$root" 'xbox_hdd.qcow2' '*.qcow2' 2>/dev/null || true)" ]] || return 1
+    return 0
+}
+
 write_shell_manifest() {
     local manifest_path="$1"
     shift
@@ -179,6 +223,8 @@ write_cmd_manifest() {
 
 force_download=0
 skip_support_files=0
+reused_existing_xemu=0
+reused_existing_support=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -214,56 +260,79 @@ manifest_cmd="$xemu_root/paths.cmd"
 
 mkdir -p "$downloads_dir" "$app_dir" "$support_dir" "$temp_dir" "$portable_root"
 
-mapfile -t platform_info < <(detect_platform)
-os_name="${platform_info[0]}"
-arch_name="${platform_info[1]}"
-tag="$(latest_xemu_tag)"
-if [[ -z "$tag" ]]; then
-    echo 'Could not determine the latest xemu release tag.' >&2
-    exit 1
-fi
-
-asset_name="$(select_xemu_asset "$os_name" "$arch_name" "$tag")"
-asset_url="https://github.com/xemu-project/xemu/releases/latest/download/${asset_name}"
-asset_path="$downloads_dir/$asset_name"
-
-download_file "$asset_url" "$asset_path" "$force_download"
-
-rm -rf "$app_dir"
-mkdir -p "$app_dir"
-
-case "$asset_name" in
-    *.zip)
-        extract_archive "$asset_path" "$temp_dir/xemu-extract"
-        xemu_exe="$(find_first_file "$temp_dir/xemu-extract" 'xemu.exe' 'xemu')"
-        if [[ -z "$xemu_exe" ]]; then
-            echo 'Could not find xemu executable in the downloaded archive.' >&2
-            exit 1
-        fi
-        cp -R "$temp_dir/xemu-extract"/. "$app_dir"/
-        xemu_exe="$(find_first_file "$app_dir" 'xemu.exe' 'xemu')"
-        ;;
-    *.AppImage)
-        cp "$asset_path" "$app_dir/xemu.AppImage"
-        chmod +x "$app_dir/xemu.AppImage"
-        xemu_exe="$app_dir/xemu.AppImage"
-        ;;
-    *)
-        echo "Unsupported xemu asset type: $asset_name" >&2
+xemu_exe="$(find_existing_xemu_executable "$app_dir" || true)"
+if [[ -n "$xemu_exe" && "$force_download" -eq 0 ]]; then
+    reused_existing_xemu=1
+else
+    mapfile -t platform_info < <(detect_platform)
+    os_name="${platform_info[0]}"
+    arch_name="${platform_info[1]}"
+    tag="$(latest_xemu_tag)"
+    if [[ -z "$tag" ]]; then
+        echo 'Could not determine the latest xemu release tag.' >&2
         exit 1
-        ;;
- esac
+    fi
+
+    asset_name="$(select_xemu_asset "$os_name" "$arch_name" "$tag")"
+    asset_url="https://github.com/xemu-project/xemu/releases/latest/download/${asset_name}"
+    asset_path="$downloads_dir/$asset_name"
+
+    download_file "$asset_url" "$asset_path" "$force_download"
+
+    case "$asset_name" in
+        *.zip)
+            extract_archive "$asset_path" "$temp_dir/xemu-extract"
+            if [[ -z "$(find_existing_xemu_executable "$temp_dir/xemu-extract" || true)" ]]; then
+                echo 'Could not find xemu executable in the downloaded archive.' >&2
+                exit 1
+            fi
+
+            if [[ "$force_download" -eq 1 ]]; then
+                rm -rf "$app_dir"
+                mkdir -p "$app_dir"
+                cp -R "$temp_dir/xemu-extract"/. "$app_dir"/
+            else
+                copy_tree_preserving_existing "$temp_dir/xemu-extract" "$app_dir"
+            fi
+            xemu_exe="$(find_existing_xemu_executable "$app_dir" || true)"
+            ;;
+        *.AppImage)
+            if [[ "$force_download" -eq 1 || ! -f "$app_dir/xemu.AppImage" ]]; then
+                cp "$asset_path" "$app_dir/xemu.AppImage"
+            fi
+            chmod +x "$app_dir/xemu.AppImage"
+            xemu_exe="$app_dir/xemu.AppImage"
+            ;;
+        *)
+            echo "Unsupported xemu asset type: $asset_name" >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ -z "$xemu_exe" ]]; then
+        echo 'Could not locate the xemu executable after installation.' >&2
+        exit 1
+    fi
+fi
 
 support_zip="$downloads_dir/Xbox-Emulator-Files.zip"
 if [[ "$skip_support_files" -eq 0 ]]; then
-    download_file \
-        'https://github.com/K3V1991/Xbox-Emulator-Files/releases/download/v1/Xbox-Emulator-Files.zip' \
-        "$support_zip" \
-        "$force_download"
-    rm -rf "$support_dir"
-    mkdir -p "$support_dir"
-    extract_archive "$support_zip" "$temp_dir/support-extract"
-    cp -R "$temp_dir/support-extract"/. "$support_dir"/
+    if [[ "$force_download" -eq 0 ]] && support_assets_ready "$support_dir"; then
+        reused_existing_support=1
+    else
+        download_file \
+            'https://github.com/K3V1991/Xbox-Emulator-Files/releases/download/v1/Xbox-Emulator-Files.zip' \
+            "$support_zip" \
+            "$force_download"
+        extract_archive "$support_zip" "$temp_dir/support-extract"
+        if [[ "$force_download" -eq 1 ]]; then
+            rm -rf "$support_dir"
+            mkdir -p "$support_dir"
+            cp -R "$temp_dir/support-extract"/. "$support_dir"/
+        else
+            copy_tree_preserving_existing "$temp_dir/support-extract" "$support_dir"
+        fi
+    fi
 fi
 
 bootrom_path=''
@@ -352,6 +421,12 @@ fi
 chmod +x "$manifest_sh"
 
 printf 'Portable xemu files are ready in %s\n' "$xemu_root"
+if [[ "$reused_existing_xemu" -eq 1 ]]; then
+    echo 'Reused the existing xemu application files in .local/xemu/app.'
+fi
+if [[ "$reused_existing_support" -eq 1 ]]; then
+    echo 'Reused the existing xemu support files in .local/xemu/support.'
+fi
 if [[ "$skip_support_files" -eq 1 ]]; then
     echo 'Support files were skipped. Run setup-xemu.sh again without --skip-support-files to fetch them.'
 elif [[ -z "$bootrom_path" || -z "$flashrom_path" || -z "$hdd_path" ]]; then

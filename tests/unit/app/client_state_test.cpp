@@ -42,6 +42,38 @@ namespace {
     EXPECT_EQ(state.hosts.selectedHostIndex, 0U);
   }
 
+  TEST(ClientStateTest, MergeDiscoveredHostAddsANewReachableHostToTheGrid) {
+    app::ClientState state = app::create_initial_state();
+
+    EXPECT_TRUE(app::merge_discovered_host(state, "Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0));
+
+    ASSERT_EQ(state.hosts.size(), 1U);
+    EXPECT_TRUE(state.hosts.dirty);
+    EXPECT_EQ(state.hosts.front().displayName, "Living Room PC");
+    EXPECT_EQ(state.hosts.front().address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
+    EXPECT_EQ(state.hosts.front().reachability, app::HostReachability::online);
+    EXPECT_EQ(state.hosts.focusArea, app::HostsFocusArea::grid);
+    EXPECT_EQ(state.hosts.selectedHostIndex, 0U);
+  }
+
+  TEST(ClientStateTest, MergeDiscoveredHostPrefersDiscoveredNamesOnlyForDefaultNamedHosts) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Host 10.0.0.25", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost], app::PairingState::not_paired, app::HostReachability::unknown},
+                              });
+
+    EXPECT_TRUE(app::merge_discovered_host(state, "Office PC", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
+    ASSERT_EQ(state.hosts.size(), 1U);
+    EXPECT_EQ(state.hosts.front().displayName, "Office PC");
+    EXPECT_EQ(state.hosts.front().reachability, app::HostReachability::online);
+
+    state.hosts.dirty = false;
+    state.hosts.front().displayName = "Custom Office";
+    EXPECT_FALSE(app::merge_discovered_host(state, "Discovered Office", test_support::kTestIpv4Addresses[test_support::kIpOffice], test_support::kTestPorts[test_support::kPortDefaultHost]));
+    EXPECT_EQ(state.hosts.front().displayName, "Custom Office");
+    EXPECT_FALSE(state.hosts.dirty);
+  }
+
   TEST(ClientStateTest, HostsToolbarCanOpenSettingsAndAddHost) {
     app::ClientState state = app::create_initial_state();
 
@@ -197,6 +229,21 @@ namespace {
     EXPECT_FALSE(state.hosts.loaded);
     EXPECT_TRUE(state.hosts.empty());
     EXPECT_TRUE(state.hosts.activeLoaded);
+  }
+
+  TEST(ClientStateTest, SelectingAnUnpairedHostPrefersTheResolvedHttpPortForPairing) {
+    app::ClientState state = app::create_initial_state();
+    app::replace_hosts(state, {
+                                {"Living Room PC", test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], 0, app::PairingState::not_paired},
+                              });
+    state.hosts.front().resolvedHttpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
+
+    app::handle_command(state, input::UiCommand::move_down);
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+
+    EXPECT_TRUE(update.requests.pairingRequested);
+    EXPECT_EQ(update.requests.pairingPort, test_support::kTestPorts[test_support::kPortResolvedHttp]);
+    EXPECT_EQ(state.pairingDraft.targetPort, test_support::kTestPorts[test_support::kPortResolvedHttp]);
   }
 
   TEST(ClientStateTest, SelectingAnOfflineUnpairedHostDoesNotOpenThePairingScreen) {

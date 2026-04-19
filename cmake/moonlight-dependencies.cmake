@@ -55,6 +55,11 @@ macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
         set(MOONLIGHT_NXDK_NET_INCLUDE_DIR "${NXDK_DIR}/lib/net")
         set(MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR "${NXDK_DIR}/lib/xboxrt/libc_extensions")
         set(MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR "${NXDK_DIR}/lib/net/lwip/src/include/compat/posix")
+        set(MOONLIGHT_NXDK_LWIP_MDNS_SOURCES
+                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns.c"
+                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns_domain.c"
+                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns_out.c"
+        )
 
         if(TARGET enet)
             target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net)

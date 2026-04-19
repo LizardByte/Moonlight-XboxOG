@@ -414,6 +414,23 @@ namespace app {
   void replace_hosts(ClientState &state, std::vector<HostRecord> hosts, std::string statusMessage = {});
 
   /**
+   * @brief Add or refresh one auto-discovered host in the current host list.
+   *
+   * Discovery results are normalized to the same saved-host conventions used by
+   * manual host entry. When a matching host already exists, transient runtime
+   * fields such as reachability are refreshed without overwriting a custom saved
+   * name. When no host matches, a new host record is appended and marked dirty so
+   * it can be persisted.
+   *
+   * @param state Mutable app state.
+   * @param displayName Discovered host name, or an empty string to use the default label.
+   * @param address Discovered IPv4 address.
+   * @param port Discovered host HTTP port.
+   * @return true when persisted host metadata changed or a new host was added.
+   */
+  bool merge_discovered_host(ClientState &state, std::string displayName, const std::string &address, uint16_t port);
+
+  /**
    * @brief Replace the in-memory saved-file inventory shown on the settings page.
    *
    * @param state Mutable app state.
