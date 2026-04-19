@@ -30,6 +30,8 @@ namespace {
     EXPECT_EQ(viewModel.content.toolbarButtons[2].iconAssetPath, "icons\\add-host.svg");
     ASSERT_FALSE(viewModel.content.bodyLines.empty());
     EXPECT_EQ(viewModel.content.bodyLines.front(), "No PCs have been added yet.");
+    ASSERT_GE(viewModel.content.bodyLines.size(), 3U);
+    EXPECT_EQ(viewModel.content.bodyLines[1], "Moonlight-compatible PCs discovered over the local network will appear here automatically.");
     ASSERT_EQ(viewModel.frame.footerActions.size(), 2U);
     EXPECT_EQ(viewModel.frame.footerActions[0].label, "Select");
     EXPECT_EQ(viewModel.frame.footerActions[0].iconAssetPath, "icons\\button-a.svg");

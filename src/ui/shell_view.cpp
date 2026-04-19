@@ -229,8 +229,8 @@ namespace {
     if (state.hosts.items.empty()) {
       return {
         "No PCs have been added yet.",
-        "Use Add Host to save a host manually.",
-        "A Moonlight-style discovery grid now owns the home screen.",
+        "Moonlight-compatible PCs discovered over the local network will appear here automatically.",
+        "Use Add Host to save a host manually when auto discovery is unavailable.",
       };
     }
 

@@ -184,7 +184,9 @@ The repository now includes `.run/Run xemu.run.xml`, which launches `scripts\run
 
 If you create a local CLion run configuration that sets the working directory to a build output such as `$CMakeCurrentBuildDir$/xbox`, the Windows wrapper also treats that caller working directory as the xemu target path when no explicit launcher arguments or `MOONLIGHT_XEMU_*` overrides are provided.
 
-The setup script downloads xemu and the emulator support files into `.local/xemu`, then refreshes launcher manifests used by `scripts/run-xemu.sh`. The launcher accepts `MOONLIGHT_XEMU_BUILD_DIR`, `MOONLIGHT_XEMU_ISO_PATH`, `--build-dir <cmake-build-dir>`, `--iso <iso-path>`, or a single positional path that can point at either a build directory or an ISO file. If you do not pass a path, it falls back across available `cmake-build-*` outputs and prefers the newest built ISO.
+The setup script downloads xemu and the emulator support files into `.local/xemu`, then refreshes launcher manifests used by `scripts/run-xemu.sh`. Existing files under `.local/xemu` are preserved by default so a local xemu install or support bundle is not overwritten unless you pass `--force`. The launcher accepts `MOONLIGHT_XEMU_BUILD_DIR`, `MOONLIGHT_XEMU_ISO_PATH`, `--build-dir <cmake-build-dir>`, `--iso <iso-path>`, or a single positional path that can point at either a build directory or an ISO file. If you do not pass a path, it falls back across available `cmake-build-*` outputs and prefers the newest built ISO.
+
+When xemu runs with its default user-mode network, the Xbox usually sees the host PC at `10.0.2.2`. That setup does not reliably forward multicast mDNS traffic, so Moonlight first tries mDNS/DNS-SD discovery and then falls back to a direct probe of `10.0.2.2` when it detects xemu's default gateway. If your host is not reachable there, launch xemu with `--network tap --tap-ifname <adapter>` or add the host manually from the Xbox UI.
 
 If you only want the emulator without the ROM/HDD support bundle, run:
 
@@ -241,6 +243,7 @@ scripts\setup-xemu.cmd --skip-support-files
 - Misc.
   - [x] Save config and pairing states
   - [x] Host pairing
+  - [x] Auto host discovery
   - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
 
 <details style="display: none;">

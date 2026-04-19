@@ -944,7 +944,7 @@ namespace {
    * @param update Update structure that receives the pairing request details.
    */
   void request_host_pairing(app::ClientState &state, const app::HostRecord &host, app::AppUpdate *update) {
-    if (!enter_pair_host_screen(state, host.address, host.port)) {
+    if (const uint16_t pairingPort = host.resolvedHttpPort == 0U ? host.port : host.resolvedHttpPort; !enter_pair_host_screen(state, host.address, pairingPort)) {
       return;
     }
 
@@ -1321,6 +1321,51 @@ namespace app {
     if (state.shell.activeScreen == ScreenId::settings || state.shell.activeScreen == ScreenId::add_host || state.shell.activeScreen == ScreenId::pair_host) {
       rebuild_menu(state);
     }
+  }
+
+  bool merge_discovered_host(ClientState &state, std::string displayName, const std::string &address, uint16_t port) {
+    const std::string normalizedAddress = normalize_ipv4_address(address);
+    if (normalizedAddress.empty()) {
+      return false;
+    }
+
+    const uint16_t effectivePort = effective_host_port(port);
+    const uint16_t storedPort = effectivePort == DEFAULT_HOST_PORT ? 0 : effectivePort;
+    if (HostRecord *host = find_host_by_endpoint(state.hosts.items, normalizedAddress, effectivePort); host != nullptr) {
+      bool persistedMetadataChanged = false;
+      if (const std::string defaultDisplayName = build_default_host_display_name(host->address); !displayName.empty() && (host->displayName.empty() || host->displayName == defaultDisplayName)) {
+        persistedMetadataChanged = host->displayName != displayName;
+        host->displayName = std::move(displayName);
+      }
+      host->reachability = HostReachability::online;
+      if (host->manualAddress.empty()) {
+        host->manualAddress = normalizedAddress;
+      }
+      if (host->resolvedHttpPort == 0U || host->resolvedHttpPort == DEFAULT_HOST_PORT) {
+        host->resolvedHttpPort = effectivePort;
+      }
+      state.hosts.dirty = state.hosts.dirty || persistedMetadataChanged;
+      return persistedMetadataChanged;
+    }
+
+    HostRecord discoveredHost = make_host_record(normalizedAddress, storedPort);
+    if (!displayName.empty()) {
+      discoveredHost.displayName = std::move(displayName);
+    }
+    discoveredHost.reachability = HostReachability::online;
+    discoveredHost.manualAddress = normalizedAddress;
+    discoveredHost.resolvedHttpPort = effectivePort;
+
+    const bool wasEmpty = state.hosts.items.empty();
+    state.hosts.items.push_back(std::move(discoveredHost));
+    state.hosts.loaded = true;
+    state.hosts.dirty = true;
+    if (wasEmpty && state.shell.activeScreen == ScreenId::hosts) {
+      state.hosts.focusArea = HostsFocusArea::grid;
+      state.hosts.selectedHostIndex = 0U;
+    }
+    clamp_selected_host_index(state);
+    return true;
   }
 
   void replace_saved_files(ClientState &state, std::vector<startup::SavedFileEntry> savedFiles) {
