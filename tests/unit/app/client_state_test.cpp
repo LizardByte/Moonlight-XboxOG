@@ -978,8 +978,14 @@ namespace {
     EXPECT_TRUE(state.hosts.active.apps.front().favorite);
   }
 
-  TEST(ClientStateTest, SettingsPlaceholderActivationAndBackNavigationUpdateFocusAndStatus) {
+  TEST(ClientStateTest, DisplaySettingsCanBeActivatedAndBackNavigationReturnsFocusToCategories) {
     app::ClientState state = app::create_initial_state();
+    state.settings.availableVideoModes = {
+      VIDEO_MODE {640, 480, 32, 60},
+      VIDEO_MODE {1280, 720, 32, 60},
+    };
+    state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
+    state.settings.preferredVideoModeSet = true;
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::activate);
@@ -991,11 +997,42 @@ namespace {
     EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
 
     update = app::handle_command(state, input::UiCommand::activate);
-    EXPECT_EQ(state.shell.statusMessage, "display-placeholder is not implemented yet");
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.preferredVideoMode.width, 1280);
+    EXPECT_EQ(state.settings.preferredVideoMode.height, 720);
 
     update = app::handle_command(state, input::UiCommand::back);
     EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::categories);
     EXPECT_FALSE(update.navigation.screenChanged);
+  }
+
+  TEST(ClientStateTest, DisplaySettingsCanCycleLowStreamResolutionPresets) {
+    app::ClientState state = app::create_initial_state();
+    state.settings.availableVideoModes = {
+      VIDEO_MODE {352, 240, 32, 60},
+      VIDEO_MODE {352, 288, 32, 60},
+      VIDEO_MODE {480, 480, 32, 60},
+    };
+    state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
+    state.settings.preferredVideoModeSet = true;
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.preferredVideoMode.width, 352);
+    EXPECT_EQ(state.settings.preferredVideoMode.height, 288);
+    EXPECT_EQ(state.shell.statusMessage, "Stream resolution set to 352x288");
   }
 
   TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {
@@ -1037,7 +1074,8 @@ namespace {
 
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_EQ(update.navigation.activatedItemId, "launch-app");
-    EXPECT_EQ(state.shell.statusMessage, "Launching Steam is not implemented yet");
+    EXPECT_TRUE(update.requests.streamLaunchRequested);
+    EXPECT_EQ(state.shell.statusMessage, "Starting stream for Steam...");
 
     update = app::handle_command(state, input::UiCommand::delete_character);
     EXPECT_TRUE(state.shell.statusMessage.empty());

@@ -28,11 +28,14 @@ namespace network {
    */
   struct HostPairingServerInfo {
     int serverMajorVersion = 0;  ///< Major version reported by the host server.
+    std::string appVersion;  ///< Full appversion string reported by the host server.
+    std::string gfeVersion;  ///< Full GFE or Sunshine version string reported by the host server.
     uint16_t httpPort = 0;  ///< HTTP port reported or inferred for plaintext requests.
     uint16_t httpsPort = 0;  ///< HTTPS port reported for encrypted requests and assets.
     bool paired = false;  ///< True when the host reports that this client is paired.
     bool pairingStatusCurrentClientKnown = false;  ///< True when the host explicitly reported pairing status for this client.
     bool pairingStatusCurrentClient = false;  ///< Pairing status reported for this specific client identity.
+    int serverCodecModeSupport = 0;  ///< Codec capability mask reported by the host.
     std::string hostName;  ///< User-facing host name reported by the server.
     std::string uuid;  ///< Stable host UUID.
     std::string activeAddress;  ///< Best currently reachable address chosen for live requests.
@@ -71,6 +74,33 @@ namespace network {
     bool success;  ///< True when pairing succeeded.
     bool alreadyPaired;  ///< True when the host was already paired before the request.
     std::string message;  ///< User-visible success or failure detail.
+  };
+
+  /**
+   * @brief Parameters required to start or resume a streaming session.
+   */
+  struct StreamLaunchConfiguration {
+    int appId = 0;  ///< Host application identifier that should be launched or resumed.
+    int width = 640;  ///< Requested stream width in pixels.
+    int height = 480;  ///< Requested stream height in pixels.
+    int fps = 30;  ///< Requested stream frame rate.
+    int audioConfiguration = 0;  ///< Moonlight audio configuration bitfield.
+    bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
+    int clientRefreshRateX100 = 0;  ///< Optional client refresh rate multiplied by 100.
+    std::string remoteInputAesKeyHex;  ///< Hex-encoded 16-byte remote-input AES key.
+    std::string remoteInputAesIvHex;  ///< Hex-encoded 16-byte remote-input AES IV.
+  };
+
+  /**
+   * @brief Parsed result of a successful `/launch` or `/resume` request.
+   */
+  struct StreamLaunchResult {
+    bool resumedSession = false;  ///< True when an existing host session was resumed instead of launching a new app.
+    HostPairingServerInfo serverInfo;  ///< Latest host server-info metadata used for the launch decision.
+    std::string rtspSessionUrl;  ///< Optional RTSP session URL returned by the host.
+    std::string appVersion;  ///< Full appversion string to pass to moonlight-common-c.
+    std::string gfeVersion;  ///< Full GFE or Sunshine version string reported during launch.
+    int serverCodecModeSupport = 0;  ///< Codec capability mask to pass to moonlight-common-c.
   };
 
   /**
@@ -199,6 +229,30 @@ namespace network {
     const PairingIdentity *clientIdentity,
     int appId,
     std::vector<unsigned char> *assetBytes,
+    std::string *errorMessage = nullptr
+  );
+
+  /**
+   * @brief Launch or resume one host application and return stream session details.
+   *
+   * The helper first refreshes `/serverinfo` using the supplied paired client
+   * identity, then resumes the running session when the requested app is
+   * already active or launches a new session otherwise.
+   *
+   * @param address Host address to query.
+   * @param preferredHttpPort Preferred HTTP port override.
+   * @param clientIdentity Paired client identity used for authenticated launch requests.
+   * @param configuration Stream launch parameters including app ID and remote-input keys.
+   * @param result Output populated with launch metadata required by moonlight-common-c.
+   * @param errorMessage Optional output for request or parse failures.
+   * @return true when the host accepted the launch or resume request.
+   */
+  bool launch_or_resume_stream(
+    const std::string &address,
+    uint16_t preferredHttpPort,
+    const PairingIdentity &clientIdentity,
+    const StreamLaunchConfiguration &configuration,
+    StreamLaunchResult *result,
     std::string *errorMessage = nullptr
   );
 

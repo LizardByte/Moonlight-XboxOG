@@ -229,14 +229,14 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] App Details
    - [ ] Pause/Hotkey overlay
 - Streaming
-   - [ ] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions
+   - [x] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions
    - [ ] Audio
       - [ ] Mono
       - [ ] Stereo
       - [ ] 5.1 Surround
       - [ ] 7.1 Surround
 - Input
-   - [ ] Gamepad Input
+   - [x] Gamepad Input
    - [ ] Keyboard Input
    - [ ] Mouse Input
    - [ ] Mouse Emulation via Gamepad

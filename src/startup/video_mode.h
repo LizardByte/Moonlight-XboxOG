@@ -42,6 +42,30 @@ namespace startup {
   VIDEO_MODE choose_best_video_mode(const std::vector<VIDEO_MODE> &availableVideoModes);
 
   /**
+   * @brief Return the fixed stream-resolution presets exposed in the settings UI.
+   *
+   * These presets are independent from the Xbox output modes returned by
+   * `XVideoListModes()`. They define only the host stream resolution that
+   * Moonlight requests when starting a session.
+   *
+   * @param bpp Bits-per-pixel metadata to attach to each preset.
+   * @param refresh Refresh-rate metadata to attach to each preset.
+   * @return Ordered list of stream-resolution presets.
+   */
+  std::vector<VIDEO_MODE> stream_resolution_presets(int bpp = 32, int refresh = 60);
+
+  /**
+   * @brief Choose the default stream-resolution preset for the current output mode.
+   *
+   * The shell output mode still comes from Xbox video-mode detection, but stream
+   * quality is controlled separately through the settings presets.
+   *
+   * @param outputVideoMode Active Xbox output mode selected at startup.
+   * @return Default stream-resolution preset for new or missing settings.
+   */
+  VIDEO_MODE choose_default_stream_video_mode(const VIDEO_MODE &outputVideoMode);
+
+  /**
    * @brief Detect and choose the best available video mode.
    *
    * @param bpp Desired bits-per-pixel color depth. Default is 32.

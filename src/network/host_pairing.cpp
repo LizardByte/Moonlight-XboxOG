@@ -35,6 +35,9 @@
 #include "src/network/runtime_network.h"
 #include "src/platform/error_utils.h"
 
+// third-party includes
+#include "third-party/moonlight-common-c/src/Limelight.h"
+
 // platform includes
 #ifdef NXDK
   #include <errno.h>
@@ -115,9 +118,11 @@ namespace {
   constexpr int SOCKET_TIMEOUT_MILLISECONDS = 5000;
   constexpr uint16_t DEFAULT_SERVERINFO_HTTP_PORT = 47989;
   constexpr uint16_t FALLBACK_SERVERINFO_HTTP_PORT = 47984;
+  constexpr uint16_t DEFAULT_SERVERINFO_HTTPS_PORT = 47990;
   constexpr std::string_view DEFAULT_SERVERINFO_UNIQUE_ID = "0123456789ABCDEF";
   constexpr std::string_view DEFAULT_SERVERINFO_UUID = "11111111-2222-3333-4444-555555555555";
   constexpr std::string_view UNPAIRED_CLIENT_ERROR_MESSAGE = "The host reports that this client is no longer paired. Pair the host again.";
+  constexpr int DEFAULT_SERVER_CODEC_MODE_SUPPORT = SCM_H264;
 
   network::testing::HostPairingHttpTestHandler &host_pairing_http_test_handler() {
     static network::testing::HostPairingHttpTestHandler handler;  ///< Optional scripted transport used by host-native unit tests.
@@ -430,6 +435,70 @@ namespace {
       "/appasset?appid=" + appIdText + "&AssetType=2&AssetIdx=0",
       "/appasset?appId=" + appIdText + "&AssetType=2&AssetIdx=0",
     };
+  }
+
+  int surround_audio_info_from_audio_configuration(int audioConfiguration) {
+    const int channelCount = (audioConfiguration >> 8) & 0xFF;
+    const int channelMask = (audioConfiguration >> 16) & 0xFFFF;
+    return (channelMask << 16) | channelCount;
+  }
+
+  bool is_hexadecimal_text(std::string_view text) {
+    if (text.empty()) {
+      return false;
+    }
+
+    for (char character : text) {
+      unsigned char ignored = 0;
+      if (!hex_value(character, &ignored)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  const char *launch_url_query_parameters() {
+    return "&corever=1";
+  }
+
+  std::string build_stream_resume_path(
+    std::string_view uniqueId,
+    const network::StreamLaunchConfiguration &configuration
+  ) {
+    const std::string queryPrefix = "/resume?uniqueid=" + std::string(uniqueId);
+    std::string path = queryPrefix +
+                       "&rikey=" + configuration.remoteInputAesKeyHex +
+                       "&rikeyid=" + configuration.remoteInputAesIvHex +
+                       "&localAudioPlayMode=" + std::to_string(configuration.playAudioOnPc ? 1 : 0) +
+                       "&surroundAudioInfo=" + std::to_string(surround_audio_info_from_audio_configuration(configuration.audioConfiguration));
+    if (configuration.clientRefreshRateX100 > 0) {
+      path += "&clientRefreshRateX100=" + std::to_string(configuration.clientRefreshRateX100);
+    }
+    path += launch_url_query_parameters();
+    return path;
+  }
+
+  std::string build_stream_launch_path(
+    std::string_view uniqueId,
+    const network::StreamLaunchConfiguration &configuration
+  ) {
+    std::string path = "/launch?uniqueid=" + std::string(uniqueId) +
+                       "&appid=" + std::to_string(configuration.appId) +
+                       "&mode=" + std::to_string(configuration.width) + "x" + std::to_string(configuration.height) + "x" + std::to_string(configuration.fps) +
+                       "&additionalStates=1" +
+                       "&sops=1" +
+                       "&rikey=" + configuration.remoteInputAesKeyHex +
+                       "&rikeyid=" + configuration.remoteInputAesIvHex +
+                       "&localAudioPlayMode=" + std::to_string(configuration.playAudioOnPc ? 1 : 0) +
+                       "&surroundAudioInfo=" + std::to_string(surround_audio_info_from_audio_configuration(configuration.audioConfiguration)) +
+                       "&remoteControllersBitmap=1" +
+                       "&gcmap=0" +
+                       "&hdrMode=0";
+    if (configuration.clientRefreshRateX100 > 0) {
+      path += "&clientRefreshRateX100=" + std::to_string(configuration.clientRefreshRateX100);
+    }
+    path += launch_url_query_parameters();
+    return path;
   }
 
   std::string_view trim_ascii_whitespace(std::string_view text) {
@@ -1289,6 +1358,69 @@ namespace {
       *value = static_cast<uint32_t>(parsedValue);
     }
     return true;
+  }
+
+  bool parse_stream_launch_response(
+    const HttpResponse &response,
+    const network::HostPairingServerInfo &serverInfo,
+    bool resumedSession,
+    network::StreamLaunchResult *result,
+    std::string *errorMessage
+  ) {
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
+    }
+    if (response.statusCode != 200) {
+      return append_error(errorMessage, "The host returned HTTP " + std::to_string(response.statusCode) + " while starting the stream session");
+    }
+
+    uint32_t rootStatusCode = 200;
+    std::string rootStatusMessage;
+    if (extract_root_status(response.body, &rootStatusCode, &rootStatusMessage) && rootStatusCode != 200U) {
+      if (network::error_indicates_unpaired_client(rootStatusMessage)) {
+        return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
+      }
+      return append_error(errorMessage, rootStatusMessage.empty() ? "The host rejected the stream launch request" : rootStatusMessage);
+    }
+
+    std::string appVersion = serverInfo.appVersion;
+    std::string gfeVersion = serverInfo.gfeVersion;
+    std::string rtspSessionUrl;
+    std::string serverCodecModeSupportText;
+    extract_xml_tag_value(response.body, "appversion", &appVersion);
+    extract_xml_tag_value(response.body, "GfeVersion", &gfeVersion) || extract_xml_tag_value(response.body, "gfeversion", &gfeVersion);
+    extract_xml_tag_value(response.body, "sessionUrl0", &rtspSessionUrl);
+    extract_xml_tag_value(response.body, "ServerCodecModeSupport", &serverCodecModeSupportText);
+
+    int serverCodecModeSupport = serverInfo.serverCodecModeSupport == 0 ? DEFAULT_SERVER_CODEC_MODE_SUPPORT : serverInfo.serverCodecModeSupport;
+    uint32_t parsedServerCodecModeSupport = 0;
+    if (!serverCodecModeSupportText.empty() && try_parse_uint32(trim_ascii_whitespace(serverCodecModeSupportText), &parsedServerCodecModeSupport)) {
+      serverCodecModeSupport = parsedServerCodecModeSupport == 0U ? DEFAULT_SERVER_CODEC_MODE_SUPPORT : static_cast<int>(parsedServerCodecModeSupport);
+    }
+
+    if (appVersion.empty()) {
+      return append_error(errorMessage, "The host launch response did not include a usable appversion");
+    }
+
+    if (result != nullptr) {
+      result->resumedSession = resumedSession;
+      result->serverInfo = serverInfo;
+      result->rtspSessionUrl = std::move(rtspSessionUrl);
+      result->appVersion = std::move(appVersion);
+      result->gfeVersion = std::move(gfeVersion);
+      result->serverCodecModeSupport = serverCodecModeSupport;
+    }
+    return true;
+  }
+
+  int parse_server_major_version(std::string_view appVersion) {
+    const std::size_t separatorIndex = appVersion.find('.');
+    const std::string_view majorVersionText = separatorIndex == std::string_view::npos ? appVersion : appVersion.substr(0, separatorIndex);
+    uint32_t majorVersion = 0;
+    if (!try_parse_uint32(majorVersionText, &majorVersion)) {
+      return 0;
+    }
+    return static_cast<int>(majorVersion);
   }
 
   bool prepare_pairing_socket_address(const std::string &address, uint16_t port, sockaddr_in *socketAddress, std::string *errorMessage) {
@@ -2292,8 +2424,10 @@ namespace network {
 
   bool parse_server_info_response(std::string_view xml, uint16_t fallbackHttpPort, HostPairingServerInfo *serverInfo, std::string *errorMessage) {
     std::string appVersion;
+    std::string gfeVersion;
     std::string httpPortText;
     std::string httpsPortText;
+    std::string serverCodecModeSupportText;
     std::string pairStatus;
     if (!extract_xml_tag_value(xml, "appversion", &appVersion) || !extract_xml_tag_value(xml, "PairStatus", &pairStatus)) {
       return append_error(errorMessage, "The host serverinfo response was missing required pairing fields");
@@ -2307,6 +2441,20 @@ namespace network {
     uint16_t httpsPort = fallbackHttpPort;
     if (extract_xml_tag_value(xml, "HttpsPort", &httpsPortText)) {
       try_parse_port(httpsPortText, &httpsPort);
+    }
+    if (httpsPort == 0) {
+      httpsPort = DEFAULT_SERVERINFO_HTTPS_PORT;
+    }
+
+    extract_xml_tag_value(xml, "GfeVersion", &gfeVersion) || extract_xml_tag_value(xml, "gfeversion", &gfeVersion);
+    extract_xml_tag_value(xml, "ServerCodecModeSupport", &serverCodecModeSupportText);
+
+    uint32_t serverCodecModeSupport = DEFAULT_SERVER_CODEC_MODE_SUPPORT;
+    if (!serverCodecModeSupportText.empty()) {
+      try_parse_uint32(trim_ascii_whitespace(serverCodecModeSupportText), &serverCodecModeSupport);
+      if (serverCodecModeSupport == 0U) {
+        serverCodecModeSupport = DEFAULT_SERVER_CODEC_MODE_SUPPORT;
+      }
     }
 
     std::string hostName;
@@ -2341,10 +2489,13 @@ namespace network {
     }
 
     if (serverInfo != nullptr) {
-      serverInfo->serverMajorVersion = std::atoi(appVersion.c_str());
+      serverInfo->serverMajorVersion = parse_server_major_version(appVersion);
+      serverInfo->appVersion = appVersion;
+      serverInfo->gfeVersion = gfeVersion;
       serverInfo->httpPort = httpPort == 0 ? fallbackHttpPort : httpPort;
       serverInfo->httpsPort = httpsPort == 0 ? fallbackHttpPort : httpsPort;
       serverInfo->paired = pairStatus == "1";
+      serverInfo->serverCodecModeSupport = static_cast<int>(serverCodecModeSupport);
       serverInfo->hostName = std::move(hostName);
       serverInfo->uuid = std::move(uuid);
       serverInfo->activeAddress = std::move(activeAddress);
@@ -2531,6 +2682,53 @@ namespace network {
     return true;
   }
 
+  bool launch_or_resume_stream(
+    const std::string &address,
+    uint16_t preferredHttpPort,
+    const PairingIdentity &clientIdentity,
+    const StreamLaunchConfiguration &configuration,
+    StreamLaunchResult *result,
+    std::string *errorMessage
+  ) {
+    if (address.empty()) {
+      return append_error(errorMessage, "The stream launch request requires a valid host address");
+    }
+    if (!is_valid_pairing_identity(clientIdentity)) {
+      return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
+    }
+    if (configuration.appId <= 0) {
+      return append_error(errorMessage, "The stream launch request requires a valid host app ID");
+    }
+    if (configuration.width <= 0 || configuration.height <= 0 || configuration.fps <= 0) {
+      return append_error(errorMessage, "The stream launch request requires a valid mode and frame rate");
+    }
+    if (configuration.remoteInputAesKeyHex.size() != 32U || configuration.remoteInputAesIvHex.size() != 32U || !is_hexadecimal_text(configuration.remoteInputAesKeyHex) || !is_hexadecimal_text(configuration.remoteInputAesIvHex)) {
+      return append_error(errorMessage, "The stream launch request requires 16-byte hex-encoded remote-input keys");
+    }
+
+    HostPairingServerInfo serverInfo {};
+    if (!query_server_info(address, preferredHttpPort, &clientIdentity, &serverInfo, errorMessage)) {
+      return false;
+    }
+    if (!serverInfo.paired) {
+      return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
+    }
+    if (serverInfo.httpsPort == 0U) {
+      return append_error(errorMessage, "The host did not report an HTTPS port for authenticated streaming");
+    }
+
+    const bool resumeExistingSession = serverInfo.runningGameId != 0U && serverInfo.runningGameId == static_cast<uint32_t>(configuration.appId);
+    const std::string pathAndQuery = resumeExistingSession ? build_stream_resume_path(resolve_client_unique_id(&clientIdentity), configuration) : build_stream_launch_path(resolve_client_unique_id(&clientIdentity), configuration);
+    const std::string requestAddress = resolve_reachable_address(address, serverInfo);
+    serverInfo.activeAddress = requestAddress;
+    HttpResponse response {};
+    if (!http_get(requestAddress, serverInfo.httpsPort, pathAndQuery, true, &clientIdentity, {}, &response, errorMessage)) {
+      return false;
+    }
+
+    return parse_stream_launch_response(response, serverInfo, resumeExistingSession, result, errorMessage);
+  }
+
   uint64_t hash_app_list_entries(const std::vector<HostAppEntry> &apps) {
     uint64_t hash = 1469598103934665603ULL;
     for (const HostAppEntry &entry : apps) {
@@ -2558,7 +2756,10 @@ namespace network {
     for (const std::string &path : build_app_asset_paths(resolve_client_unique_id(clientIdentity), appId)) {
       HttpResponse response {};
       if (std::string attemptError; !http_get(address, httpsPort, path, true, clientIdentity, {}, &response, &attemptError)) {
-        attemptFailures.push_back(path + ": " + attemptError);
+        std::string failure = path;
+        failure += ": ";
+        failure += attemptError;
+        attemptFailures.push_back(std::move(failure));
         continue;
       }
 
