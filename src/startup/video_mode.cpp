@@ -8,12 +8,36 @@
 // local includes
 #include "src/logging/logger.h"
 
+// standard includes
+#include <array>
+
 namespace startup {
 
   namespace {
 
+    struct StreamResolutionPreset {
+      int width;
+      int height;
+    };
+
+    constexpr std::array<StreamResolutionPreset, 9> STREAM_RESOLUTION_PRESETS {{
+      {352, 240},
+      {352, 288},
+      {480, 480},
+      {480, 576},
+      {720, 480},
+      {720, 576},
+      {960, 540},
+      {1280, 720},
+      {1920, 1080},
+    }};
+
     bool is_1080i_mode(const VIDEO_MODE &videoMode) {
       return videoMode.width >= 1920 && videoMode.height >= 1080;
+    }
+
+    VIDEO_MODE make_stream_video_mode(const StreamResolutionPreset &preset, int bpp, int refresh) {
+      return {preset.width, preset.height, bpp, refresh};
     }
 
   }  // namespace
@@ -56,6 +80,31 @@ namespace startup {
     }
 
     return bestVideoMode;
+  }
+
+  std::vector<VIDEO_MODE> stream_resolution_presets(int bpp, int refresh) {
+    std::vector<VIDEO_MODE> presets;
+    presets.reserve(STREAM_RESOLUTION_PRESETS.size());
+    for (const StreamResolutionPreset &preset : STREAM_RESOLUTION_PRESETS) {
+      presets.push_back(make_stream_video_mode(preset, bpp, refresh));
+    }
+    return presets;
+  }
+
+  VIDEO_MODE choose_default_stream_video_mode(const VIDEO_MODE &outputVideoMode) {
+    const int bpp = outputVideoMode.bpp > 0 ? outputVideoMode.bpp : 32;
+    const int refresh = outputVideoMode.refresh > 0 ? outputVideoMode.refresh : 60;
+
+    if (outputVideoMode.width >= 1920 && outputVideoMode.height >= 1080) {
+      return make_stream_video_mode({1920, 1080}, bpp, refresh);
+    }
+    if (outputVideoMode.width >= 1280 && outputVideoMode.height >= 720) {
+      return make_stream_video_mode({1280, 720}, bpp, refresh);
+    }
+    if (refresh <= 50 || outputVideoMode.height >= 576) {
+      return make_stream_video_mode({720, 576}, bpp, refresh);
+    }
+    return make_stream_video_mode({720, 480}, bpp, refresh);
   }
 
   VideoModeSelection select_best_video_mode(int bpp, int refresh) {

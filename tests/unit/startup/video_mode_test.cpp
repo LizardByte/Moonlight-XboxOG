@@ -60,4 +60,49 @@ namespace {
     EXPECT_EQ(bestVideoMode.refresh, 60);
   }
 
+  TEST(VideoModeTest, ExposesFixedStreamResolutionPresetsIncludingLowModes) {
+    const std::vector<VIDEO_MODE> presets = startup::stream_resolution_presets(32, 60);
+
+    ASSERT_EQ(presets.size(), 9U);
+    EXPECT_EQ(presets.front().width, 352);
+    EXPECT_EQ(presets.front().height, 240);
+    EXPECT_EQ(presets[1].width, 352);
+    EXPECT_EQ(presets[1].height, 288);
+    EXPECT_EQ(presets[4].width, 720);
+    EXPECT_EQ(presets[4].height, 480);
+    EXPECT_EQ(presets[7].width, 1280);
+    EXPECT_EQ(presets[7].height, 720);
+    EXPECT_EQ(presets.back().width, 1920);
+    EXPECT_EQ(presets.back().height, 1080);
+    EXPECT_EQ(presets.back().bpp, 32);
+    EXPECT_EQ(presets.back().refresh, 60);
+  }
+
+  TEST(VideoModeTest, Chooses720pAsTheDefaultHdStreamPreset) {
+    const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({1280, 720, 32, 60});
+
+    EXPECT_EQ(defaultPreset.width, 1280);
+    EXPECT_EQ(defaultPreset.height, 720);
+    EXPECT_EQ(defaultPreset.bpp, 32);
+    EXPECT_EQ(defaultPreset.refresh, 60);
+  }
+
+  TEST(VideoModeTest, ChoosesNtscSdPresetFor60HzOutputModes) {
+    const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({640, 480, 32, 60});
+
+    EXPECT_EQ(defaultPreset.width, 720);
+    EXPECT_EQ(defaultPreset.height, 480);
+    EXPECT_EQ(defaultPreset.bpp, 32);
+    EXPECT_EQ(defaultPreset.refresh, 60);
+  }
+
+  TEST(VideoModeTest, ChoosesPalSdPresetFor50HzOutputModes) {
+    const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({640, 480, 32, 50});
+
+    EXPECT_EQ(defaultPreset.width, 720);
+    EXPECT_EQ(defaultPreset.height, 576);
+    EXPECT_EQ(defaultPreset.bpp, 32);
+    EXPECT_EQ(defaultPreset.refresh, 50);
+  }
+
 }  // namespace
