@@ -45,6 +45,12 @@ namespace {
       logging::LogLevel::debug,
       logging::LogLevel::warning,
       app::LogViewerPlacement::left,
+      VIDEO_MODE {1280, 720, 32, 60},
+      true,
+      24,
+      2500,
+      true,
+      true,
     };
 
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(savedSettings, settingsPath);
@@ -56,7 +62,43 @@ namespace {
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::debug);
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::warning);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::left);
+    EXPECT_TRUE(loadResult.settings.preferredVideoModeSet);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.width, 1280);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.height, 720);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 24);
+    EXPECT_EQ(loadResult.settings.streamBitrateKbps, 2500);
+    EXPECT_TRUE(loadResult.settings.playAudioOnPc);
+    EXPECT_TRUE(loadResult.settings.showPerformanceStats);
     EXPECT_FALSE(loadResult.cleanupRequired);
+  }
+
+  TEST_F(SettingsStorageTest, SavesAndLoadsLowStreamResolutionPresets) {
+    const app::AppSettings savedSettings {
+      logging::LogLevel::none,
+      logging::LogLevel::none,
+      app::LogViewerPlacement::full,
+      VIDEO_MODE {352, 240, 32, 60},
+      true,
+      15,
+      500,
+      false,
+      false,
+    };
+
+    const app::SaveAppSettingsResult saveResult = app::save_app_settings(savedSettings, settingsPath);
+    ASSERT_TRUE(saveResult.success) << saveResult.errorMessage;
+
+    const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
+    EXPECT_TRUE(loadResult.fileFound);
+    EXPECT_TRUE(loadResult.warnings.empty());
+    EXPECT_TRUE(loadResult.settings.preferredVideoModeSet);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.width, 352);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.height, 240);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.bpp, 32);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 15);
+    EXPECT_EQ(loadResult.settings.streamBitrateKbps, 500);
   }
 
   TEST_F(SettingsStorageTest, MissingFilesReturnDefaultsWithoutWarnings) {
@@ -68,6 +110,11 @@ namespace {
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
+    EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 20);
+    EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1500);
+    EXPECT_FALSE(loadResult.settings.playAudioOnPc);
+    EXPECT_FALSE(loadResult.settings.showPerformanceStats);
   }
 
   TEST_F(SettingsStorageTest, InvalidValuesFallBackToDefaultsWithWarnings) {
@@ -79,16 +126,23 @@ namespace {
       "[debug]\n"
       "startup_console_enabled = \"sometimes\"\n\n"
       "[ui]\n"
-      "log_viewer_placement = \"top\"\n"
+      "log_viewer_placement = \"top\"\n\n"
+      "[streaming]\n"
+      "video_width = \"wide\"\n"
+      "fps = \"fast\"\n"
+      "play_audio_on_pc = \"sometimes\"\n"
     );
 
     const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
     EXPECT_TRUE(loadResult.fileFound);
-    EXPECT_GE(loadResult.warnings.size(), 3U);
+    EXPECT_GE(loadResult.warnings.size(), 6U);
     EXPECT_TRUE(loadResult.cleanupRequired);
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
+    EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 20);
+    EXPECT_FALSE(loadResult.settings.playAudioOnPc);
   }
 
   TEST_F(SettingsStorageTest, LegacyLoggingKeyLoadsAndRequestsCleanup) {
@@ -135,7 +189,10 @@ namespace {
       "file_minimum_level = \"info\"\n"
       "obsolete_key = true\n\n"
       "[ui]\n"
-      "log_viewer_placement = \"left\"\n"
+      "log_viewer_placement = \"left\"\n\n"
+      "[streaming]\n"
+      "fps = 30\n"
+      "obsolete_key = true\n"
       "theme = \"green\"\n\n"
       "[debug]\n"
       "startup_console_enabled = true\n\n"
@@ -147,9 +204,10 @@ namespace {
 
     EXPECT_TRUE(loadResult.fileFound);
     EXPECT_TRUE(loadResult.cleanupRequired);
-    EXPECT_GE(loadResult.warnings.size(), 4U);
+    EXPECT_GE(loadResult.warnings.size(), 5U);
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::info);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::left);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 30);
   }
 
   TEST_F(SettingsStorageTest, ReportsParseAndTypeErrorsAsWarnings) {
@@ -159,15 +217,18 @@ namespace {
       "file_minimum_level = 7\n"
       "xemu_console_minimum_level = false\n\n"
       "[ui]\n"
-      "log_viewer_placement = 42\n"
+      "log_viewer_placement = 42\n\n"
+      "[streaming]\n"
+      "show_performance_stats = \"sometimes\"\n"
     );
 
     app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
     EXPECT_TRUE(loadResult.fileFound);
-    EXPECT_GE(loadResult.warnings.size(), 3U);
+    EXPECT_GE(loadResult.warnings.size(), 4U);
     EXPECT_EQ(loadResult.settings.loggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
+    EXPECT_FALSE(loadResult.settings.showPerformanceStats);
 
     write_text_file(settingsPath, "[logging\nfile_minimum_level = \"info\"\n");
     loadResult = app::load_app_settings(settingsPath);

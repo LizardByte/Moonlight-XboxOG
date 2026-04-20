@@ -43,6 +43,7 @@
 #include "src/startup/cover_art_cache.h"
 #include "src/startup/host_storage.h"
 #include "src/startup/saved_files.h"
+#include "src/streaming/session.h"
 #include "src/ui/host_probe_result_queue.h"
 #include "src/ui/shell_view.h"
 
@@ -2160,6 +2161,12 @@ namespace {
       state.settings.loggingLevel,
       state.settings.xemuConsoleLoggingLevel,
       state.settings.logViewerPlacement,
+      state.settings.preferredVideoMode,
+      state.settings.preferredVideoModeSet,
+      state.settings.streamFramerate,
+      state.settings.streamBitrateKbps,
+      state.settings.playAudioOnPc,
+      state.settings.showPerformanceStats,
     };
   }
 
@@ -2176,6 +2183,44 @@ namespace {
     }
 
     logging::error("settings", saveResult.errorMessage);
+  }
+
+  /**
+   * @brief Return whether two Xbox video modes describe the same output mode.
+   *
+   * @param left First video mode to compare.
+   * @param right Second video mode to compare.
+   * @return True when the modes match exactly.
+   */
+  bool video_modes_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+    return left.width == right.width && left.height == right.height && left.bpp == right.bpp && left.refresh == right.refresh;
+  }
+
+  /**
+   * @brief Switch the shared SDL window to the requested Xbox video mode.
+   *
+   * @param window Shared SDL window reused for the shell and streaming session.
+   * @param videoMode Requested Xbox output mode.
+   * @param errorMessage Receives a user-visible error when the mode change fails.
+   * @return True when the requested mode is now active.
+   */
+  bool apply_shell_video_mode(SDL_Window *window, const VIDEO_MODE &videoMode, std::string *errorMessage) {
+    if (videoMode.width <= 0 || videoMode.height <= 0) {
+      return true;
+    }
+
+    if (!XVideoSetMode(videoMode.width, videoMode.height, videoMode.bpp, videoMode.refresh)) {
+      return platform::append_error(
+        errorMessage,
+        "Failed to switch Xbox video mode to " + std::to_string(videoMode.width) + "x" + std::to_string(videoMode.height) + " @ " + std::to_string(videoMode.refresh) + " Hz"
+      );
+    }
+
+    if (window != nullptr) {
+      SDL_SetWindowSize(window, videoMode.width, videoMode.height);
+    }
+
+    return true;
   }
 
   bool update_host_metadata_from_server_info(app::HostRecord *host, const std::string &address, const network::HostPairingServerInfo &serverInfo) {
@@ -4325,6 +4370,10 @@ namespace {
     (void) threadResult;
   }
 
+  struct ShellRuntimeState;
+
+  void finalize_shell_tasks(ShellRuntimeState *runtime);
+
   /**
    * @brief Open the first detected SDL game controller for shell navigation.
    *
@@ -4534,6 +4583,7 @@ namespace {
   /**
    * @brief Apply a single translated UI command inside the shell loop.
    *
+   * @param window Shared SDL window reused when entering a streaming session.
    * @param videoMode Active output mode used by the shell renderer.
    * @param state Client state to mutate.
    * @param command UI command to process.
@@ -4541,7 +4591,8 @@ namespace {
    * @param runtime Runtime state that owns background tasks and redraw flags.
    */
   void process_shell_command(
-    const VIDEO_MODE &videoMode,
+    SDL_Window *window,
+    VIDEO_MODE *videoMode,
     app::ClientState &state,
     input::UiCommand command,
     ShellResources *resources,
@@ -4570,11 +4621,52 @@ namespace {
     persist_settings_if_needed(state, update);
     persist_hosts_if_needed(state, update);
 
+    if (update.requests.streamLaunchRequested) {
+      const app::HostRecord *streamHost = app::apps_host(state);
+      const app::HostAppRecord *streamApp = app::selected_app(state);
+      if (streamHost == nullptr || streamApp == nullptr) {
+        state.shell.statusMessage = "Select a valid app before starting a stream.";
+        logging::warn("stream", state.shell.statusMessage);
+      } else {
+        network::PairingIdentity clientIdentity {};
+        std::string identityError;
+        if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
+          state.shell.statusMessage = identityError;
+          logging::warn("stream", identityError);
+        } else if (window == nullptr) {
+          state.shell.statusMessage = "Streaming requires a valid SDL window.";
+          logging::error("stream", state.shell.statusMessage);
+        } else {
+          finalize_shell_tasks(runtime);
+          close_shell_resources(resources);
+
+          std::string sessionMessage;
+          const VIDEO_MODE activeVideoMode = videoMode != nullptr ? *videoMode : VIDEO_MODE {};
+          const bool streamStarted = streaming::run_stream_session(window, activeVideoMode, state.settings, *streamHost, *streamApp, clientIdentity, &sessionMessage);
+          state.shell.statusMessage = sessionMessage;
+
+          if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, activeVideoMode, resources, &initializationFailure)) {
+            report_shell_failure(initializationFailure.category, initializationFailure.message);
+            runtime->running = false;
+            state.shell.shouldExit = true;
+            return;
+          }
+
+          initialize_shell_runtime(state, runtime);
+          if (streamStarted && state.hosts.activeLoaded) {
+            state.hosts.active.appListState = app::HostAppListState::loading;
+            state.hosts.active.appListStatusMessage = "Refreshing host apps after the stream session...";
+            state.hosts.active.lastAppListRefreshTick = 0U;
+          }
+        }
+      }
+    }
+
     if (previousScreen != state.shell.activeScreen) {
       release_page_resources_for_screen(previousScreen, state.shell.activeScreen, &resources->coverArtTextureCache, &resources->keypadModalLayoutCache);
       ensure_hosts_loaded_for_active_screen(state);
     }
-    if ((previousScreen != state.shell.activeScreen || update.navigation.screenChanged) && !draw_current_shell_frame(videoMode, state, resources, runtime)) {
+    if ((previousScreen != state.shell.activeScreen || update.navigation.screenChanged) && !draw_current_shell_frame(videoMode != nullptr ? *videoMode : VIDEO_MODE {}, state, resources, runtime)) {
       return;
     }
     if (state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
@@ -4585,19 +4677,20 @@ namespace {
   /**
    * @brief Process one shell frame, including input, background tasks, and redraws.
    *
+   * @param window Shared SDL window reused for shell and streaming rendering.
    * @param videoMode Active output mode used by the shell renderer.
    * @param state Client state to update.
    * @param resources Shell resources used by the frame.
    * @param runtime Runtime state that carries input and task progress.
    * @return True when the shell should continue processing future frames.
    */
-  bool run_shell_frame(const VIDEO_MODE &videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
-    if (resources == nullptr || runtime == nullptr) {
+  bool run_shell_frame(SDL_Window *window, VIDEO_MODE *videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
+    if (window == nullptr || resources == nullptr || runtime == nullptr) {
       return false;
     }
 
-    const auto processCommand = [&state, &videoMode, resources, runtime](input::UiCommand command) {
-      process_shell_command(videoMode, state, command, resources, runtime);
+    const auto processCommand = [window, &state, videoMode, resources, runtime](input::UiCommand command) {
+      process_shell_command(window, videoMode, state, command, resources, runtime);
     };
 
     ensure_hosts_loaded_for_active_screen(state);
@@ -4616,7 +4709,7 @@ namespace {
     start_shell_background_tasks_if_needed(state, runtime, SDL_GetTicks());
 
     if ((state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) &&
-        !draw_current_shell_frame(videoMode, state, resources, runtime)) {
+        !draw_current_shell_frame(videoMode != nullptr ? *videoMode : VIDEO_MODE {}, state, resources, runtime)) {
       return false;
     }
 
@@ -4671,8 +4764,10 @@ namespace ui {
       return report_shell_failure("sdl", "Shell requires a valid SDL window");
     }
 
+    VIDEO_MODE activeVideoMode = videoMode;
+
     ShellResources resources {};
-    if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, videoMode, &resources, &initializationFailure)) {
+    if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, activeVideoMode, &resources, &initializationFailure)) {
       return report_shell_failure(initializationFailure.category, initializationFailure.message);
     }
 
@@ -4680,7 +4775,7 @@ namespace ui {
     initialize_shell_runtime(state, &runtime);
 
     while (runtime.running && !state.shell.shouldExit) {
-      if (!run_shell_frame(videoMode, state, &resources, &runtime)) {
+      if (!run_shell_frame(window, &activeVideoMode, state, &resources, &runtime)) {
         break;
       }
     }

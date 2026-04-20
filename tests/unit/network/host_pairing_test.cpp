@@ -22,6 +22,9 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 
+// third-party includes
+#include "third-party/moonlight-common-c/src/Limelight.h"
+
 // test includes
 #include "tests/support/network_test_constants.h"
 
@@ -256,8 +259,17 @@ namespace {
     return bytes;
   }
 
-  std::string make_server_info_xml(bool paired, uint16_t httpPort, uint16_t httpsPort, std::string_view hostName = "Scripted Host", std::string_view uuid = "scripted-host") {
-    return "<root status_code=\"200\"><hostname>" + std::string(hostName) + "</hostname><appversion>7.1.0.0</appversion><uuid>" + std::string(uuid) + "</uuid><LocalIP>" +
+  std::string make_server_info_xml(
+    bool paired,
+    uint16_t httpPort,
+    uint16_t httpsPort,
+    std::string_view hostName = "Scripted Host",
+    std::string_view uuid = "scripted-host",
+    int serverCodecModeSupport = SCM_H264,
+    std::string_view gfeVersion = "99.0.0"
+  ) {
+    return "<root status_code=\"200\"><hostname>" + std::string(hostName) + "</hostname><appversion>7.1.0.0</appversion><GfeVersion>" + std::string(gfeVersion) + "</GfeVersion><ServerCodecModeSupport>" +
+           std::to_string(serverCodecModeSupport) + "</ServerCodecModeSupport><uuid>" + std::string(uuid) + "</uuid><LocalIP>" +
            std::string(test_support::kTestIpv4Addresses[test_support::kIpServerLocal]) + "</LocalIP><ExternalIP>" + std::string(test_support::kTestIpv4Addresses[test_support::kIpServerExternal]) +
            "</ExternalIP><ExternalPort>" + std::to_string(httpPort) + "</ExternalPort><HttpsPort>" + std::to_string(httpsPort) + "</HttpsPort><PairStatus>" + (paired ? "1" : "0") + "</PairStatus></root>";
   }
@@ -465,9 +477,12 @@ namespace {
 
     ASSERT_TRUE(network::parse_server_info_response(xml, test_support::kTestPorts[test_support::kPortPairing], &serverInfo, &errorMessage)) << errorMessage;
     EXPECT_EQ(serverInfo.serverMajorVersion, 7);
+    EXPECT_EQ(serverInfo.appVersion, "7.1.431.0");
+    EXPECT_TRUE(serverInfo.gfeVersion.empty());
     EXPECT_EQ(serverInfo.httpPort, test_support::kTestPorts[test_support::kPortResolvedHttp]);
     EXPECT_EQ(serverInfo.httpsPort, test_support::kTestPorts[test_support::kPortResolvedHttps]);
     EXPECT_TRUE(serverInfo.paired);
+    EXPECT_EQ(serverInfo.serverCodecModeSupport, SCM_H264);
     EXPECT_EQ(serverInfo.hostName, "Sunshine-PC");
     EXPECT_EQ(serverInfo.uuid, "host-uuid-123");
     EXPECT_EQ(serverInfo.activeAddress, test_support::kTestIpv4Addresses[test_support::kIpServerLocal]);
@@ -511,9 +526,11 @@ namespace {
 
     ASSERT_TRUE(network::parse_server_info_response(xml, test_support::kTestPorts[test_support::kPortPairing], &serverInfo, &errorMessage)) << errorMessage;
     EXPECT_EQ(serverInfo.serverMajorVersion, 8);
+    EXPECT_EQ(serverInfo.appVersion, "8.2.0.0");
     EXPECT_EQ(serverInfo.httpPort, test_support::kTestPorts[test_support::kPortPairing]);
-    EXPECT_EQ(serverInfo.httpsPort, test_support::kTestPorts[test_support::kPortPairing]);
+    EXPECT_EQ(serverInfo.httpsPort, 47990U);
     EXPECT_FALSE(serverInfo.paired);
+    EXPECT_EQ(serverInfo.serverCodecModeSupport, SCM_H264);
     EXPECT_EQ(serverInfo.hostName, "Bedroom PC");
     EXPECT_EQ(serverInfo.uuid, "host-uuid-456");
     EXPECT_EQ(serverInfo.activeAddress, test_support::kTestIpv4Addresses[test_support::kIpLocalFallback]);
@@ -549,6 +566,25 @@ namespace {
       network::resolve_reachable_address(test_support::kTestIpv4Addresses[test_support::kIpRuntimeDhcpGateway], serverInfo),
       test_support::kTestIpv4Addresses[test_support::kIpRuntimeDhcpGateway]
     );
+  }
+
+  TEST(HostPairingTest, ParsesServerCodecModeSupportAndGfeVersionWhenReported) {
+    const std::string xml =
+      "<root status_code=\"200\">"
+      "<hostname>Codec Host</hostname>"
+      "<appversion>7.2.0.0</appversion>"
+      "<GfeVersion>Sunshine-2026.4.19</GfeVersion>"
+      "<ServerCodecModeSupport>257</ServerCodecModeSupport>"
+      "<HttpsPort>47990</HttpsPort>"
+      "<PairStatus>1</PairStatus>"
+      "</root>";
+
+    network::HostPairingServerInfo serverInfo {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(network::parse_server_info_response(xml, test_support::kTestPorts[test_support::kPortPairing], &serverInfo, &errorMessage)) << errorMessage;
+    EXPECT_EQ(serverInfo.gfeVersion, "Sunshine-2026.4.19");
+    EXPECT_EQ(serverInfo.serverCodecModeSupport, 257);
   }
 
   TEST(HostPairingTest, FallsBackToReportedAddressWhenRequestedAddressIsMissing) {
@@ -852,6 +888,208 @@ namespace {
 
     EXPECT_FALSE(network::query_app_list(test_support::kTestIpv4Addresses[test_support::kIpLivingRoom], test_support::kTestPorts[test_support::kPortPairing], nullptr, &apps, nullptr, &errorMessage));
     EXPECT_NE(errorMessage.find("serverinfo unavailable"), std::string::npos);
+  }
+
+  TEST(HostPairingTest, LaunchesANewStreamSessionWithAuthenticatedHttpsRequest) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_FALSE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + identity.uniqueId), std::string::npos);
+        },
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Launch Host", "launch-host", SCM_H264 | SCM_HEVC, "Sunshine-2026.4.19"),
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          ASSERT_NE(request.tlsClientIdentity, nullptr);
+          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + identity.uniqueId), std::string::npos);
+        },
+        true,
+        200,
+        make_server_info_xml(true, 47989U, 47990U, "Launch Host", "launch-host", SCM_H264 | SCM_HEVC, "Sunshine-2026.4.19"),
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          ASSERT_NE(request.tlsClientIdentity, nullptr);
+          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+          EXPECT_NE(request.pathAndQuery.find("/launch?uniqueid=" + identity.uniqueId), std::string::npos);
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "appid"), "101");
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "mode"), "640x480x30");
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "localAudioPlayMode"), "1");
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "surroundAudioInfo"), std::to_string(SURROUNDAUDIOINFO_FROM_AUDIO_CONFIGURATION(AUDIO_CONFIGURATION_STEREO)));
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "rikey"), std::string(32U, '1'));
+          EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "rikeyid"), std::string(32U, '2'));
+        },
+        true,
+        200,
+        "<root status_code=\"200\"><sessionUrl0>rtsp://10.0.0.2:48010</sessionUrl0><appversion>7.1.431.0</appversion><GfeVersion>Sunshine-2026.4.19</GfeVersion><ServerCodecModeSupport>257</ServerCodecModeSupport></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard(make_host_pairing_http_test_handler(&handler));
+
+    network::StreamLaunchResult result {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(
+      network::launch_or_resume_stream(
+        test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+        test_support::kTestPorts[test_support::kPortPairing],
+        identity,
+        {
+          101,
+          640,
+          480,
+          30,
+          AUDIO_CONFIGURATION_STEREO,
+          true,
+          6000,
+          std::string(32U, '1'),
+          std::string(32U, '2'),
+        },
+        &result,
+        &errorMessage
+      )
+    ) << errorMessage;
+    EXPECT_TRUE(handler.all_consumed());
+    EXPECT_FALSE(result.resumedSession);
+    EXPECT_EQ(result.rtspSessionUrl, "rtsp://10.0.0.2:48010");
+    EXPECT_EQ(result.appVersion, "7.1.431.0");
+    EXPECT_EQ(result.gfeVersion, "Sunshine-2026.4.19");
+    EXPECT_EQ(result.serverCodecModeSupport, 257);
+  }
+
+  TEST(HostPairingTest, LaunchPreservesTheReachableRequestAddressForStreaming) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        std::string("<root status_code=\"200\"><hostname>Loopback Host</hostname><appversion>7.1.431.0</appversion><GfeVersion>Sunshine-2026.4.19</GfeVersion><ServerCodecModeSupport>257</ServerCodecModeSupport><LocalIP>127.0.0.1</LocalIP><ExternalIP>203.0.113.25</ExternalIP><HttpsPort>47990</HttpsPort><PairStatus>1</PairStatus></root>"),
+      },
+      {
+        {},
+        true,
+        200,
+        std::string("<root status_code=\"200\"><hostname>Loopback Host</hostname><appversion>7.1.431.0</appversion><GfeVersion>Sunshine-2026.4.19</GfeVersion><ServerCodecModeSupport>257</ServerCodecModeSupport><LocalIP>127.0.0.1</LocalIP><ExternalIP>203.0.113.25</ExternalIP><HttpsPort>47990</HttpsPort><PairStatus>1</PairStatus></root>"),
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          ASSERT_NE(request.tlsClientIdentity, nullptr);
+          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+          EXPECT_EQ(request.address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
+          EXPECT_NE(request.pathAndQuery.find("/launch?uniqueid=" + identity.uniqueId), std::string::npos);
+        },
+        true,
+        200,
+        "<root status_code=\"200\"><sessionUrl0>rtsp://127.0.0.1:48010</sessionUrl0><appversion>7.1.431.0</appversion><GfeVersion>Sunshine-2026.4.19</GfeVersion><ServerCodecModeSupport>257</ServerCodecModeSupport></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard(make_host_pairing_http_test_handler(&handler));
+
+    network::StreamLaunchResult result {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(
+      network::launch_or_resume_stream(
+        test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+        test_support::kTestPorts[test_support::kPortPairing],
+        identity,
+        {
+          101,
+          640,
+          480,
+          30,
+          AUDIO_CONFIGURATION_STEREO,
+          false,
+          6000,
+          std::string(32U, '1'),
+          std::string(32U, '2'),
+        },
+        &result,
+        &errorMessage
+      )
+    ) << errorMessage;
+
+    EXPECT_TRUE(handler.all_consumed());
+    EXPECT_EQ(result.serverInfo.localAddress, "127.0.0.1");
+    EXPECT_EQ(result.serverInfo.activeAddress, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
+    EXPECT_EQ(result.rtspSessionUrl, "rtsp://127.0.0.1:48010");
+  }
+
+  TEST(HostPairingTest, ResumesTheRunningSessionWhenTheRequestedAppIsAlreadyActive) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    const std::string serverInfoXml =
+      "<root status_code=\"200\"><hostname>Resume Host</hostname><appversion>7.1.0.0</appversion><ServerCodecModeSupport>1</ServerCodecModeSupport><CurrentGame>101</CurrentGame><ExternalPort>47989</ExternalPort><HttpsPort>47990</HttpsPort><PairStatus>1</PairStatus></root>";
+
+    ScriptedHostPairingHttpHandler handler({
+      {
+        {},
+        true,
+        200,
+        serverInfoXml,
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + identity.uniqueId), std::string::npos);
+        },
+        true,
+        200,
+        serverInfoXml,
+      },
+      {
+        [&identity](const HostPairingHttpTestRequest &request) {
+          EXPECT_TRUE(request.useTls);
+          EXPECT_NE(request.pathAndQuery.find("/resume?uniqueid=" + identity.uniqueId), std::string::npos);
+          EXPECT_TRUE(extract_query_parameter(request.pathAndQuery, "appid").empty());
+          EXPECT_TRUE(extract_query_parameter(request.pathAndQuery, "mode").empty());
+        },
+        true,
+        200,
+        "<root status_code=\"200\"><sessionUrl0>rtsp://10.0.0.2:48010</sessionUrl0><appversion>7.1.0.0</appversion></root>",
+      },
+    });
+    ScopedHostPairingHttpTestHandler guard(make_host_pairing_http_test_handler(&handler));
+
+    network::StreamLaunchResult result {};
+    std::string errorMessage;
+
+    ASSERT_TRUE(
+      network::launch_or_resume_stream(
+        test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+        test_support::kTestPorts[test_support::kPortPairing],
+        identity,
+        {
+          101,
+          640,
+          480,
+          30,
+          AUDIO_CONFIGURATION_STEREO,
+          false,
+          6000,
+          std::string(32U, 'a'),
+          std::string(32U, 'b'),
+        },
+        &result,
+        &errorMessage
+      )
+    ) << errorMessage;
+    EXPECT_TRUE(result.resumedSession);
+    EXPECT_TRUE(handler.all_consumed());
   }
 
   TEST(HostPairingTest, QueryAppListMapsUnauthorizedHttpResponsesToTheUnpairedMessage) {

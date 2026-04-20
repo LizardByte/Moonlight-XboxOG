@@ -263,6 +263,66 @@ namespace {
     append_invalid_value_warning(warnings, filePath, "ui.log_viewer_placement", "<non-string>");
   }
 
+  /**
+   * @brief Load one integer settings value when present.
+   *
+   * @param settingNode TOML node to parse.
+   * @param filePath Settings file path used in warnings.
+   * @param keyPath Fully qualified settings key used in warnings.
+   * @param value Receives the parsed integer on success.
+   * @param warnings Warning collection updated for invalid values.
+   */
+  void load_integer_setting(
+    toml::node_view<const toml::node> settingNode,
+    const std::string &filePath,
+    std::string_view keyPath,
+    int *value,
+    std::vector<std::string> *warnings
+  ) {
+    if (!settingNode) {
+      return;
+    }
+
+    if (const auto parsedValue = settingNode.value<int64_t>(); parsedValue) {
+      if (value != nullptr) {
+        *value = static_cast<int>(*parsedValue);
+      }
+      return;
+    }
+
+    append_invalid_value_warning(warnings, filePath, keyPath, "<non-integer>");
+  }
+
+  /**
+   * @brief Load one boolean settings value when present.
+   *
+   * @param settingNode TOML node to parse.
+   * @param filePath Settings file path used in warnings.
+   * @param keyPath Fully qualified settings key used in warnings.
+   * @param value Receives the parsed boolean on success.
+   * @param warnings Warning collection updated for invalid values.
+   */
+  void load_boolean_setting(
+    toml::node_view<const toml::node> settingNode,
+    const std::string &filePath,
+    std::string_view keyPath,
+    bool *value,
+    std::vector<std::string> *warnings
+  ) {
+    if (!settingNode) {
+      return;
+    }
+
+    if (const auto parsedValue = settingNode.value<bool>(); parsedValue) {
+      if (value != nullptr) {
+        *value = *parsedValue;
+      }
+      return;
+    }
+
+    append_invalid_value_warning(warnings, filePath, keyPath, "<non-boolean>");
+  }
+
   std::string format_settings_toml(const app::AppSettings &settings) {
     std::string content;
     content += "# Moonlight Xbox OG user settings\n";
@@ -275,7 +335,19 @@ namespace {
     content += std::string("xemu_console_minimum_level = \"") + logging_level_text(settings.xemuConsoleLoggingLevel) + "\"\n\n";
     content += "[ui]\n";
     content += "# Preferred placement for the in-app log viewer.\n";
-    content += std::string("log_viewer_placement = \"") + log_viewer_placement_text(settings.logViewerPlacement) + "\"\n";
+    content += std::string("log_viewer_placement = \"") + log_viewer_placement_text(settings.logViewerPlacement) + "\"\n\n";
+    content += "[streaming]\n";
+    content += "# Preferred stream resolution requested from the host.\n";
+    content += std::string("video_width = ") + std::to_string(settings.preferredVideoMode.width) + "\n";
+    content += std::string("video_height = ") + std::to_string(settings.preferredVideoMode.height) + "\n";
+    content += std::string("video_bpp = ") + std::to_string(settings.preferredVideoMode.bpp) + "\n";
+    content += std::string("video_refresh = ") + std::to_string(settings.preferredVideoMode.refresh) + "\n";
+    content += std::string("video_mode_selected = ") + (settings.preferredVideoModeSet ? "true" : "false") + "\n";
+    content += "# Preferred streaming parameters.\n";
+    content += std::string("fps = ") + std::to_string(settings.streamFramerate) + "\n";
+    content += std::string("bitrate_kbps = ") + std::to_string(settings.streamBitrateKbps) + "\n";
+    content += std::string("play_audio_on_pc = ") + (settings.playAudioOnPc ? "true" : "false") + "\n";
+    content += std::string("show_performance_stats = ") + (settings.showPerformanceStats ? "true" : "false") + "\n";
     return content;
   }
 
@@ -308,6 +380,25 @@ namespace {
     }
   }
 
+  /**
+   * @brief Mark unknown streaming keys for cleanup on the next settings save.
+   *
+   * @param streamingTable Parsed streaming settings table.
+   * @param filePath Settings file path used in warnings.
+   * @param result Load result updated with cleanup warnings.
+   */
+  void inspect_streaming_keys(const toml::table &streamingTable, const std::string &filePath, app::LoadAppSettingsResult *result) {
+    for (const auto &[rawKey, node] : streamingTable) {
+      const std::string key(rawKey.str());
+      if (key == "video_width" || key == "video_height" || key == "video_bpp" || key == "video_refresh" || key == "video_mode_selected" || key == "fps" || key == "bitrate_kbps" || key == "play_audio_on_pc" || key == "show_performance_stats") {
+        continue;
+      }
+
+      (void) node;
+      mark_cleanup_required(result, filePath, std::string("streaming.") + key, "obsolete");
+    }
+  }
+
   void inspect_top_level_keys(const toml::table &settingsTable, const std::string &filePath, app::LoadAppSettingsResult *result) {
     for (const auto &[rawKey, node] : settingsTable) {
       const std::string key(rawKey.str());
@@ -320,6 +411,12 @@ namespace {
       if (key == "ui") {
         if (const auto *uiTable = node.as_table(); uiTable != nullptr) {
           inspect_ui_keys(*uiTable, filePath, result);
+        }
+        continue;
+      }
+      if (key == "streaming") {
+        if (const auto *streamingTable = node.as_table(); streamingTable != nullptr) {
+          inspect_streaming_keys(*streamingTable, filePath, result);
         }
         continue;
       }
@@ -384,6 +481,15 @@ namespace app {
       &result.warnings
     );
     load_log_viewer_placement_setting(settingsTable["ui"]["log_viewer_placement"], filePath, &result.settings.logViewerPlacement, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["video_width"], filePath, "streaming.video_width", &result.settings.preferredVideoMode.width, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["video_height"], filePath, "streaming.video_height", &result.settings.preferredVideoMode.height, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["video_bpp"], filePath, "streaming.video_bpp", &result.settings.preferredVideoMode.bpp, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["video_refresh"], filePath, "streaming.video_refresh", &result.settings.preferredVideoMode.refresh, &result.warnings);
+    load_boolean_setting(settingsTable["streaming"]["video_mode_selected"], filePath, "streaming.video_mode_selected", &result.settings.preferredVideoModeSet, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["fps"], filePath, "streaming.fps", &result.settings.streamFramerate, &result.warnings);
+    load_integer_setting(settingsTable["streaming"]["bitrate_kbps"], filePath, "streaming.bitrate_kbps", &result.settings.streamBitrateKbps, &result.warnings);
+    load_boolean_setting(settingsTable["streaming"]["play_audio_on_pc"], filePath, "streaming.play_audio_on_pc", &result.settings.playAudioOnPc, &result.warnings);
+    load_boolean_setting(settingsTable["streaming"]["show_performance_stats"], filePath, "streaming.show_performance_stats", &result.settings.showPerformanceStats, &result.warnings);
 
     return result;
   }

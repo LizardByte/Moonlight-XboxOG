@@ -28,6 +28,8 @@ namespace {
   constexpr const char *SETTINGS_CATEGORY_PREFIX = "settings-category:";
   constexpr std::array<char, 11> ADD_HOST_ADDRESS_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'};
   constexpr std::array<char, 10> ADD_HOST_PORT_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
+  constexpr std::array<int, 5> STREAM_FRAMERATE_OPTIONS {15, 20, 24, 25, 30};
+  constexpr std::array<int, 7> STREAM_BITRATE_OPTIONS {1000, 1500, 2000, 2500, 3000, 4000, 5000};
 
   /**
    * @brief Describes the keypad characters available for the active add-host field.
@@ -105,7 +107,7 @@ namespace {
       case app::SettingsCategory::logging:
         return "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.";
       case app::SettingsCategory::display:
-        return "Display options will live here when video and layout tuning settings are added.";
+        return "Tune streaming video resolution, frame rate, bitrate, host audio playback, and the in-stream diagnostics overlay.";
       case app::SettingsCategory::input:
         return "Input options will live here when controller and navigation customization is added.";
       case app::SettingsCategory::reset:
@@ -113,6 +115,100 @@ namespace {
     }
 
     return "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.";
+  }
+
+  /**
+   * @brief Return whether two stream-resolution entries target the same size.
+   *
+   * @param left First stream-resolution entry to compare.
+   * @param right Second stream-resolution entry to compare.
+   * @return True when both entries describe the same width and height.
+   */
+  bool stream_resolutions_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+    return left.width == right.width && left.height == right.height;
+  }
+
+  /**
+   * @brief Format one stream resolution for display in the settings menu.
+   *
+   * @param videoMode Resolution to stringify.
+   * @return Human-readable stream-resolution label.
+   */
+  std::string describe_stream_resolution(const VIDEO_MODE &videoMode) {
+    if (videoMode.width <= 0 || videoMode.height <= 0) {
+      return "Unavailable";
+    }
+
+    return std::to_string(videoMode.width) + "x" + std::to_string(videoMode.height);
+  }
+
+  /**
+   * @brief Return the selected stream-resolution index inside the preset list.
+   *
+   * @param state Current client state containing the preferred mode.
+   * @return Zero-based index of the preferred mode, or zero when no exact match exists.
+   */
+  std::size_t selected_stream_video_mode_index(const app::ClientState &state) {
+    if (!state.settings.preferredVideoModeSet || state.settings.availableVideoModes.empty()) {
+      return 0U;
+    }
+
+    for (std::size_t index = 0; index < state.settings.availableVideoModes.size(); ++index) {
+      if (stream_resolutions_match(state.settings.availableVideoModes[index], state.settings.preferredVideoMode)) {
+        return index;
+      }
+    }
+
+    return 0U;
+  }
+
+  /**
+   * @brief Advance the preferred stream resolution to the next preset.
+   *
+   * @param state Current client state containing the configured stream-resolution presets.
+   */
+  void cycle_stream_video_mode(app::ClientState &state) {
+    if (state.settings.availableVideoModes.empty()) {
+      state.settings.preferredVideoMode = {};
+      state.settings.preferredVideoModeSet = false;
+      return;
+    }
+
+    const std::size_t nextIndex = (selected_stream_video_mode_index(state) + 1U) % state.settings.availableVideoModes.size();
+    state.settings.preferredVideoMode = state.settings.availableVideoModes[nextIndex];
+    state.settings.preferredVideoModeSet = true;
+  }
+
+  /**
+   * @brief Advance the preferred stream frame rate to the next supported option.
+   *
+   * @param state Current client state containing the preferred frame rate.
+   */
+  void cycle_stream_framerate(app::ClientState &state) {
+    const auto current = std::find(STREAM_FRAMERATE_OPTIONS.begin(), STREAM_FRAMERATE_OPTIONS.end(), state.settings.streamFramerate);
+    if (current == STREAM_FRAMERATE_OPTIONS.end()) {
+      state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.front();
+      return;
+    }
+
+    const std::size_t nextIndex = (static_cast<std::size_t>(std::distance(STREAM_FRAMERATE_OPTIONS.begin(), current)) + 1U) % STREAM_FRAMERATE_OPTIONS.size();
+    state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS[nextIndex];
+  }
+
+  /**
+   * @brief Advance the preferred stream bitrate to the next supported option.
+   *
+   * @param state Current client state containing the preferred bitrate.
+   */
+  void cycle_stream_bitrate(app::ClientState &state) {
+    const auto current = std::find(STREAM_BITRATE_OPTIONS.begin(), STREAM_BITRATE_OPTIONS.end(), state.settings.streamBitrateKbps);
+    if (current == STREAM_BITRATE_OPTIONS.end()) {
+      state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS.front();
+      return;
+    }
+
+    const std::size_t nextIndex = (static_cast<std::size_t>(std::distance(STREAM_BITRATE_OPTIONS.begin(), current)) + 1U) % STREAM_BITRATE_OPTIONS.size();
+    state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS[nextIndex];
   }
 
   std::string pairing_reset_endpoint_key(std::string_view address, uint16_t port) {
@@ -428,7 +524,36 @@ namespace {
         };
       case app::SettingsCategory::display:
         return {
-          {"display-placeholder", "Display settings are not implemented yet", "Display-specific options are planned, but there are no adjustable display settings in this build yet.", true},
+          {
+            "cycle-stream-video-mode",
+            std::string("Stream Resolution: ") + describe_stream_resolution(state.settings.preferredVideoMode),
+            "Cycle through fixed stream-resolution presets. The selected resolution is requested from the host the next time a stream starts and does not change the Xbox output mode.",
+            true,
+          },
+          {
+            "cycle-stream-framerate",
+            std::string("Stream Frame Rate: ") + std::to_string(state.settings.streamFramerate) + " FPS",
+            "Cycle through the preferred stream frame rate. Lower frame rates can reduce video packet pressure on slower or lossy networks.",
+            true,
+          },
+          {
+            "cycle-stream-bitrate",
+            std::string("Stream Bitrate: ") + std::to_string(state.settings.streamBitrateKbps) + " kbps",
+            "Cycle through the preferred video bitrate. Lower bitrates reduce bandwidth use and can help when running Sunshine and xemu on the same NATed host.",
+            true,
+          },
+          {
+            "toggle-play-audio-on-pc",
+            std::string("Play Audio on PC: ") + (state.settings.playAudioOnPc ? "On" : "Off"),
+            "Toggle whether the host PC should continue local audio playback while also streaming audio to this Xbox client.",
+            true,
+          },
+          {
+            "toggle-show-performance-stats",
+            std::string("Show Performance Stats: ") + (state.settings.showPerformanceStats ? "On" : "Off"),
+            "Toggle the in-stream performance overlay that shows decoded frames, queued audio, and transport telemetry over the video output.",
+            true,
+          },
         };
       case app::SettingsCategory::input:
         return {
@@ -1270,6 +1395,10 @@ namespace app {
     state.settings.logViewerPlacement = LogViewerPlacement::full;
     state.settings.loggingLevel = logging::LogLevel::none;
     state.settings.xemuConsoleLoggingLevel = logging::LogLevel::none;
+    state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS[1];
+    state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS[1];
+    state.settings.playAudioOnPc = false;
+    state.settings.showPerformanceStats = false;
     state.settings.dirty = false;
     state.settings.savedFilesDirty = true;
     return state;
@@ -1834,6 +1963,46 @@ namespace app {
       rebuild_menu(state, "cycle-xemu-console-log-level");
       return;
     }
+    if (detailUpdate.activatedItemId == "cycle-stream-video-mode") {
+      cycle_stream_video_mode(state);
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = state.settings.preferredVideoModeSet ? std::string("Stream resolution set to ") + describe_stream_resolution(state.settings.preferredVideoMode) : "No stream resolutions are currently available";
+      rebuild_menu(state, "cycle-stream-video-mode");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "cycle-stream-framerate") {
+      cycle_stream_framerate(state);
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Stream frame rate set to ") + std::to_string(state.settings.streamFramerate) + " FPS";
+      rebuild_menu(state, "cycle-stream-framerate");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "cycle-stream-bitrate") {
+      cycle_stream_bitrate(state);
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Stream bitrate set to ") + std::to_string(state.settings.streamBitrateKbps) + " kbps";
+      rebuild_menu(state, "cycle-stream-bitrate");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "toggle-play-audio-on-pc") {
+      state.settings.playAudioOnPc = !state.settings.playAudioOnPc;
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Play audio on PC ") + (state.settings.playAudioOnPc ? "enabled" : "disabled");
+      rebuild_menu(state, "toggle-play-audio-on-pc");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "toggle-show-performance-stats") {
+      state.settings.showPerformanceStats = !state.settings.showPerformanceStats;
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Performance stats overlay ") + (state.settings.showPerformanceStats ? "enabled" : "disabled");
+      rebuild_menu(state, "toggle-show-performance-stats");
+      return;
+    }
     if (detailUpdate.activatedItemId == "factory-reset") {
       open_confirmation(
         state,
@@ -2082,8 +2251,9 @@ namespace app {
       case input::UiCommand::activate:
       case input::UiCommand::confirm:
         if (const HostAppRecord *appRecord = selected_app(state); appRecord != nullptr) {
-          state.shell.statusMessage = "Launching " + appRecord->name + " is not implemented yet";
+          state.shell.statusMessage = "Starting stream for " + appRecord->name + "...";
           update->navigation.activatedItemId = "launch-app";
+          update->requests.streamLaunchRequested = true;
         }
         return true;
       case input::UiCommand::back:

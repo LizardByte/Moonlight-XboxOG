@@ -8,6 +8,7 @@
 #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
 
 // standard includes
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdio>
@@ -39,7 +40,51 @@ namespace {
     state.settings.loggingLevel = settings.loggingLevel;
     state.settings.xemuConsoleLoggingLevel = settings.xemuConsoleLoggingLevel;
     state.settings.logViewerPlacement = settings.logViewerPlacement;
+    state.settings.preferredVideoMode = settings.preferredVideoMode;
+    state.settings.preferredVideoModeSet = settings.preferredVideoModeSet;
+    state.settings.streamFramerate = settings.streamFramerate;
+    state.settings.streamBitrateKbps = settings.streamBitrateKbps;
+    state.settings.playAudioOnPc = settings.playAudioOnPc;
+    state.settings.showPerformanceStats = settings.showPerformanceStats;
     state.settings.dirty = false;
+  }
+
+  /**
+   * @brief Return whether two stream-resolution entries target the same width and height.
+   *
+   * @param left First stream-resolution entry to compare.
+   * @param right Second stream-resolution entry to compare.
+   * @return True when both entries describe the same stream resolution.
+   */
+  bool stream_resolutions_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+    return left.width == right.width && left.height == right.height;
+  }
+
+  /**
+   * @brief Finalize the preferred stream resolution after startup detection.
+   *
+   * @param state Mutable client state receiving the fixed stream-resolution presets.
+   * @param selection Detected Xbox output modes and preferred startup mode.
+   */
+  void initialize_stream_video_mode_settings(app::ClientState &state, const startup::VideoModeSelection &selection) {
+    state.settings.availableVideoModes = startup::stream_resolution_presets(
+      selection.bestVideoMode.bpp > 0 ? selection.bestVideoMode.bpp : 32,
+      selection.bestVideoMode.refresh > 0 ? selection.bestVideoMode.refresh : 60
+    );
+    const auto preferredMode = std::find_if(
+      state.settings.availableVideoModes.begin(),
+      state.settings.availableVideoModes.end(),
+      [&state](const VIDEO_MODE &candidate) {
+        return stream_resolutions_match(candidate, state.settings.preferredVideoMode);
+      }
+    );
+    if (state.settings.preferredVideoModeSet && preferredMode != state.settings.availableVideoModes.end()) {
+      state.settings.preferredVideoMode = *preferredMode;
+      return;
+    }
+
+    state.settings.preferredVideoMode = startup::choose_default_stream_video_mode(selection.bestVideoMode);
+    state.settings.preferredVideoModeSet = state.settings.preferredVideoMode.width > 0 && state.settings.preferredVideoMode.height > 0;
   }
 
   void load_persisted_settings(app::ClientState &state) {
@@ -188,6 +233,7 @@ int main() {
   debug_print_encoder_settings(XVideoGetEncoderSettings());
 
   const startup::VideoModeSelection videoModeSelection = startup::select_best_video_mode();
+  initialize_stream_video_mode_settings(clientState, videoModeSelection);
   const VIDEO_MODE &bestVideoMode = videoModeSelection.bestVideoMode;
   debug_print_video_mode_selection(videoModeSelection);
   startup::log_memory_statistics();
@@ -200,7 +246,7 @@ int main() {
   debug_print_startup_checkpoint(setVideoModeResult ? "Returned from XVideoSetMode successfully" : "XVideoSetMode returned failure");
 
   debug_print_startup_checkpoint("About to call SDL_Init");
-  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
+  if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) != 0) {
     return report_startup_failure("sdl", std::string("SDL_Init failed: ") + SDL_GetError());
   }
   debug_print_startup_checkpoint("SDL_Init succeeded");
