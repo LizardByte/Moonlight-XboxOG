@@ -37,6 +37,8 @@
 extern "C" int rand_s(unsigned int *randomValue);
 #endif
 
+extern "C" std::uint64_t PltGetMicroseconds(void);
+
 namespace {
 
   constexpr Uint8 BACKGROUND_RED = 0x08;
@@ -151,6 +153,85 @@ namespace {
 
   private:
     bool active_ = false;
+  };
+
+  bool video_modes_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+    return left.width == right.width && left.height == right.height && left.bpp == right.bpp && left.refresh == right.refresh;
+  }
+
+  VIDEO_MODE select_stream_presentation_video_mode(const VIDEO_MODE &fallbackVideoMode, const VIDEO_MODE &streamVideoMode) {
+    VIDEO_MODE presentationMode = fallbackVideoMode;
+    presentationMode.bpp = fallbackVideoMode.bpp > 0 ? fallbackVideoMode.bpp : 32;
+    presentationMode.refresh = fallbackVideoMode.refresh > 0 ? fallbackVideoMode.refresh : 60;
+
+    if (streamVideoMode.height <= 288) {
+      presentationMode.width = 640;
+      presentationMode.height = 480;
+    } else if (streamVideoMode.height <= 480) {
+      presentationMode.width = streamVideoMode.width >= 700 ? 720 : 640;
+      presentationMode.height = 480;
+    } else if (streamVideoMode.height <= 576) {
+      presentationMode.width = 720;
+      presentationMode.height = presentationMode.refresh <= 50 ? 576 : 480;
+    }
+
+    return presentationMode;
+  }
+
+  class ScopedStreamVideoMode {
+  public:
+    ScopedStreamVideoMode(SDL_Window *window, const VIDEO_MODE &originalVideoMode, const VIDEO_MODE &requestedVideoMode):
+        window_(window),
+        originalVideoMode_(originalVideoMode),
+        activeVideoMode_(originalVideoMode) {
+      if (requestedVideoMode.width <= 0 || requestedVideoMode.height <= 0 || video_modes_match(requestedVideoMode, originalVideoMode)) {
+        return;
+      }
+
+#ifdef NXDK
+      if (!XVideoSetMode(requestedVideoMode.width, requestedVideoMode.height, requestedVideoMode.bpp, requestedVideoMode.refresh)) {
+        logging::warn(
+          "stream",
+          "Failed to switch Xbox video mode for stream presentation to " + std::to_string(requestedVideoMode.width) + "x" + std::to_string(requestedVideoMode.height) + " @ " +
+            std::to_string(requestedVideoMode.refresh) + " Hz; using current output mode"
+        );
+        return;
+      }
+
+      activeVideoMode_ = requestedVideoMode;
+      changed_ = true;
+      if (window_ != nullptr) {
+        SDL_SetWindowSize(window_, activeVideoMode_.width, activeVideoMode_.height);
+      }
+      logging::info("stream", "Switched Xbox video mode for stream presentation to " + std::to_string(activeVideoMode_.width) + "x" + std::to_string(activeVideoMode_.height));
+#else
+      (void) requestedVideoMode;
+#endif
+    }
+
+    ~ScopedStreamVideoMode() {
+#ifdef NXDK
+      if (changed_) {
+        XVideoSetMode(originalVideoMode_.width, originalVideoMode_.height, originalVideoMode_.bpp, originalVideoMode_.refresh);
+        if (window_ != nullptr) {
+          SDL_SetWindowSize(window_, originalVideoMode_.width, originalVideoMode_.height);
+        }
+      }
+#endif
+    }
+
+    ScopedStreamVideoMode(const ScopedStreamVideoMode &) = delete;
+    ScopedStreamVideoMode &operator=(const ScopedStreamVideoMode &) = delete;
+
+    const VIDEO_MODE &active_video_mode() const {
+      return activeVideoMode_;
+    }
+
+  private:
+    SDL_Window *window_ = nullptr;
+    VIDEO_MODE originalVideoMode_ {};
+    VIDEO_MODE activeVideoMode_ {};
+    bool changed_ = false;
   };
 
   /**
@@ -1046,11 +1127,11 @@ namespace {
       return;
     }
 
-    const Uint32 nowTicks = SDL_GetTicks();
-    const Uint32 idleMilliseconds = mediaBackend->milliseconds_since_last_decoded_video_frame(nowTicks);
+    const std::uint64_t idleMilliseconds = mediaBackend->milliseconds_since_last_decoded_video_frame(PltGetMicroseconds());
     if (idleMilliseconds < STREAM_VIDEO_IDLE_IDR_MILLISECONDS) {
       return;
     }
+    const Uint32 nowTicks = SDL_GetTicks();
     if (*lastRequestTicks != 0U && nowTicks - *lastRequestTicks < STREAM_VIDEO_IDLE_IDR_COOLDOWN_MILLISECONDS) {
       return;
     }
@@ -1183,8 +1264,13 @@ namespace streaming {
     const network::PairingIdentity &clientIdentity,
     std::string *statusMessage
   ) {
+    const ResolvedStreamParameters streamParameters = resolve_stream_parameters(videoMode, settings);
+    const VIDEO_MODE streamPresentationVideoMode = select_stream_presentation_video_mode(videoMode, streamParameters.videoMode);
+    ScopedStreamVideoMode scopedStreamVideoMode(window, videoMode, streamPresentationVideoMode);
+    const VIDEO_MODE &activeStreamVideoMode = scopedStreamVideoMode.active_video_mode();
+
     StreamUiResources resources {};
-    if (std::string initializationError; !initialize_stream_ui_resources(window, videoMode, &resources, &initializationError)) {
+    if (std::string initializationError; !initialize_stream_ui_resources(window, activeStreamVideoMode, &resources, &initializationError)) {
       if (statusMessage != nullptr) {
         *statusMessage = initializationError;
       }
@@ -1211,14 +1297,13 @@ namespace streaming {
 
     network::StreamLaunchResult launchResult {};
     network::StreamLaunchConfiguration launchConfiguration {};
-    const ResolvedStreamParameters streamParameters = resolve_stream_parameters(videoMode, settings);
     launchConfiguration.appId = app.id;
     launchConfiguration.width = select_stream_width(streamParameters.videoMode);
     launchConfiguration.height = select_stream_height(streamParameters.videoMode);
     launchConfiguration.fps = streamParameters.fps;
     launchConfiguration.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
     launchConfiguration.playAudioOnPc = settings.playAudioOnPc;
-    launchConfiguration.clientRefreshRateX100 = select_client_refresh_rate_x100(videoMode);
+    launchConfiguration.clientRefreshRateX100 = select_client_refresh_rate_x100(activeStreamVideoMode);
     launchConfiguration.remoteInputAesKeyHex = hex_encode(remoteInputKey.data(), remoteInputKey.size());
     launchConfiguration.remoteInputAesIvHex = hex_encode(remoteInputIv.data(), remoteInputIv.size());
 
@@ -1236,7 +1321,7 @@ namespace streaming {
     StreamStartContext startContext {};
     startContext.connectionState = &connectionState;
     startContext.mediaBackend = &resources.mediaBackend;
-    configure_stream_start_context(launchResult, remoteInputKey, remoteInputIv, videoMode, streamParameters, &startContext);
+    configure_stream_start_context(launchResult, remoteInputKey, remoteInputIv, activeStreamVideoMode, streamParameters, &startContext);
     if (startContext.appVersion != startContext.reportedAppVersion) {
       logging::info(
         "stream",

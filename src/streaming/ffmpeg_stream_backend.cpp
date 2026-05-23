@@ -351,30 +351,6 @@ namespace streaming {
   }
 
   /**
-   * @brief Compute a destination rectangle that never enlarges the decoded frame.
-   *
-   * @param screenWidth Framebuffer output width.
-   * @param screenHeight Framebuffer output height.
-   * @param frameWidth Decoded video width.
-   * @param frameHeight Decoded video height.
-   * @return Centered destination rectangle, scaled down only when required.
-   */
-  SDL_Rect build_unscaled_destination(int screenWidth, int screenHeight, int frameWidth, int frameHeight) {
-    if (screenWidth <= 0 || screenHeight <= 0 || frameWidth <= 0 || frameHeight <= 0) {
-      return SDL_Rect {0, 0, 0, 0};
-    }
-    if (frameWidth <= screenWidth && frameHeight <= screenHeight) {
-      return SDL_Rect {
-        (screenWidth - frameWidth) / 2,
-        (screenHeight - frameHeight) / 2,
-        frameWidth,
-        frameHeight,
-      };
-    }
-    return build_letterboxed_destination(screenWidth, screenHeight, frameWidth, frameHeight);
-  }
-
-  /**
    * @brief Return whether two SDL rectangles describe the same area.
    *
    * @param left First rectangle.
@@ -428,9 +404,12 @@ namespace streaming {
     return video_.publishedFrameVersion.load() != video_.renderedFrameVersion;
   }
 
-  Uint32 FfmpegStreamBackend::milliseconds_since_last_decoded_video_frame(Uint32 nowTicks) const {
-    const Uint32 lastDecodedFrameTicks = video_.lastDecodedFrameTicks.load();
-    return lastDecodedFrameTicks == 0U ? 0U : nowTicks - lastDecodedFrameTicks;
+  std::uint64_t FfmpegStreamBackend::milliseconds_since_last_decoded_video_frame(std::uint64_t nowMicroseconds) const {
+    const std::uint64_t lastDecodedFrameUs = video_.lastDecodedFrameUs.load();
+    if (lastDecodedFrameUs == 0U || nowMicroseconds < lastDecodedFrameUs) {
+      return 0U;
+    }
+    return (nowMicroseconds - lastDecodedFrameUs) / 1000U;
   }
 
   std::string FfmpegStreamBackend::build_overlay_status_line() const {
@@ -630,7 +609,7 @@ namespace streaming {
     video_.droppedDecodeUnitCount.store(0);
     video_.lastDecodeQueueUs.store(0);
     video_.lastReceiveAgeUs.store(0);
-    video_.lastDecodedFrameTicks.store(0);
+    video_.lastDecodedFrameUs.store(0);
     video_.lastDecodeFrameNumber.store(0);
   }
 
@@ -654,10 +633,16 @@ namespace streaming {
       int decodeStatus = DR_OK;
       if (!video_.decoderStopRequested.load() && decodeUnit != nullptr) {
         const int droppedFrames = drop_queued_video_decode_units(&frameHandle, &decodeUnit);
-        if (droppedFrames > 0 && decodeUnit != nullptr && decodeUnit->frameType == FRAME_TYPE_IDR && video_.codecContext != nullptr) {
-          avcodec_flush_buffers(video_.codecContext);
+        if (droppedFrames > 0 && decodeUnit != nullptr) {
+          if (decodeUnit->frameType == FRAME_TYPE_IDR && video_.codecContext != nullptr) {
+            avcodec_flush_buffers(video_.codecContext);
+          } else {
+            decodeStatus = DR_NEED_IDR;
+          }
         }
-        decodeStatus = decode_video_decode_unit(decodeUnit);
+        if (decodeStatus == DR_OK) {
+          decodeStatus = decode_video_decode_unit(decodeUnit);
+        }
       }
       LiCompleteVideoFrame(frameHandle, decodeStatus);
       if (!video_.decoderStopRequested.load() && decodeStatus == DR_OK) {
@@ -698,15 +683,12 @@ namespace streaming {
     *decodeUnit = newestDecodeUnit;
 
     const std::uint64_t droppedDecodeUnitCount = video_.droppedDecodeUnitCount.fetch_add(static_cast<std::uint64_t>(droppedFrames)) + static_cast<std::uint64_t>(droppedFrames);
-    if (newestDecodeUnit != nullptr && newestDecodeUnit->frameType != FRAME_TYPE_IDR) {
-      LiRequestIdrFrame();
-    }
-
     if (droppedDecodeUnitCount <= static_cast<std::uint64_t>(droppedFrames) || (droppedDecodeUnitCount % STREAM_VIDEO_DROP_LOG_INTERVAL) < static_cast<std::uint64_t>(droppedFrames)) {
       logging::warn(
         "stream",
         std::string("Dropped queued video decode units before decode | dropped_total=") + std::to_string(droppedDecodeUnitCount) + " | dropped_now=" + std::to_string(droppedFrames) +
-          " | newest_frame=" + std::to_string(newestDecodeUnit != nullptr ? newestDecodeUnit->frameNumber : -1)
+          " | newest_frame=" + std::to_string(newestDecodeUnit != nullptr ? newestDecodeUnit->frameNumber : -1) +
+          (newestDecodeUnit != nullptr && newestDecodeUnit->frameType != FRAME_TYPE_IDR ? " | waiting_for_idr" : "")
       );
     }
 
@@ -745,7 +727,7 @@ namespace streaming {
       video_.publishedFrameVersion.store(video_.latestFrameVersion);
     }
 
-    video_.lastDecodedFrameTicks.store(SDL_GetTicks());
+    video_.lastDecodedFrameUs.store(PltGetMicroseconds());
     video_.hasFrame.store(true);
     video_.decodedFrameCount.fetch_add(1);
     return true;
@@ -763,7 +745,7 @@ namespace streaming {
 
     const int framebufferWidth = screenWidth > 0 ? std::min(screenWidth, videoMode.width) : videoMode.width;
     const int framebufferHeight = screenHeight > 0 ? std::min(screenHeight, videoMode.height) : videoMode.height;
-    const SDL_Rect destination = build_unscaled_destination(framebufferWidth, framebufferHeight, video_.renderFrame.width, video_.renderFrame.height);
+    const SDL_Rect destination = build_letterboxed_destination(framebufferWidth, framebufferHeight, video_.renderFrame.width, video_.renderFrame.height);
     if (destination.w <= 0 || destination.h <= 0) {
       return false;
     }

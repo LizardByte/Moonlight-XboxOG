@@ -95,10 +95,10 @@ namespace streaming {
     /**
      * @brief Return how long it has been since FFmpeg published a decoded video frame.
      *
-     * @param nowTicks Current SDL tick value.
+     * @param nowMicroseconds Current platform monotonic time.
      * @return Milliseconds since the last decoded frame, or zero before a frame is published.
      */
-    Uint32 milliseconds_since_last_decoded_video_frame(Uint32 nowTicks) const;
+    std::uint64_t milliseconds_since_last_decoded_video_frame(std::uint64_t nowMicroseconds) const;
 
     /**
      * @brief Build a short user-visible media status line.
@@ -287,7 +287,7 @@ namespace streaming {
       std::atomic<std::uint64_t> droppedDecodeUnitCount = 0;
       std::atomic<std::uint64_t> lastDecodeQueueUs = 0;
       std::atomic<std::uint64_t> lastReceiveAgeUs = 0;
-      std::atomic<Uint32> lastDecodedFrameTicks = 0;
+      std::atomic<std::uint64_t> lastDecodedFrameUs = 0;
       std::atomic<int> lastDecodeFrameNumber = 0;
     };
 
