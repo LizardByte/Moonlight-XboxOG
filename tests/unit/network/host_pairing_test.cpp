@@ -138,6 +138,22 @@ namespace {
     return std::string(pathAndQuery.substr(valueStart, valueEnd == std::string_view::npos ? std::string_view::npos : valueEnd - valueStart));
   }
 
+  void expect_unique_id_request(const HostPairingHttpTestRequest &request, const network::PairingIdentity &identity, std::string_view path) {
+    EXPECT_NE(request.pathAndQuery.find(std::string(path) + "?uniqueid=" + identity.uniqueId), std::string::npos);
+  }
+
+  void expect_unauthenticated_unique_id_request(const HostPairingHttpTestRequest &request, const network::PairingIdentity &identity, std::string_view path) {
+    EXPECT_FALSE(request.useTls);
+    expect_unique_id_request(request, identity, path);
+  }
+
+  void expect_authenticated_unique_id_request(const HostPairingHttpTestRequest &request, const network::PairingIdentity &identity, std::string_view path) {
+    EXPECT_TRUE(request.useTls);
+    ASSERT_NE(request.tlsClientIdentity, nullptr);
+    EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+    expect_unique_id_request(request, identity, path);
+  }
+
   std::vector<unsigned char> to_unsigned_bytes(const std::byte *data, std::size_t size) {
     std::vector<unsigned char> bytes;
     bytes.reserve(size);
@@ -897,8 +913,7 @@ namespace {
     ScriptedHostPairingHttpHandler handler({
       {
         [&identity](const HostPairingHttpTestRequest &request) {
-          EXPECT_FALSE(request.useTls);
-          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + identity.uniqueId), std::string::npos);
+          expect_unauthenticated_unique_id_request(request, identity, "/serverinfo");
         },
         true,
         200,
@@ -906,10 +921,7 @@ namespace {
       },
       {
         [&identity](const HostPairingHttpTestRequest &request) {
-          EXPECT_TRUE(request.useTls);
-          ASSERT_NE(request.tlsClientIdentity, nullptr);
-          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
-          EXPECT_NE(request.pathAndQuery.find("/serverinfo?uniqueid=" + identity.uniqueId), std::string::npos);
+          expect_authenticated_unique_id_request(request, identity, "/serverinfo");
         },
         true,
         200,
@@ -917,10 +929,7 @@ namespace {
       },
       {
         [&identity](const HostPairingHttpTestRequest &request) {
-          EXPECT_TRUE(request.useTls);
-          ASSERT_NE(request.tlsClientIdentity, nullptr);
-          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
-          EXPECT_NE(request.pathAndQuery.find("/launch?uniqueid=" + identity.uniqueId), std::string::npos);
+          expect_authenticated_unique_id_request(request, identity, "/launch");
           EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "appid"), "101");
           EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "mode"), "640x480x30");
           EXPECT_EQ(extract_query_parameter(request.pathAndQuery, "localAudioPlayMode"), "1");
@@ -985,11 +994,8 @@ namespace {
       },
       {
         [&identity](const HostPairingHttpTestRequest &request) {
-          EXPECT_TRUE(request.useTls);
-          ASSERT_NE(request.tlsClientIdentity, nullptr);
-          EXPECT_EQ(request.tlsClientIdentity->uniqueId, identity.uniqueId);
+          expect_authenticated_unique_id_request(request, identity, "/launch");
           EXPECT_EQ(request.address, test_support::kTestIpv4Addresses[test_support::kIpLivingRoom]);
-          EXPECT_NE(request.pathAndQuery.find("/launch?uniqueid=" + identity.uniqueId), std::string::npos);
         },
         true,
         200,

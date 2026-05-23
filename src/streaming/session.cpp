@@ -164,9 +164,9 @@ namespace {
     int streamingRemotely = STREAM_CFG_AUTO;
   };
 
-  void assign_status_message(std::string *statusMessage, const std::string &message) {
+  void assign_status_message(std::string *statusMessage, std::string_view message) {
     if (statusMessage != nullptr) {
-      *statusMessage = message;
+      statusMessage->assign(message.data(), message.size());
     }
   }
 
@@ -943,6 +943,12 @@ namespace {
     }
   }
 
+  SDL_ControllerDeviceEvent copy_controller_device_event(const SDL_Event &event) {
+    SDL_ControllerDeviceEvent controllerEvent {};
+    std::memcpy(&controllerEvent, &event, sizeof(controllerEvent));
+    return controllerEvent;
+  }
+
   void pump_stream_events(StreamUiResources *resources) {
     SDL_Event event {};
     while (SDL_PollEvent(&event) != 0) {
@@ -951,9 +957,11 @@ namespace {
       }
 
       if (event.type == SDL_CONTROLLERDEVICEADDED) {
-        open_controller_if_needed(resources, event.cdevice.which);
+        const SDL_ControllerDeviceEvent controllerEvent = copy_controller_device_event(event);
+        open_controller_if_needed(resources, controllerEvent.which);
       } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
-        close_controller_if_removed(resources, event.cdevice.which);
+        const SDL_ControllerDeviceEvent controllerEvent = copy_controller_device_event(event);
+        close_controller_if_removed(resources, controllerEvent.which);
       }
     }
   }
@@ -1514,8 +1522,7 @@ namespace streaming {
     startContext.connectionCallbacks.logMessage = on_log_message;
 
     bool rtspFallbackAttempted = false;
-    const StreamStartAttemptContext startAttempt {host, app, startContext, connectionState, resources, statusMessage};
-    if (!run_stream_start_with_rtsp_fallback(startAttempt, &rtspFallbackAttempted)) {
+    if (const StreamStartAttemptContext startAttempt {host, app, startContext, connectionState, resources, statusMessage}; !run_stream_start_with_rtsp_fallback(startAttempt, &rtspFallbackAttempted)) {
       return false;
     }
 
