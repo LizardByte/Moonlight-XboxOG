@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -476,7 +477,10 @@ namespace logging {
       LogSink sink;  ///< Callback invoked for matching entries.
     };
 
+    bool should_log_unlocked(LogLevel level) const;
+
     std::size_t capacity_;
+    mutable std::mutex mutex_;
     LogLevel minimumLevel_ = LogLevel::none;
     bool startupDebugEnabled_ = true;
     LogSink fileSink_;

@@ -7,6 +7,7 @@
 
 // standard includes
 #include <string>
+#include <thread>
 #include <vector>
 
 // lib includes
@@ -233,6 +234,33 @@ namespace {
     EXPECT_TRUE(logger.error("app", "second"));
     ASSERT_EQ(logger.entries().size(), 1U);
     EXPECT_EQ(logger.entries().front().message, "second");
+  }
+
+  TEST(LoggerTest, ConcurrentLoggingKeepsTheRetainedBufferBounded) {
+    logging::Logger logger(32, []() {
+      return logging::LogTimestamp {2026, 4, 5, 13, 7, 9, 42};
+    });
+    logger.set_minimum_level(logging::LogLevel::info);
+    logger.set_startup_debug_enabled(false);
+
+    std::vector<std::thread> threads;
+    for (int threadIndex = 0; threadIndex < 4; ++threadIndex) {
+      threads.emplace_back([&logger, threadIndex]() {
+        for (int entryIndex = 0; entryIndex < 128; ++entryIndex) {
+          logger.info("stream", "thread-" + std::to_string(threadIndex) + "-" + std::to_string(entryIndex));
+        }
+      });
+    }
+
+    for (std::thread &thread : threads) {
+      thread.join();
+    }
+
+    const std::vector<logging::LogEntry> retainedEntries = logger.snapshot(logging::LogLevel::info);
+    ASSERT_EQ(retainedEntries.size(), 32U);
+    for (std::size_t index = 1; index < retainedEntries.size(); ++index) {
+      EXPECT_LT(retainedEntries[index - 1].sequence, retainedEntries[index].sequence);
+    }
   }
 
   TEST(LoggerTest, StartupConsoleHelpersPreserveLabelsAndCanBeToggled) {

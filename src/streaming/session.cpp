@@ -194,6 +194,72 @@ namespace {
     return true;
   }
 
+  bool contains_ascii_case_insensitive(std::string_view text, std::string_view needle) {
+    if (needle.empty()) {
+      return true;
+    }
+    if (text.size() < needle.size()) {
+      return false;
+    }
+
+    for (std::size_t offset = 0; offset <= text.size() - needle.size(); ++offset) {
+      if (starts_with_ascii_case_insensitive(text.substr(offset), needle)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool is_high_volume_connection_log(std::string_view text) {
+    static constexpr std::string_view HIGH_VOLUME_PREFIXES[] {
+      "Audio packet queue overflow",
+      "Control message took over 10 ms",
+      "Depacketizer detected corrupt frame",
+      "Failed to decrypt audio packet",
+      "Failed to decrypt video packet",
+      "IDR frame request sent",
+      "Input queue reached maximum size limit",
+      "Invalidate reference frame request sent",
+      "Invalid last payload length",
+      "Leaving speculative RFI mode",
+      "Network dropped ",
+      "Next post-invalidation frame is:",
+      "Received OOS audio data",
+      "Recovered ",
+      "Requesting IDR frame on behalf of DR",
+      "Sending RFI request for unrecoverable frame",
+      "Sending speculative RFI request",
+      "Unable to recover audio data",
+      "Unrecoverable frame ",
+      "Video decode unit queue overflow",
+      "Waiting for IDR frame",
+      "Waiting for RFI frame",
+    };
+
+    for (const std::string_view prefix : HIGH_VOLUME_PREFIXES) {
+      if (starts_with_ascii_case_insensitive(text, prefix)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  logging::LogLevel connection_log_level(std::string_view message) {
+    if (
+      starts_with_ascii_case_insensitive(message, "WARNING:") ||
+      starts_with_ascii_case_insensitive(message, "Failed") ||
+      starts_with_ascii_case_insensitive(message, "Invalid") ||
+      starts_with_ascii_case_insensitive(message, "No ") ||
+      contains_ascii_case_insensitive(message, " failed")
+    ) {
+      return logging::LogLevel::warning;
+    }
+
+    return logging::LogLevel::debug;
+  }
+
   /**
    * @brief Return whether the host metadata indicates Sunshine.
    *
@@ -625,16 +691,20 @@ namespace {
   }
 
   void on_log_message(const char *format, ...) {
+    if (format == nullptr || is_high_volume_connection_log(format)) {
+      return;
+    }
+
     va_list arguments;
     va_start(arguments, format);
     const std::string message = format_connection_log_message(format, arguments);
     va_end(arguments);
-    if (message.empty()) {
+    if (message.empty() || is_high_volume_connection_log(message)) {
       return;
     }
 
     append_connection_protocol_message(g_active_connection_state, message);
-    logging::debug("moonlight", message);
+    logging::log(connection_log_level(message), "moonlight", message);
   }
 
   int run_stream_start_thread(void *context) {
@@ -965,6 +1035,11 @@ namespace {
     SDL_GetRendererOutputSize(resources->renderer, &screenWidth, &screenHeight);
 
     const bool hasDecodedVideo = mediaBackend != nullptr && mediaBackend->has_decoded_video();
+#ifdef NXDK
+    if (hasDecodedVideo && !showPerformanceStats && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, true)) {
+      return true;
+    }
+#endif
     if (hasDecodedVideo) {
       SDL_SetRenderDrawColor(resources->renderer, 0x00, 0x00, 0x00, 0xFF);
     } else {
@@ -972,7 +1047,7 @@ namespace {
     }
     SDL_RenderClear(resources->renderer);
 
-    const bool renderedVideo = hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight);
+    const bool renderedVideo = hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, false);
     if (renderedVideo && showPerformanceStats) {
       SDL_SetRenderDrawBlendMode(resources->renderer, SDL_BLENDMODE_BLEND);
       SDL_SetRenderDrawColor(resources->renderer, 0x00, 0x00, 0x00, 0x90);

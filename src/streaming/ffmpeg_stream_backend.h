@@ -66,9 +66,10 @@ namespace streaming {
      * @param renderer SDL renderer used by the stream session.
      * @param screenWidth Current renderer output width.
      * @param screenHeight Current renderer output height.
+     * @param allowDirectFramebuffer True when platform-specific direct presentation may bypass SDL's renderer.
      * @return True when a decoded frame was available and rendered.
      */
-    bool render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight);
+    bool render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer = true);
 
     /**
      * @brief Report whether at least one decoded video frame is available.
@@ -217,6 +218,15 @@ namespace streaming {
     bool publish_video_frame(AVFrame *frameToPresent);
 
     /**
+     * @brief Present the latest decoded frame through a platform-specific direct framebuffer path.
+     *
+     * @param screenWidth Current framebuffer width.
+     * @param screenHeight Current framebuffer height.
+     * @return True when the frame was presented without SDL renderer involvement.
+     */
+    bool render_latest_video_frame_to_framebuffer(int screenWidth, int screenHeight);
+
+    /**
      * @brief Hold the latest IYUV video frame ready for SDL upload.
      */
     struct LatestVideoFrame {
@@ -236,6 +246,7 @@ namespace streaming {
     struct VideoState {
       AVCodecContext *codecContext = nullptr;
       SwsContext *scaleContext = nullptr;
+      SwsContext *presentScaleContext = nullptr;
       AVFrame *decodedFrame = nullptr;
       AVFrame *convertedFrame = nullptr;
       AVPacket *packet = nullptr;
@@ -248,9 +259,11 @@ namespace streaming {
       std::vector<std::uint8_t> convertedBuffer;
       std::vector<std::uint8_t> packetBuffer;
       mutable std::mutex frameMutex;
+      SDL_Rect directFramebufferDestination {0, 0, 0, 0};
       LatestVideoFrame latestFrame;
       LatestVideoFrame decodeFrame;
       LatestVideoFrame renderFrame;
+      bool directFramebufferCleared = false;
       std::atomic<bool> decoderStopRequested = false;
       std::atomic<bool> hasFrame = false;
       std::atomic<std::uint64_t> publishedFrameVersion = 0;

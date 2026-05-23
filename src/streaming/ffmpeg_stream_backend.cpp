@@ -31,6 +31,10 @@ extern "C" {
 // local includes
 #include "src/logging/logger.h"
 
+#ifdef NXDK
+  #include <hal/video.h>
+#endif
+
 namespace {
 
   constexpr Uint32 STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS = 250U;
@@ -333,6 +337,80 @@ namespace streaming {
     return video_.hasFrame.load();
   }
 
+  /**
+   * @brief Compute a destination rectangle that never enlarges the decoded frame.
+   *
+   * @param screenWidth Framebuffer output width.
+   * @param screenHeight Framebuffer output height.
+   * @param frameWidth Decoded video width.
+   * @param frameHeight Decoded video height.
+   * @return Centered destination rectangle, scaled down only when required.
+   */
+  SDL_Rect build_unscaled_destination(int screenWidth, int screenHeight, int frameWidth, int frameHeight) {
+    if (screenWidth <= 0 || screenHeight <= 0 || frameWidth <= 0 || frameHeight <= 0) {
+      return SDL_Rect {0, 0, 0, 0};
+    }
+    if (frameWidth <= screenWidth && frameHeight <= screenHeight) {
+      return SDL_Rect {
+        (screenWidth - frameWidth) / 2,
+        (screenHeight - frameHeight) / 2,
+        frameWidth,
+        frameHeight,
+      };
+    }
+    return build_letterboxed_destination(screenWidth, screenHeight, frameWidth, frameHeight);
+  }
+
+  /**
+   * @brief Return whether two SDL rectangles describe the same area.
+   *
+   * @param left First rectangle.
+   * @param right Second rectangle.
+   * @return True when every rectangle field matches.
+   */
+  bool rectangles_match(const SDL_Rect &left, const SDL_Rect &right) {
+    return left.x == right.x && left.y == right.y && left.w == right.w && left.h == right.h;
+  }
+
+#ifdef NXDK
+  /**
+   * @brief Convert the active Xbox framebuffer bpp to FFmpeg's packed RGB format.
+   *
+   * @param bitsPerPixel Active framebuffer bits per pixel.
+   * @return Matching FFmpeg pixel format, or none when unsupported.
+   */
+  AVPixelFormat xbox_framebuffer_pixel_format(int bitsPerPixel) {
+    switch (bitsPerPixel) {
+      case 15:
+        return AV_PIX_FMT_RGB555LE;
+      case 16:
+        return AV_PIX_FMT_RGB565LE;
+      case 32:
+        return AV_PIX_FMT_BGR0;
+      default:
+        return AV_PIX_FMT_NONE;
+    }
+  }
+
+  /**
+   * @brief Return bytes per pixel for one Xbox framebuffer mode.
+   *
+   * @param bitsPerPixel Active framebuffer bits per pixel.
+   * @return Bytes per pixel, or zero when unsupported.
+   */
+  int xbox_framebuffer_bytes_per_pixel(int bitsPerPixel) {
+    switch (bitsPerPixel) {
+      case 15:
+      case 16:
+        return 2;
+      case 32:
+        return 4;
+      default:
+        return 0;
+    }
+  }
+#endif
+
   bool FfmpegStreamBackend::has_unrendered_video_frame() const {
     return video_.publishedFrameVersion.load() != video_.renderedFrameVersion;
   }
@@ -343,7 +421,7 @@ namespace streaming {
            std::to_string(video_.droppedDecodeUnitCount.load()) + " dropped | " + audioState;
   }
 
-  bool FfmpegStreamBackend::render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight) {
+  bool FfmpegStreamBackend::render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer) {
     if (renderer == nullptr || !video_.hasFrame.load()) {
       return false;
     }
@@ -362,6 +440,14 @@ namespace streaming {
     if (video_.renderFrame.width <= 0 || video_.renderFrame.height <= 0) {
       return false;
     }
+
+#ifdef NXDK
+    if (allowDirectFramebuffer && render_latest_video_frame_to_framebuffer(screenWidth, screenHeight)) {
+      return true;
+    }
+#else
+    (void) allowDirectFramebuffer;
+#endif
 
     if (video_.texture == nullptr || video_.textureWidth != video_.renderFrame.width || video_.textureHeight != video_.renderFrame.height) {
       if (video_.texture != nullptr) {
@@ -498,6 +584,10 @@ namespace streaming {
       sws_freeContext(video_.scaleContext);
       video_.scaleContext = nullptr;
     }
+    if (video_.presentScaleContext != nullptr) {
+      sws_freeContext(video_.presentScaleContext);
+      video_.presentScaleContext = nullptr;
+    }
 
     video_.convertedBuffer.clear();
     video_.packetBuffer.clear();
@@ -510,6 +600,8 @@ namespace streaming {
     }
     video_.renderedFrameVersion = 0;
     video_.publishedFrameVersion.store(0);
+    video_.directFramebufferDestination = SDL_Rect {0, 0, 0, 0};
+    video_.directFramebufferCleared = false;
     video_.decoderStopRequested.store(false);
     video_.hasFrame.store(false);
     video_.submittedDecodeUnitCount.store(0);
@@ -628,6 +720,88 @@ namespace streaming {
     video_.hasFrame.store(true);
     video_.decodedFrameCount.fetch_add(1);
     return true;
+  }
+
+  bool FfmpegStreamBackend::render_latest_video_frame_to_framebuffer(int screenWidth, int screenHeight) {
+#ifdef NXDK
+    const VIDEO_MODE videoMode = XVideoGetMode();
+    std::uint8_t *framebuffer = XVideoGetFB();
+    const int bytesPerPixel = xbox_framebuffer_bytes_per_pixel(videoMode.bpp);
+    const AVPixelFormat destinationFormat = xbox_framebuffer_pixel_format(videoMode.bpp);
+    if (framebuffer == nullptr || videoMode.width <= 0 || videoMode.height <= 0 || bytesPerPixel <= 0 || destinationFormat == AV_PIX_FMT_NONE) {
+      return false;
+    }
+
+    const int framebufferWidth = screenWidth > 0 ? std::min(screenWidth, videoMode.width) : videoMode.width;
+    const int framebufferHeight = screenHeight > 0 ? std::min(screenHeight, videoMode.height) : videoMode.height;
+    const SDL_Rect destination = build_unscaled_destination(framebufferWidth, framebufferHeight, video_.renderFrame.width, video_.renderFrame.height);
+    if (destination.w <= 0 || destination.h <= 0) {
+      return false;
+    }
+
+    const int framebufferPitch = videoMode.width * bytesPerPixel;
+    if (!video_.directFramebufferCleared || !rectangles_match(video_.directFramebufferDestination, destination)) {
+      std::memset(framebuffer, 0, static_cast<std::size_t>(framebufferPitch) * static_cast<std::size_t>(videoMode.height));
+      video_.directFramebufferDestination = destination;
+      video_.directFramebufferCleared = true;
+    }
+
+    video_.presentScaleContext = sws_getCachedContext(
+      video_.presentScaleContext,
+      video_.renderFrame.width,
+      video_.renderFrame.height,
+      AV_PIX_FMT_YUV420P,
+      destination.w,
+      destination.h,
+      destinationFormat,
+      SWS_FAST_BILINEAR,
+      nullptr,
+      nullptr,
+      nullptr
+    );
+    if (video_.presentScaleContext == nullptr) {
+      logging::warn("stream", "sws_getCachedContext failed for direct framebuffer presentation");
+      return false;
+    }
+
+    const std::uint8_t *sourceData[] = {
+      video_.renderFrame.yPlane.data(),
+      video_.renderFrame.uPlane.data(),
+      video_.renderFrame.vPlane.data(),
+      nullptr,
+    };
+    const int sourceLinesize[] = {
+      video_.renderFrame.yPitch,
+      video_.renderFrame.uPitch,
+      video_.renderFrame.vPitch,
+      0,
+    };
+    std::uint8_t *destinationData[] = {
+      framebuffer + (static_cast<std::size_t>(destination.y) * static_cast<std::size_t>(framebufferPitch)) + (static_cast<std::size_t>(destination.x) * static_cast<std::size_t>(bytesPerPixel)),
+      nullptr,
+      nullptr,
+      nullptr,
+    };
+    const int destinationLinesize[] = {
+      framebufferPitch,
+      0,
+      0,
+      0,
+    };
+
+    const int scaledRows = sws_scale(video_.presentScaleContext, sourceData, sourceLinesize, 0, video_.renderFrame.height, destinationData, destinationLinesize);
+    if (scaledRows <= 0) {
+      logging::warn("stream", "sws_scale failed for direct framebuffer presentation");
+      return false;
+    }
+
+    XVideoFlushFB();
+    return true;
+#else
+    (void) screenWidth;
+    (void) screenHeight;
+    return false;
+#endif
   }
 
   int FfmpegStreamBackend::receive_available_video_frames() {

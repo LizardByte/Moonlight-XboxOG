@@ -304,42 +304,56 @@ namespace logging {
   }
 
   void Logger::set_minimum_level(LogLevel minimumLevel) {
+    std::lock_guard<std::mutex> lock(mutex_);
     minimumLevel_ = minimumLevel;
   }
 
   LogLevel Logger::minimum_level() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return minimumLevel_;
   }
 
   void Logger::set_file_sink(LogSink sink) {
+    std::lock_guard<std::mutex> lock(mutex_);
     fileSink_ = std::move(sink);
   }
 
   void Logger::set_file_minimum_level(LogLevel minimumLevel) {
+    std::lock_guard<std::mutex> lock(mutex_);
     fileMinimumLevel_ = minimumLevel;
   }
 
   LogLevel Logger::file_minimum_level() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return fileMinimumLevel_;
   }
 
   void Logger::set_startup_debug_enabled(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
     startupDebugEnabled_ = enabled;
   }
 
   bool Logger::startup_debug_enabled() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return startupDebugEnabled_;
   }
 
   void Logger::set_debugger_console_minimum_level(LogLevel minimumLevel) {
+    std::lock_guard<std::mutex> lock(mutex_);
     debuggerConsoleMinimumLevel_ = minimumLevel;
   }
 
   LogLevel Logger::debugger_console_minimum_level() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return debuggerConsoleMinimumLevel_;
   }
 
   bool Logger::should_log(LogLevel level) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return should_log_unlocked(level);
+  }
+
+  bool Logger::should_log_unlocked(LogLevel level) const {
     if (is_enabled(level, minimumLevel_)) {
       return true;
     }
@@ -359,7 +373,8 @@ namespace logging {
   }
 
   bool Logger::log(LogLevel level, std::string category, std::string message, LogSourceLocation location) {
-    if (!should_log(level)) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!should_log_unlocked(level)) {
       return false;
     }
 
@@ -421,6 +436,7 @@ namespace logging {
   }
 
   void Logger::add_sink(LogSink sink, LogLevel minimumLevel) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (sink) {
       sinks_.push_back({minimumLevel, std::move(sink)});
     }
@@ -431,6 +447,7 @@ namespace logging {
   }
 
   std::vector<LogEntry> Logger::snapshot(LogLevel minimumLevel) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<LogEntry> filteredEntries;
 
     for (const LogEntry &entry : entries_) {
