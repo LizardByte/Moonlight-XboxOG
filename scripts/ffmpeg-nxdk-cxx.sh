@@ -10,21 +10,26 @@ compile_only=0
 output_path=
 previous_arg=
 for arg in "$@"; do
-  case "$arg" in
-    -c|-E)
-      compile_only=1
-      ;;
-    *)
-      ;;
-  esac
-
   if [ "$previous_arg" = "-o" ]; then
     output_path="$arg"
     previous_arg=
     continue
   fi
 
-  previous_arg="$arg"
+  case "$arg" in
+    -c|-E)
+      compile_only=1
+      ;;
+    -o)
+      previous_arg="-o"
+      ;;
+    -o?*)
+      output_path=${arg#-o}
+      ;;
+    *)
+      previous_arg=
+      ;;
+  esac
 done
 
 if [ "$compile_only" -eq 1 ]; then
@@ -52,7 +57,12 @@ if [ "$compile_only" -eq 1 ]; then
 fi
 
 if [ -n "$output_path" ]; then
+  output_dir=$(dirname -- "$output_path")
+  if [ "$output_dir" != "." ]; then
+    mkdir -p "$output_dir"
+  fi
   : > "$output_path"
+  chmod +x "$output_path" 2>/dev/null || true
   exit 0
 fi
 
