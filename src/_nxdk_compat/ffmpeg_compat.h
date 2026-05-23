@@ -21,34 +21,42 @@ extern "C" {
   #endif
 
   #ifndef ENOSYS
+    /** @brief Error code used when an FFmpeg compatibility operation is unsupported. */
     #define ENOSYS 38
   #endif
 
   #ifndef O_BINARY
+    /** @brief Binary-open flag placeholder for nxdk file APIs. */
     #define O_BINARY 0
   #endif
 
   #ifndef F_SETFD
+    /** @brief fcntl command placeholder used by FFmpeg close-on-exec setup. */
     #define F_SETFD 2
   #endif
 
   #ifndef FD_CLOEXEC
+    /** @brief close-on-exec descriptor flag placeholder for FFmpeg builds. */
     #define FD_CLOEXEC 1
   #endif
 
   #ifndef CP_ACP
+    /** @brief Windows ANSI code-page identifier used by FFmpeg path conversion code. */
     #define CP_ACP 0U
   #endif
 
   #ifndef CP_UTF8
+    /** @brief Windows UTF-8 code-page identifier used by FFmpeg path conversion code. */
     #define CP_UTF8 65001U
   #endif
 
   #ifndef MB_ERR_INVALID_CHARS
+    /** @brief Windows multibyte conversion validation flag used by FFmpeg. */
     #define MB_ERR_INVALID_CHARS 0x00000008UL
   #endif
 
   #ifndef WC_ERR_INVALID_CHARS
+    /** @brief Windows wide-character conversion validation flag used by FFmpeg. */
     #define WC_ERR_INVALID_CHARS 0x00000080UL
   #endif
 

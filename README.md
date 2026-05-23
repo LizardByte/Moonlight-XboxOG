@@ -5,10 +5,7 @@
 [![GitHub Workflow Status (CI)](https://img.shields.io/github/actions/workflow/status/lizardbyte/moonlight-xboxog/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/CI.yml?query=branch%3Amaster)
 [![Codecov](https://img.shields.io/codecov/c/gh/LizardByte/Moonlight-XboxOG?token=DoIh5pkEzA&style=for-the-badge&logo=codecov&label=codecov)](https://codecov.io/gh/LizardByte/Moonlight-XboxOG)
 
-Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT use!
-
-> [!WARNING]
-> Streaming does not work yet.
+Port of Moonlight for the Original Xbox.
 
 ![Splash Screen](./docs/images/screenshots/01-splash.png)
 ![Hosts Screen](./docs/images/screenshots/02-hosts.png)

@@ -35,6 +35,11 @@ extern "C" {
   #include <hal/video.h>
 #endif
 
+/**
+ * @brief Return the platform monotonic clock value in microseconds.
+ *
+ * @return Microseconds from the platform timer used by moonlight-common-c.
+ */
 extern "C" std::uint64_t PltGetMicroseconds(void);
 
 namespace {

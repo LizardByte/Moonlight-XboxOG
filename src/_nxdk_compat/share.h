@@ -13,6 +13,7 @@ extern "C" {
 #endif
 
 #ifndef SH_DENYNO
+  /** @brief Shared-open mode that denies no other access. */
   #define SH_DENYNO 0
 #endif
 
