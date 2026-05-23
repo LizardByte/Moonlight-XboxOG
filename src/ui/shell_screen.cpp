@@ -2186,44 +2186,6 @@ namespace {
     logging::error("settings", saveResult.errorMessage);
   }
 
-  /**
-   * @brief Return whether two Xbox video modes describe the same output mode.
-   *
-   * @param left First video mode to compare.
-   * @param right Second video mode to compare.
-   * @return True when the modes match exactly.
-   */
-  bool video_modes_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
-    return left.width == right.width && left.height == right.height && left.bpp == right.bpp && left.refresh == right.refresh;
-  }
-
-  /**
-   * @brief Switch the shared SDL window to the requested Xbox video mode.
-   *
-   * @param window Shared SDL window reused for the shell and streaming session.
-   * @param videoMode Requested Xbox output mode.
-   * @param errorMessage Receives a user-visible error when the mode change fails.
-   * @return True when the requested mode is now active.
-   */
-  bool apply_shell_video_mode(SDL_Window *window, const VIDEO_MODE &videoMode, std::string *errorMessage) {
-    if (videoMode.width <= 0 || videoMode.height <= 0) {
-      return true;
-    }
-
-    if (!XVideoSetMode(videoMode.width, videoMode.height, videoMode.bpp, videoMode.refresh)) {
-      return platform::append_error(
-        errorMessage,
-        "Failed to switch Xbox video mode to " + std::to_string(videoMode.width) + "x" + std::to_string(videoMode.height) + " @ " + std::to_string(videoMode.refresh) + " Hz"
-      );
-    }
-
-    if (window != nullptr) {
-      SDL_SetWindowSize(window, videoMode.width, videoMode.height);
-    }
-
-    return true;
-  }
-
   bool update_host_metadata_from_server_info(app::HostRecord *host, const std::string &address, const network::HostPairingServerInfo &serverInfo) {
     if (host == nullptr) {
       return false;
@@ -4371,8 +4333,6 @@ namespace {
     (void) threadResult;
   }
 
-  struct ShellRuntimeState;
-
   void finalize_shell_tasks(ShellRuntimeState *runtime);
 
   /**
@@ -4582,6 +4542,75 @@ namespace {
   }
 
   /**
+   * @brief Launch the selected stream when requested by the app state update.
+   *
+   * @param window Shared SDL window reused when entering a streaming session.
+   * @param activeVideoMode Active output mode used by the shell renderer.
+   * @param state Client state to mutate.
+   * @param update App command result containing requested side effects.
+   * @param resources Shell resources supplying render caches.
+   * @param runtime Runtime state that owns background tasks and redraw flags.
+   * @return True when command processing can continue.
+   */
+  bool launch_stream_if_requested(
+    SDL_Window *window,
+    const VIDEO_MODE &activeVideoMode,
+    app::ClientState &state,
+    const app::AppUpdate &update,
+    ShellResources *resources,
+    ShellRuntimeState *runtime
+  ) {
+    if (!update.requests.streamLaunchRequested) {
+      return true;
+    }
+
+    const app::HostRecord *streamHost = app::apps_host(state);
+    const app::HostAppRecord *streamApp = app::selected_app(state);
+    if (streamHost == nullptr || streamApp == nullptr) {
+      state.shell.statusMessage = "Select a valid app before starting a stream.";
+      logging::warn("stream", state.shell.statusMessage);
+      return true;
+    }
+
+    network::PairingIdentity clientIdentity {};
+    std::string identityError;
+    if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
+      state.shell.statusMessage = identityError;
+      logging::warn("stream", identityError);
+      return true;
+    }
+
+    if (window == nullptr) {
+      state.shell.statusMessage = "Streaming requires a valid SDL window.";
+      logging::error("stream", state.shell.statusMessage);
+      return true;
+    }
+
+    finalize_shell_tasks(runtime);
+    close_shell_resources(resources);
+
+    std::string sessionMessage;
+    const bool streamStarted = streaming::run_stream_session(window, activeVideoMode, state.settings, *streamHost, *streamApp, clientIdentity, &sessionMessage);
+    state.shell.statusMessage = sessionMessage;
+
+    if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, activeVideoMode, resources, &initializationFailure)) {
+      report_shell_failure(initializationFailure.category, initializationFailure.message);
+      runtime->running = false;
+      state.shell.shouldExit = true;
+      return false;
+    }
+
+    initialize_shell_runtime(state, runtime);
+    if (streamStarted && state.hosts.activeLoaded) {
+      state.hosts.active.appListState = app::HostAppListState::loading;
+      state.hosts.active.appListStatusMessage = "Refreshing host apps after the stream session...";
+      state.hosts.active.lastAppListRefreshTick = 0U;
+    }
+
+    return true;
+  }
+
+  /**
    * @brief Apply a single translated UI command inside the shell loop.
    *
    * @param window Shared SDL window reused when entering a streaming session.
@@ -4593,7 +4622,7 @@ namespace {
    */
   void process_shell_command(
     SDL_Window *window,
-    VIDEO_MODE *videoMode,
+    const VIDEO_MODE *videoMode,
     app::ClientState &state,
     input::UiCommand command,
     ShellResources *resources,
@@ -4622,52 +4651,16 @@ namespace {
     persist_settings_if_needed(state, update);
     persist_hosts_if_needed(state, update);
 
-    if (update.requests.streamLaunchRequested) {
-      const app::HostRecord *streamHost = app::apps_host(state);
-      const app::HostAppRecord *streamApp = app::selected_app(state);
-      if (streamHost == nullptr || streamApp == nullptr) {
-        state.shell.statusMessage = "Select a valid app before starting a stream.";
-        logging::warn("stream", state.shell.statusMessage);
-      } else {
-        network::PairingIdentity clientIdentity {};
-        std::string identityError;
-        if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
-          state.shell.statusMessage = identityError;
-          logging::warn("stream", identityError);
-        } else if (window == nullptr) {
-          state.shell.statusMessage = "Streaming requires a valid SDL window.";
-          logging::error("stream", state.shell.statusMessage);
-        } else {
-          finalize_shell_tasks(runtime);
-          close_shell_resources(resources);
-
-          std::string sessionMessage;
-          const VIDEO_MODE activeVideoMode = videoMode != nullptr ? *videoMode : VIDEO_MODE {};
-          const bool streamStarted = streaming::run_stream_session(window, activeVideoMode, state.settings, *streamHost, *streamApp, clientIdentity, &sessionMessage);
-          state.shell.statusMessage = sessionMessage;
-
-          if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, activeVideoMode, resources, &initializationFailure)) {
-            report_shell_failure(initializationFailure.category, initializationFailure.message);
-            runtime->running = false;
-            state.shell.shouldExit = true;
-            return;
-          }
-
-          initialize_shell_runtime(state, runtime);
-          if (streamStarted && state.hosts.activeLoaded) {
-            state.hosts.active.appListState = app::HostAppListState::loading;
-            state.hosts.active.appListStatusMessage = "Refreshing host apps after the stream session...";
-            state.hosts.active.lastAppListRefreshTick = 0U;
-          }
-        }
-      }
+    const VIDEO_MODE activeVideoMode = videoMode != nullptr ? *videoMode : VIDEO_MODE {};
+    if (!launch_stream_if_requested(window, activeVideoMode, state, update, resources, runtime)) {
+      return;
     }
 
     if (previousScreen != state.shell.activeScreen) {
       release_page_resources_for_screen(previousScreen, state.shell.activeScreen, &resources->coverArtTextureCache, &resources->keypadModalLayoutCache);
       ensure_hosts_loaded_for_active_screen(state);
     }
-    if ((previousScreen != state.shell.activeScreen || update.navigation.screenChanged) && !draw_current_shell_frame(videoMode != nullptr ? *videoMode : VIDEO_MODE {}, state, resources, runtime)) {
+    if ((previousScreen != state.shell.activeScreen || update.navigation.screenChanged) && !draw_current_shell_frame(activeVideoMode, state, resources, runtime)) {
       return;
     }
     if (state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible) {
@@ -4727,9 +4720,9 @@ namespace {
       return;
     }
 
-    if (runtime->pairingTask.activeAttempt != nullptr) {
-      runtime->pairingTask.activeAttempt->discardResult.store(true);
-      finalize_pairing_attempt(nullptr, std::move(runtime->pairingTask.activeAttempt));
+    if (std::unique_ptr<PairingAttemptState> activeAttempt = std::move(runtime->pairingTask.activeAttempt); activeAttempt != nullptr) {
+      activeAttempt->discardResult.store(true);
+      finalize_pairing_attempt(nullptr, std::move(activeAttempt));
     }
     while (!runtime->pairingTask.retiredAttempts.empty()) {
       std::unique_ptr<PairingAttemptState> attempt = std::move(runtime->pairingTask.retiredAttempts.back());

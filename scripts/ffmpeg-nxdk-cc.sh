@@ -14,6 +14,8 @@ for arg in "$@"; do
     -c|-E)
       compile_only=1
       ;;
+    *)
+      ;;
   esac
 
   if [ "$previous_arg" = "-o" ]; then

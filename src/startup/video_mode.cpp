@@ -41,8 +41,7 @@ namespace startup {
 
     bool is_smaller_video_mode(const VIDEO_MODE &left, const VIDEO_MODE &right) {
       const int leftArea = left.width * left.height;
-      const int rightArea = right.width * right.height;
-      if (leftArea != rightArea) {
+      if (const int rightArea = right.width * right.height; leftArea != rightArea) {
         return leftArea < rightArea;
       }
       return left.width < right.width;

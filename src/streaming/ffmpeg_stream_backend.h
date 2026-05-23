@@ -26,6 +26,11 @@ struct SwsContext;
 namespace streaming {
 
   /**
+   * @brief Opaque SDL thread context payload.
+   */
+  using SdlThreadContext = void;
+
+  /**
    * @brief Owns the FFmpeg decode and SDL presentation state for one stream.
    *
    * The backend exposes Moonlight-compatible callback tables for video and audio,
@@ -53,7 +58,7 @@ namespace streaming {
      * @param videoCallbacks Output video callback table.
      * @param audioCallbacks Output audio callback table.
      */
-    void initialize_callbacks(DECODER_RENDERER_CALLBACKS *videoCallbacks, AUDIO_RENDERER_CALLBACKS *audioCallbacks);
+    void initialize_callbacks(DECODER_RENDERER_CALLBACKS *videoCallbacks, AUDIO_RENDERER_CALLBACKS *audioCallbacks) const;
 
     /**
      * @brief Configure whether streamed audio should be decoded and played locally.
@@ -114,11 +119,10 @@ namespace streaming {
      * @param width Negotiated stream width.
      * @param height Negotiated stream height.
      * @param redrawRate Negotiated redraw rate.
-     * @param context Moonlight renderer context.
      * @param drFlags Moonlight decoder flags.
      * @return Zero on success.
      */
-    int setup_video_decoder(int videoFormat, int width, int height, int redrawRate, void *context, int drFlags);
+    int setup_video_decoder(int videoFormat, int width, int height, int redrawRate, int drFlags);
 
     /**
      * @brief Start the video decode path.
@@ -136,23 +140,14 @@ namespace streaming {
     void cleanup_video_decoder();
 
     /**
-     * @brief Submit one Moonlight decode unit to FFmpeg.
-     *
-     * @param decodeUnit Moonlight Annex B frame payload.
-     * @return Moonlight decoder status code.
-     */
-    int submit_video_decode_unit(PDECODE_UNIT decodeUnit);
-
-    /**
      * @brief Initialize the FFmpeg Opus decoder and SDL playback device.
      *
      * @param audioConfiguration Negotiated Moonlight audio configuration.
      * @param opusConfig Negotiated Opus multistream parameters.
-     * @param context Moonlight audio context.
      * @param arFlags Moonlight audio renderer flags.
      * @return Zero on success.
      */
-    int initialize_audio_decoder(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGURATION opusConfig, void *context, int arFlags);
+    int initialize_audio_decoder(int audioConfiguration, const OPUS_MULTISTREAM_CONFIGURATION *opusConfig, int arFlags);
 
     /**
      * @brief Start SDL audio playback.
@@ -182,7 +177,7 @@ namespace streaming {
      * @param sampleData Encoded Opus payload.
      * @param sampleLength Encoded payload size in bytes.
      */
-    void decode_and_play_audio_sample(char *sampleData, int sampleLength);
+    void decode_and_play_audio_sample(const char *sampleData, int sampleLength);
 
   private:
     /**
@@ -191,7 +186,7 @@ namespace streaming {
      * @param context Backend instance.
      * @return Zero when the worker exits normally.
      */
-    static int run_video_decode_thread_trampoline(void *context);
+    static int run_video_decode_thread_trampoline(SdlThreadContext *context);
 
     /**
      * @brief Pull Moonlight decode units and feed them into FFmpeg.
@@ -208,6 +203,15 @@ namespace streaming {
      * @return Number of decode units discarded.
      */
     int drop_queued_video_decode_units(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit);
+
+    /**
+     * @brief Drop stale queued video decode units and prepare the newest unit.
+     *
+     * @param frameHandle Current frame handle, replaced with the newest queued handle.
+     * @param decodeUnit Current decode unit, replaced with the newest queued unit.
+     * @return Moonlight decoder status after stale-frame handling.
+     */
+    int prepare_video_decode_unit(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit);
 
     /**
      * @brief Decode one Moonlight video decode unit on the video worker thread.
@@ -230,7 +234,7 @@ namespace streaming {
      * @param frameToPresent FFmpeg frame in IYUV-compatible layout.
      * @return True when the frame was copied into the presentation buffer.
      */
-    bool publish_video_frame(AVFrame *frameToPresent);
+    bool publish_video_frame(const AVFrame *frameToPresent);
 
     /**
      * @brief Present the latest decoded frame through a platform-specific direct framebuffer path.

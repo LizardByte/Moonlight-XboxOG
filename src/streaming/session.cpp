@@ -245,7 +245,15 @@ namespace {
     }
   }
 
-  StreamConnectionState *g_active_connection_state = nullptr;
+  /**
+   * @brief Return the connection state currently receiving moonlight-common-c callbacks.
+   *
+   * @return Mutable callback connection-state slot.
+   */
+  StreamConnectionState *&active_connection_state() {
+    static StreamConnectionState *connectionState = nullptr;
+    return connectionState;
+  }
 
   /**
    * @brief Remove trailing CR and LF characters from a log line.
@@ -311,7 +319,7 @@ namespace {
   }
 
   bool is_high_volume_connection_log(std::string_view text) {
-    static constexpr std::string_view HIGH_VOLUME_PREFIXES[] {
+    static constexpr std::array<std::string_view, 22> HIGH_VOLUME_PREFIXES {
       "Audio packet queue overflow",
       "Control message took over 10 ms",
       "Depacketizer detected corrupt frame",
@@ -336,13 +344,9 @@ namespace {
       "Waiting for RFI frame",
     };
 
-    for (const std::string_view prefix : HIGH_VOLUME_PREFIXES) {
-      if (starts_with_ascii_case_insensitive(text, prefix)) {
-        return true;
-      }
-    }
-
-    return false;
+    return std::any_of(HIGH_VOLUME_PREFIXES.begin(), HIGH_VOLUME_PREFIXES.end(), [text](std::string_view prefix) {
+      return starts_with_ascii_case_insensitive(text, prefix);
+    });
   }
 
   logging::LogLevel connection_log_level(std::string_view message) {
@@ -419,7 +423,7 @@ namespace {
     std::array<char, 1024> stackBuffer {};
     va_list argumentsCopy;
     va_copy(argumentsCopy, arguments);
-    const int requiredLength = std::vsnprintf(stackBuffer.data(), stackBuffer.size(), format, argumentsCopy);
+    const int requiredLength = std::vsnprintf(stackBuffer.data(), stackBuffer.size(), format, argumentsCopy);  // NOSONAR(cpp:S5281) format is supplied by moonlight-common-c.
     va_end(argumentsCopy);
     if (requiredLength < 0) {
       return {};
@@ -430,7 +434,7 @@ namespace {
 
     std::string dynamicBuffer(static_cast<std::size_t>(requiredLength) + 1U, '\0');
     va_copy(argumentsCopy, arguments);
-    std::vsnprintf(dynamicBuffer.data(), dynamicBuffer.size(), format, argumentsCopy);
+    std::vsnprintf(dynamicBuffer.data(), dynamicBuffer.size(), format, argumentsCopy);  // NOSONAR(cpp:S5281) format is supplied by moonlight-common-c.
     va_end(argumentsCopy);
     dynamicBuffer.resize(static_cast<std::size_t>(requiredLength));
     return trim_trailing_line_breaks(std::move(dynamicBuffer));
@@ -452,7 +456,7 @@ namespace {
       return;
     }
 
-    std::lock_guard<std::mutex> lock(connectionState->protocolLogMutex);
+    std::scoped_lock lock(connectionState->protocolLogMutex);
     if (connectionState->recentProtocolMessages.size() >= MAX_CONNECTION_PROTOCOL_MESSAGES) {
       connectionState->recentProtocolMessages.pop_front();
     }
@@ -466,7 +470,7 @@ namespace {
    * @return Latest protocol message, or an empty string when none was recorded.
    */
   std::string latest_connection_protocol_message(const StreamConnectionState &connectionState) {
-    std::lock_guard<std::mutex> lock(connectionState.protocolLogMutex);
+    std::scoped_lock lock(connectionState.protocolLogMutex);
     return connectionState.recentProtocolMessages.empty() ? std::string {} : connectionState.recentProtocolMessages.back();
   }
 
@@ -490,7 +494,7 @@ namespace {
     connectionState->connectionTerminated.store(false);
     connectionState->poorConnection.store(false);
     connectionState->stopRequested.store(false);
-    std::lock_guard<std::mutex> lock(connectionState->protocolLogMutex);
+    std::scoped_lock lock(connectionState->protocolLogMutex);
     connectionState->recentProtocolMessages.clear();
   }
 
@@ -511,7 +515,7 @@ namespace {
 
     resources->mediaBackend.shutdown();
     {
-      std::lock_guard<std::mutex> lock(resources->controllerMutex);
+      std::scoped_lock lock(resources->controllerMutex);
       close_controller(resources->controller);
       resources->controller = nullptr;
     }
@@ -623,7 +627,7 @@ namespace {
   }
 
   std::string hex_encode(const unsigned char *data, std::size_t size) {
-    static constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    static constexpr std::string_view HEX_DIGITS = "0123456789abcdef";
 
     std::string output;
     output.resize(size * 2U);
@@ -744,46 +748,46 @@ namespace {
   }
 
   void on_stage_starting(int stage) {
-    if (g_active_connection_state != nullptr) {
-      g_active_connection_state->currentStage.store(stage);
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
+      connectionState->currentStage.store(stage);
     }
     logging::debug("stream", std::string("Starting connection stage: ") + LiGetStageName(stage));
   }
 
   void on_stage_complete(int stage) {
-    if (g_active_connection_state != nullptr) {
-      g_active_connection_state->currentStage.store(stage);
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
+      connectionState->currentStage.store(stage);
     }
     logging::debug("stream", std::string("Completed connection stage: ") + LiGetStageName(stage));
   }
 
   void on_stage_failed(int stage, int errorCode) {
-    if (g_active_connection_state != nullptr) {
-      g_active_connection_state->failedStage.store(stage);
-      g_active_connection_state->failedCode.store(errorCode);
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
+      connectionState->failedStage.store(stage);
+      connectionState->failedCode.store(errorCode);
     }
     logging::warn("stream", std::string("Connection stage failed: ") + LiGetStageName(stage) + " (error " + std::to_string(errorCode) + ")");
   }
 
   void on_connection_started() {
-    if (g_active_connection_state != nullptr) {
-      g_active_connection_state->connectionStarted.store(true);
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
+      connectionState->connectionStarted.store(true);
     }
     logging::info("stream", "Streaming transport started");
   }
 
   void on_connection_terminated(int errorCode) {
-    if (g_active_connection_state != nullptr) {
-      g_active_connection_state->terminationError.store(errorCode);
-      g_active_connection_state->connectionTerminated.store(true);
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
+      connectionState->terminationError.store(errorCode);
+      connectionState->connectionTerminated.store(true);
     }
     logging::warn("stream", std::string("Streaming transport terminated with error ") + std::to_string(errorCode));
   }
 
   void on_connection_status_update(int connectionStatus) {
-    if (g_active_connection_state != nullptr) {
+    if (StreamConnectionState *connectionState = active_connection_state(); connectionState != nullptr) {
       const bool poorConnection = connectionStatus != CONN_STATUS_OKAY;
-      if (g_active_connection_state->poorConnection.exchange(poorConnection) != poorConnection) {
+      if (connectionState->poorConnection.exchange(poorConnection) != poorConnection) {
         logging::warn("stream", poorConnection ? "Streaming transport reported poor network conditions" : "Streaming transport recovered to okay network conditions");
       }
     }
@@ -802,7 +806,7 @@ namespace {
       return;
     }
 
-    append_connection_protocol_message(g_active_connection_state, message);
+    append_connection_protocol_message(active_connection_state(), message);
     logging::log(connection_log_level(message), "moonlight", message);
   }
 
@@ -812,7 +816,7 @@ namespace {
       return -1;
     }
 
-    g_active_connection_state = startContext->connectionState;
+    active_connection_state() = startContext->connectionState;
     startContext->connectionState->startResult.store(
       LiStartConnection(
         &startContext->serverInformation,
@@ -889,15 +893,19 @@ namespace {
       }
 
       if (event.type == SDL_CONTROLLERDEVICEADDED) {
-        std::lock_guard<std::mutex> lock(resources->controllerMutex);
+        SDL_ControllerDeviceEvent controllerEvent {};
+        std::memcpy(&controllerEvent, &event, sizeof(controllerEvent));
+        std::scoped_lock lock(resources->controllerMutex);
         if (resources->controller == nullptr) {
-          resources->controller = SDL_GameControllerOpen(event.cdevice.which);
+          resources->controller = SDL_GameControllerOpen(controllerEvent.which);
         }
       } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
-        std::lock_guard<std::mutex> lock(resources->controllerMutex);
+        SDL_ControllerDeviceEvent controllerEvent {};
+        std::memcpy(&controllerEvent, &event, sizeof(controllerEvent));
+        std::scoped_lock lock(resources->controllerMutex);
         if (resources->controller != nullptr) {
           SDL_Joystick *joystick = SDL_GameControllerGetJoystick(resources->controller);
-          if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == event.cdevice.which) {
+          if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == controllerEvent.which) {
             close_controller(resources->controller);
             resources->controller = nullptr;
           }
@@ -1029,7 +1037,7 @@ namespace {
       return {};
     }
 
-    std::lock_guard<std::mutex> lock(resources->controllerMutex);
+    std::scoped_lock lock(resources->controllerMutex);
     if (resources->controller == nullptr) {
       return {};
     }
@@ -1180,7 +1188,7 @@ namespace {
 
     int cursorY = 28;
     int titleHeight = 0;
-    render_text_line(resources->renderer, resources->titleFont, renderedVideo ? "Moonlight Streaming" : "Moonlight Streaming", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight);
+    render_text_line(resources->renderer, resources->titleFont, "Moonlight Streaming", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight);
     cursorY += titleHeight + 8;
 
     std::vector<std::string> lines = {
@@ -1400,7 +1408,7 @@ namespace streaming {
       if (rtspFallbackAttempted && !connectionState.stopRequested.load()) {
         failureMessage += " after retrying default RTSP discovery";
       }
-      g_active_connection_state = nullptr;
+      active_connection_state() = nullptr;
       close_stream_ui_resources(&resources);
       if (statusMessage != nullptr) {
         *statusMessage = failureMessage;
@@ -1447,7 +1455,7 @@ namespace streaming {
     }
 
     LiStopConnection();
-    g_active_connection_state = nullptr;
+    active_connection_state() = nullptr;
 
     const std::string finalMessage = describe_session_end(connectionState, app.name);
     logging::info("stream", finalMessage);

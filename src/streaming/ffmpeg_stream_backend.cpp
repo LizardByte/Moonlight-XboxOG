@@ -44,15 +44,46 @@ extern "C" std::uint64_t PltGetMicroseconds(void);
 
 namespace {
 
+  /**
+   * @brief Opaque callback context passed by moonlight-common-c and FFmpeg.
+   */
+  using MoonlightCallbackContext = void;
+
   constexpr Uint32 STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS = 250U;
   constexpr std::uint64_t STREAM_VIDEO_SUBMISSION_LOG_INTERVAL = 120;
   constexpr int STREAM_VIDEO_DROPPED_FRAME_STATUS = -2;
   constexpr std::uint64_t STREAM_VIDEO_DROP_LOG_INTERVAL = 30;
   constexpr Uint32 STREAM_VIDEO_DECODE_YIELD_MILLISECONDS = 1U;
 
-  streaming::FfmpegStreamBackend *g_active_video_backend = nullptr;
-  streaming::FfmpegStreamBackend *g_active_audio_backend = nullptr;
-  std::once_flag g_ffmpeg_logging_once;
+  /**
+   * @brief Return the backend currently receiving video callbacks.
+   *
+   * @return Mutable callback backend slot.
+   */
+  streaming::FfmpegStreamBackend *&active_video_backend() {
+    static streaming::FfmpegStreamBackend *backend = nullptr;
+    return backend;
+  }
+
+  /**
+   * @brief Return the backend currently receiving audio callbacks.
+   *
+   * @return Mutable callback backend slot.
+   */
+  streaming::FfmpegStreamBackend *&active_audio_backend() {
+    static streaming::FfmpegStreamBackend *backend = nullptr;
+    return backend;
+  }
+
+  /**
+   * @brief Return the one-time FFmpeg logging setup guard.
+   *
+   * @return Shared initialization flag.
+   */
+  std::once_flag &ffmpeg_logging_once() {
+    static std::once_flag once;
+    return once;
+  }
 
   /**
    * @brief Convert an FFmpeg error code into readable text.
@@ -109,7 +140,7 @@ namespace {
    * @param format `printf`-style format string.
    * @param arguments Variadic arguments matching `format`.
    */
-  void ffmpeg_log_callback(void *avClassContext, int level, const char *format, va_list arguments) {
+  void ffmpeg_log_callback(MoonlightCallbackContext *avClassContext, int level, const char *format, va_list arguments) {
     std::array<char, 1024> buffer {};
     int printPrefix = 1;
     va_list argumentsCopy;
@@ -141,7 +172,7 @@ namespace {
    * @brief Install the shared FFmpeg log callback once for the process.
    */
   void ensure_ffmpeg_logging_installed() {
-    std::call_once(g_ffmpeg_logging_once, []() {
+    std::call_once(ffmpeg_logging_once(), []() {
       av_log_set_level(AV_LOG_ERROR);
       av_log_set_callback(ffmpeg_log_callback);
     });
@@ -235,75 +266,67 @@ namespace {
     return true;
   }
 
-  int on_video_setup(int videoFormat, int width, int height, int redrawRate, void *context, int drFlags) {
+  int on_video_setup(int videoFormat, int width, int height, int redrawRate, MoonlightCallbackContext *context, int drFlags) {
     auto *backend = static_cast<streaming::FfmpegStreamBackend *>(context);
     if (backend == nullptr) {
       return -1;
     }
 
-    g_active_video_backend = backend;
-    return backend->setup_video_decoder(videoFormat, width, height, redrawRate, context, drFlags);
+    active_video_backend() = backend;
+    return backend->setup_video_decoder(videoFormat, width, height, redrawRate, drFlags);
   }
 
   void on_video_start() {
-    if (g_active_video_backend != nullptr) {
-      g_active_video_backend->start_video_decoder();
+    if (streaming::FfmpegStreamBackend *backend = active_video_backend(); backend != nullptr) {
+      backend->start_video_decoder();
     }
   }
 
   void on_video_stop() {
-    if (g_active_video_backend != nullptr) {
-      g_active_video_backend->stop_video_decoder();
+    if (streaming::FfmpegStreamBackend *backend = active_video_backend(); backend != nullptr) {
+      backend->stop_video_decoder();
     }
   }
 
   void on_video_cleanup() {
-    if (g_active_video_backend != nullptr) {
-      g_active_video_backend->cleanup_video_decoder();
-      g_active_video_backend = nullptr;
+    if (streaming::FfmpegStreamBackend *backend = active_video_backend(); backend != nullptr) {
+      backend->cleanup_video_decoder();
+      active_video_backend() = nullptr;
     }
   }
 
-  int on_video_submit_decode_unit(PDECODE_UNIT decodeUnit) {
-    if (g_active_video_backend == nullptr) {
-      return DR_NEED_IDR;
-    }
-
-    return g_active_video_backend->submit_video_decode_unit(decodeUnit);
-  }
-
-  int on_audio_init(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGURATION opusConfig, void *context, int arFlags) {
+  int on_audio_init(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGURATION opusConfig, MoonlightCallbackContext *context, int arFlags) {
     auto *backend = static_cast<streaming::FfmpegStreamBackend *>(context);
     if (backend == nullptr) {
       return -1;
     }
 
-    g_active_audio_backend = backend;
-    return backend->initialize_audio_decoder(audioConfiguration, opusConfig, context, arFlags);
+    active_audio_backend() = backend;
+    return backend->initialize_audio_decoder(audioConfiguration, opusConfig, arFlags);
   }
 
   void on_audio_start() {
-    if (g_active_audio_backend != nullptr) {
-      g_active_audio_backend->start_audio_playback();
+    if (streaming::FfmpegStreamBackend *backend = active_audio_backend(); backend != nullptr) {
+      backend->start_audio_playback();
     }
   }
 
   void on_audio_stop() {
-    if (g_active_audio_backend != nullptr) {
-      g_active_audio_backend->stop_audio_playback();
+    if (streaming::FfmpegStreamBackend *backend = active_audio_backend(); backend != nullptr) {
+      backend->stop_audio_playback();
     }
   }
 
   void on_audio_cleanup() {
-    if (g_active_audio_backend != nullptr) {
-      g_active_audio_backend->cleanup_audio_decoder();
-      g_active_audio_backend = nullptr;
+    if (streaming::FfmpegStreamBackend *backend = active_audio_backend(); backend != nullptr) {
+      backend->cleanup_audio_decoder();
+      active_audio_backend() = nullptr;
     }
   }
 
   void on_audio_decode_and_play_sample(char *sampleData, int sampleLength) {
-    if (g_active_audio_backend != nullptr) {
-      g_active_audio_backend->decode_and_play_audio_sample(sampleData, sampleLength);
+    if (streaming::FfmpegStreamBackend *backend = active_audio_backend(); backend != nullptr) {
+      backend->decode_and_play_audio_sample(sampleData, sampleLength);
     }
   }
 
@@ -315,7 +338,7 @@ namespace streaming {
     shutdown();
   }
 
-  void FfmpegStreamBackend::initialize_callbacks(DECODER_RENDERER_CALLBACKS *videoCallbacks, AUDIO_RENDERER_CALLBACKS *audioCallbacks) {
+  void FfmpegStreamBackend::initialize_callbacks(DECODER_RENDERER_CALLBACKS *videoCallbacks, AUDIO_RENDERER_CALLBACKS *audioCallbacks) const {
     ensure_ffmpeg_logging_installed();
 
     if (videoCallbacks != nullptr) {
@@ -418,7 +441,10 @@ namespace streaming {
   }
 
   std::string FfmpegStreamBackend::build_overlay_status_line() const {
-    std::string audioState = !audioPlaybackEnabled_.load() ? "audio decode disabled" : (audio_.deviceId != 0 ? std::to_string(SDL_GetQueuedAudioSize(audio_.deviceId)) + " queued audio bytes" : "audio idle");
+    std::string audioState = "audio decode disabled";
+    if (audioPlaybackEnabled_.load()) {
+      audioState = audio_.deviceId != 0 ? std::to_string(SDL_GetQueuedAudioSize(audio_.deviceId)) + " queued audio bytes" : "audio idle";
+    }
     return std::string("Video units: ") + std::to_string(video_.submittedDecodeUnitCount.load()) + " submitted / " + std::to_string(video_.decodedFrameCount.load()) + " decoded / " +
            std::to_string(video_.droppedDecodeUnitCount.load()) + " dropped | frame " + std::to_string(video_.lastDecodeFrameNumber.load()) + " queue " + std::to_string(video_.lastDecodeQueueUs.load() / 1000U) +
            " ms / age " + std::to_string(video_.lastReceiveAgeUs.load() / 1000U) + " ms | " + audioState;
@@ -430,9 +456,8 @@ namespace streaming {
     }
 
     bool textureNeedsUpload = false;
-    const std::uint64_t publishedFrameVersion = video_.publishedFrameVersion.load();
-    if (publishedFrameVersion != video_.renderedFrameVersion) {
-      std::lock_guard<std::mutex> lock(video_.frameMutex);
+    if (const std::uint64_t publishedFrameVersion = video_.publishedFrameVersion.load(); publishedFrameVersion != video_.renderedFrameVersion) {
+      std::scoped_lock lock(video_.frameMutex);
       if (video_.latestFrameVersion != video_.renderedFrameVersion && video_.latestFrame.width > 0 && video_.latestFrame.height > 0) {
         std::swap(video_.renderFrame, video_.latestFrame);
         video_.renderedFrameVersion = video_.latestFrameVersion;
@@ -469,31 +494,29 @@ namespace streaming {
       textureNeedsUpload = true;
     }
 
-    if (textureNeedsUpload) {
-      if (SDL_UpdateYUVTexture(
-            video_.texture,
-            nullptr,
-            reinterpret_cast<const Uint8 *>(video_.renderFrame.yPlane.data()),
-            video_.renderFrame.yPitch,
-            reinterpret_cast<const Uint8 *>(video_.renderFrame.uPlane.data()),
-            video_.renderFrame.uPitch,
-            reinterpret_cast<const Uint8 *>(video_.renderFrame.vPlane.data()),
-            video_.renderFrame.vPitch
-          ) != 0) {
-        logging::error("stream", std::string("SDL_UpdateYUVTexture failed during video presentation: ") + SDL_GetError());
-        return false;
-      }
+    if (textureNeedsUpload &&
+        SDL_UpdateYUVTexture(
+          video_.texture,
+          nullptr,
+          reinterpret_cast<const Uint8 *>(video_.renderFrame.yPlane.data()),
+          video_.renderFrame.yPitch,
+          reinterpret_cast<const Uint8 *>(video_.renderFrame.uPlane.data()),
+          video_.renderFrame.uPitch,
+          reinterpret_cast<const Uint8 *>(video_.renderFrame.vPlane.data()),
+          video_.renderFrame.vPitch
+        ) != 0) {
+      logging::error("stream", std::string("SDL_UpdateYUVTexture failed during video presentation: ") + SDL_GetError());
+      return false;
     }
 
     const SDL_Rect destination = build_letterboxed_destination(screenWidth, screenHeight, video_.renderFrame.width, video_.renderFrame.height);
     return SDL_RenderCopy(renderer, video_.texture, nullptr, &destination) == 0;
   }
 
-  int FfmpegStreamBackend::setup_video_decoder(int videoFormat, int width, int height, int redrawRate, void *context, int drFlags) {
+  int FfmpegStreamBackend::setup_video_decoder(int videoFormat, int width, int height, int redrawRate, int drFlags) {
     (void) width;
     (void) height;
     (void) redrawRate;
-    (void) context;
     (void) drFlags;
 
     cleanup_video_decoder();
@@ -526,8 +549,7 @@ namespace streaming {
     video_.codecContext->err_recognition = AV_EF_EXPLODE;
     video_.codecContext->skip_loop_filter = AVDISCARD_ALL;
     video_.codecContext->skip_idct = AVDISCARD_NONREF;
-    const int openResult = avcodec_open2(video_.codecContext, codec, nullptr);
-    if (openResult < 0) {
+    if (const int openResult = avcodec_open2(video_.codecContext, codec, nullptr); openResult < 0) {
       logging::error("stream", std::string("avcodec_open2 failed for H.264: ") + describe_ffmpeg_error(openResult));
       cleanup_video_decoder();
       return openResult;
@@ -599,7 +621,7 @@ namespace streaming {
     video_.renderFrame = LatestVideoFrame {};
     video_.decodeFrame = LatestVideoFrame {};
     {
-      std::lock_guard<std::mutex> lock(video_.frameMutex);
+      std::scoped_lock lock(video_.frameMutex);
       video_.latestFrame = LatestVideoFrame {};
       video_.latestFrameVersion = 0;
     }
@@ -618,7 +640,7 @@ namespace streaming {
     video_.lastDecodeFrameNumber.store(0);
   }
 
-  int FfmpegStreamBackend::run_video_decode_thread_trampoline(void *context) {
+  int FfmpegStreamBackend::run_video_decode_thread_trampoline(SdlThreadContext *context) {
     auto *backend = static_cast<FfmpegStreamBackend *>(context);
     return backend != nullptr ? backend->run_video_decode_thread() : -1;
   }
@@ -637,14 +659,7 @@ namespace streaming {
 
       int decodeStatus = DR_OK;
       if (!video_.decoderStopRequested.load() && decodeUnit != nullptr) {
-        const int droppedFrames = drop_queued_video_decode_units(&frameHandle, &decodeUnit);
-        if (droppedFrames > 0 && decodeUnit != nullptr) {
-          if (decodeUnit->frameType == FRAME_TYPE_IDR && video_.codecContext != nullptr) {
-            avcodec_flush_buffers(video_.codecContext);
-          } else {
-            decodeStatus = DR_NEED_IDR;
-          }
-        }
+        decodeStatus = prepare_video_decode_unit(&frameHandle, &decodeUnit);
         if (decodeStatus == DR_OK) {
           decodeStatus = decode_video_decode_unit(decodeUnit);
         }
@@ -687,8 +702,8 @@ namespace streaming {
     *frameHandle = newestHandle;
     *decodeUnit = newestDecodeUnit;
 
-    const std::uint64_t droppedDecodeUnitCount = video_.droppedDecodeUnitCount.fetch_add(static_cast<std::uint64_t>(droppedFrames)) + static_cast<std::uint64_t>(droppedFrames);
-    if (droppedDecodeUnitCount <= static_cast<std::uint64_t>(droppedFrames) || (droppedDecodeUnitCount % STREAM_VIDEO_DROP_LOG_INTERVAL) < static_cast<std::uint64_t>(droppedFrames)) {
+    if (const std::uint64_t droppedDecodeUnitCount = video_.droppedDecodeUnitCount.fetch_add(static_cast<std::uint64_t>(droppedFrames)) + static_cast<std::uint64_t>(droppedFrames);
+        droppedDecodeUnitCount <= static_cast<std::uint64_t>(droppedFrames) || (droppedDecodeUnitCount % STREAM_VIDEO_DROP_LOG_INTERVAL) < static_cast<std::uint64_t>(droppedFrames)) {
       logging::warn(
         "stream",
         std::string("Dropped queued video decode units before decode | dropped_total=") + std::to_string(droppedDecodeUnitCount) + " | dropped_now=" + std::to_string(droppedFrames) +
@@ -700,7 +715,20 @@ namespace streaming {
     return droppedFrames;
   }
 
-  bool FfmpegStreamBackend::publish_video_frame(AVFrame *frameToPresent) {
+  int FfmpegStreamBackend::prepare_video_decode_unit(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit) {
+    if (const int droppedFrames = drop_queued_video_decode_units(frameHandle, decodeUnit); droppedFrames <= 0 || *decodeUnit == nullptr) {
+      return DR_OK;
+    }
+
+    if ((*decodeUnit)->frameType == FRAME_TYPE_IDR && video_.codecContext != nullptr) {
+      avcodec_flush_buffers(video_.codecContext);
+      return DR_OK;
+    }
+
+    return DR_NEED_IDR;
+  }
+
+  bool FfmpegStreamBackend::publish_video_frame(const AVFrame *frameToPresent) {
     if (frameToPresent == nullptr || frameToPresent->width <= 0 || frameToPresent->height <= 0 || frameToPresent->linesize[0] <= 0 || frameToPresent->linesize[1] <= 0 || frameToPresent->linesize[2] <= 0 ||
         frameToPresent->data[0] == nullptr || frameToPresent->data[1] == nullptr || frameToPresent->data[2] == nullptr) {
       return false;
@@ -726,7 +754,7 @@ namespace streaming {
     std::memcpy(nextFrame.vPlane.data(), frameToPresent->data[2], nextFrame.vPlane.size());
 
     {
-      std::lock_guard<std::mutex> lock(video_.frameMutex);
+      std::scoped_lock lock(video_.frameMutex);
       std::swap(video_.latestFrame, video_.decodeFrame);
       ++video_.latestFrameVersion;
       video_.publishedFrameVersion.store(video_.latestFrameVersion);
@@ -780,33 +808,32 @@ namespace streaming {
       return false;
     }
 
-    const std::uint8_t *sourceData[] = {
+    const std::array<const std::uint8_t *, 4> sourceData {
       video_.renderFrame.yPlane.data(),
       video_.renderFrame.uPlane.data(),
       video_.renderFrame.vPlane.data(),
       nullptr,
     };
-    const int sourceLinesize[] = {
+    const std::array<int, 4> sourceLinesize {
       video_.renderFrame.yPitch,
       video_.renderFrame.uPitch,
       video_.renderFrame.vPitch,
       0,
     };
-    std::uint8_t *destinationData[] = {
+    std::array<std::uint8_t *, 4> destinationData {
       framebuffer + (static_cast<std::size_t>(destination.y) * static_cast<std::size_t>(framebufferPitch)) + (static_cast<std::size_t>(destination.x) * static_cast<std::size_t>(bytesPerPixel)),
       nullptr,
       nullptr,
       nullptr,
     };
-    const int destinationLinesize[] = {
+    const std::array<int, 4> destinationLinesize {
       framebufferPitch,
       0,
       0,
       0,
     };
 
-    const int scaledRows = sws_scale(video_.presentScaleContext, sourceData, sourceLinesize, 0, video_.renderFrame.height, destinationData, destinationLinesize);
-    if (scaledRows <= 0) {
+    if (const int scaledRows = sws_scale(video_.presentScaleContext, sourceData.data(), sourceLinesize.data(), 0, video_.renderFrame.height, destinationData.data(), destinationLinesize.data()); scaledRows <= 0) {
       logging::warn("stream", "sws_scale failed for direct framebuffer presentation");
       return false;
     }
@@ -864,16 +891,16 @@ namespace streaming {
         video_.convertedFrame->format = AV_PIX_FMT_YUV420P;
         video_.convertedFrame->width = video_.decodedFrame->width;
         video_.convertedFrame->height = video_.decodedFrame->height;
-        const int fillResult = av_image_fill_arrays(
-          video_.convertedFrame->data,
-          video_.convertedFrame->linesize,
-          video_.convertedBuffer.data(),
-          AV_PIX_FMT_YUV420P,
-          video_.decodedFrame->width,
-          video_.decodedFrame->height,
-          1
-        );
-        if (fillResult < 0) {
+        if (const int fillResult = av_image_fill_arrays(
+              video_.convertedFrame->data,
+              video_.convertedFrame->linesize,
+              video_.convertedBuffer.data(),
+              AV_PIX_FMT_YUV420P,
+              video_.decodedFrame->width,
+              video_.decodedFrame->height,
+              1
+            );
+            fillResult < 0) {
           logging::warn("stream", std::string("av_image_fill_arrays failed for converted frame: ") + describe_ffmpeg_error(fillResult));
           av_frame_unref(video_.decodedFrame);
           return fillResult;
@@ -952,8 +979,7 @@ namespace streaming {
 
     int sendResult = avcodec_send_packet(video_.codecContext, video_.packet);
     if (sendResult == AVERROR(EAGAIN)) {
-      const int drainResult = receive_available_video_frames();
-      if (drainResult < 0 && drainResult != AVERROR(EAGAIN) && drainResult != AVERROR_EOF) {
+      if (const int drainResult = receive_available_video_frames(); drainResult < 0 && drainResult != AVERROR(EAGAIN) && drainResult != AVERROR_EOF) {
         av_packet_unref(video_.packet);
         return DR_NEED_IDR;
       }
@@ -965,20 +991,14 @@ namespace streaming {
       return DR_NEED_IDR;
     }
 
-    const int receiveResult = receive_available_video_frames();
-    if (receiveResult < 0 && receiveResult != AVERROR(EAGAIN) && receiveResult != AVERROR_EOF) {
+    if (const int receiveResult = receive_available_video_frames(); receiveResult < 0 && receiveResult != AVERROR(EAGAIN) && receiveResult != AVERROR_EOF) {
       return DR_NEED_IDR;
     }
 
     return DR_OK;
   }
 
-  int FfmpegStreamBackend::submit_video_decode_unit(PDECODE_UNIT decodeUnit) {
-    return decode_video_decode_unit(decodeUnit);
-  }
-
-  int FfmpegStreamBackend::initialize_audio_decoder(int audioConfiguration, const POPUS_MULTISTREAM_CONFIGURATION opusConfig, void *context, int arFlags) {
-    (void) context;
+  int FfmpegStreamBackend::initialize_audio_decoder(int audioConfiguration, const OPUS_MULTISTREAM_CONFIGURATION *opusConfig, int arFlags) {
     (void) arFlags;
 
     cleanup_audio_decoder();
@@ -1006,12 +1026,10 @@ namespace streaming {
     desiredSpec.samples = 1024;
     desiredSpec.callback = nullptr;
 
-    if ((SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) == 0) {
-      if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
-        logging::error("stream", std::string("SDL_InitSubSystem(SDL_INIT_AUDIO) failed for streaming playback: ") + SDL_GetError());
-        cleanup_audio_decoder();
-        return -1;
-      }
+    if ((SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO) == 0 && SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+      logging::error("stream", std::string("SDL_InitSubSystem(SDL_INIT_AUDIO) failed for streaming playback: ") + SDL_GetError());
+      cleanup_audio_decoder();
+      return -1;
     }
 
     audio_.deviceId = SDL_OpenAudioDevice(nullptr, 0, &desiredSpec, &audio_.obtainedSpec, 0);
@@ -1045,8 +1063,7 @@ namespace streaming {
       return -1;
     }
 
-    const int openResult = avcodec_open2(audio_.codecContext, codec, nullptr);
-    if (openResult < 0) {
+    if (const int openResult = avcodec_open2(audio_.codecContext, codec, nullptr); openResult < 0) {
       logging::error("stream", std::string("avcodec_open2 failed for Opus: ") + describe_ffmpeg_error(openResult));
       cleanup_audio_decoder();
       return openResult;
@@ -1108,8 +1125,9 @@ namespace streaming {
     const int inputSampleRate = audio_.decodedFrame->sample_rate;
     const int inputSampleFormat = audio_.decodedFrame->format;
     const int inputChannelCount = audio_.decodedFrame->ch_layout.nb_channels;
-    const bool needsReconfigure = audio_.resampleContext == nullptr || audio_.resampleInputSampleRate != inputSampleRate || audio_.resampleInputSampleFormat != inputSampleFormat || audio_.resampleInputChannelCount != inputChannelCount;
-    if (!needsReconfigure) {
+    if (const bool needsReconfigure =
+          audio_.resampleContext == nullptr || audio_.resampleInputSampleRate != inputSampleRate || audio_.resampleInputSampleFormat != inputSampleFormat || audio_.resampleInputChannelCount != inputChannelCount;
+        !needsReconfigure) {
       return true;
     }
 
@@ -1146,7 +1164,7 @@ namespace streaming {
     return true;
   }
 
-  void FfmpegStreamBackend::decode_and_play_audio_sample(char *sampleData, int sampleLength) {
+  void FfmpegStreamBackend::decode_and_play_audio_sample(const char *sampleData, int sampleLength) {
     if (!audioPlaybackEnabled_.load()) {
       return;
     }
@@ -1159,8 +1177,7 @@ namespace streaming {
       return;
     }
 
-    const int packetResult = av_new_packet(audio_.packet, sampleLength);
-    if (packetResult < 0) {
+    if (const int packetResult = av_new_packet(audio_.packet, sampleLength); packetResult < 0) {
       logging::warn("stream", std::string("av_new_packet failed for audio decode: ") + describe_ffmpeg_error(packetResult));
       return;
     }
@@ -1210,10 +1227,10 @@ namespace streaming {
       }
 
       audio_.outputBuffer.resize(static_cast<std::size_t>(outputBufferSize));
-      std::uint8_t *outputData[] = {audio_.outputBuffer.data()};
+      std::array<std::uint8_t *, 1> outputData {audio_.outputBuffer.data()};
       const int convertedSamples = swr_convert(
         audio_.resampleContext,
-        outputData,
+        outputData.data(),
         outputSamples,
         const_cast<const std::uint8_t **>(audio_.decodedFrame->extended_data),
         audio_.decodedFrame->nb_samples
@@ -1225,8 +1242,7 @@ namespace streaming {
       }
 
       const int convertedBytes = convertedSamples * audio_.obtainedSpec.channels * static_cast<int>(sizeof(std::int16_t));
-      const Uint32 maxQueuedBytes = (audio_bytes_per_second(audio_.obtainedSpec) * STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS) / 1000U;
-      if (SDL_GetQueuedAudioSize(audio_.deviceId) > maxQueuedBytes) {
+      if (const Uint32 maxQueuedBytes = (audio_bytes_per_second(audio_.obtainedSpec) * STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS) / 1000U; SDL_GetQueuedAudioSize(audio_.deviceId) > maxQueuedBytes) {
         SDL_ClearQueuedAudio(audio_.deviceId);
       }
       if (convertedBytes > 0 && SDL_QueueAudio(audio_.deviceId, audio_.outputBuffer.data(), static_cast<Uint32>(convertedBytes)) == 0) {

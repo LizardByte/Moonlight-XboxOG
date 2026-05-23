@@ -283,7 +283,7 @@ namespace {
       return;
     }
 
-    if (const auto parsedValue = settingNode.value<int64_t>(); parsedValue) {
+    if (const auto parsedValue = settingNode.value<int64_t>(); parsedValue.has_value()) {
       if (value != nullptr) {
         *value = static_cast<int>(*parsedValue);
       }
@@ -313,7 +313,7 @@ namespace {
       return;
     }
 
-    if (const auto parsedValue = settingNode.value<bool>(); parsedValue) {
+    if (const auto parsedValue = settingNode.value<bool>(); parsedValue.has_value()) {
       if (value != nullptr) {
         *value = *parsedValue;
       }
