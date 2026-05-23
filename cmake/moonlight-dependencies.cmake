@@ -196,6 +196,7 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
 
             string(CONCAT ffmpeg_configure_script
                     "unset MAKEFLAGS MFLAGS GNUMAKEFLAGS MAKELEVEL; "
+                    "unset MSYS2_ARG_CONV_EXCL; "
                     "export NXDK_DIR=${quoted_nxdk_shell_path}; "
                     "export PATH=\"$NXDK_DIR/bin:$PATH\"; "
                     "cd ${quoted_ffmpeg_build_shell_path}; "
@@ -213,6 +214,7 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
 
             string(CONCAT ffmpeg_build_script
                     "unset MAKEFLAGS MFLAGS GNUMAKEFLAGS MAKELEVEL; "
+                    "unset MSYS2_ARG_CONV_EXCL; "
                     "export NXDK_DIR=${quoted_nxdk_shell_path}; "
                     "export PATH=\"$NXDK_DIR/bin:$PATH\"; "
                     "cd ${quoted_ffmpeg_build_shell_path}; "
