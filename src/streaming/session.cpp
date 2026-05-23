@@ -50,14 +50,15 @@ namespace {
   constexpr Uint8 ACCENT_BLUE = 0xD4;
   constexpr Uint32 STREAM_EXIT_COMBO_HOLD_MILLISECONDS = 900U;
   constexpr Uint32 STREAM_FRAME_DELAY_MILLISECONDS = 16U;
+  constexpr Uint32 STREAM_PRESENT_POLL_MILLISECONDS = 2U;
   constexpr Uint32 STREAM_INPUT_POLL_MILLISECONDS = 4U;
-  constexpr int DEFAULT_STREAM_FPS = 20;
-  constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1500;
+  constexpr int DEFAULT_STREAM_FPS = 30;
+  constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
   constexpr int MIN_STREAM_FPS = 15;
   constexpr int MAX_STREAM_FPS = 30;
   constexpr int MIN_STREAM_BITRATE_KBPS = 250;
   constexpr int MAX_STREAM_BITRATE_KBPS = 50000;
-  constexpr int DEFAULT_PACKET_SIZE = 1024;
+  constexpr int DEFAULT_PACKET_SIZE = 1392;
   constexpr std::size_t MAX_CONNECTION_PROTOCOL_MESSAGES = 24U;
   constexpr uint16_t PRESENT_GAMEPAD_MASK = 0x0001;
   constexpr uint32_t CONTROLLER_BUTTON_CAPABILITIES =
@@ -1228,8 +1229,12 @@ namespace streaming {
         update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &fallbackExitComboActivatedTick, &connectionState);
         send_controller_snapshot_if_needed(snapshot, controllerPresent, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
       }
-      render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, settings.showPerformanceStats, &resources);
-      SDL_Delay(STREAM_FRAME_DELAY_MILLISECONDS);
+      const bool hasDecodedVideo = resources.mediaBackend.has_decoded_video();
+      const bool shouldRenderFrame = settings.showPerformanceStats || !hasDecodedVideo || resources.mediaBackend.has_unrendered_video_frame();
+      if (shouldRenderFrame) {
+        render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, settings.showPerformanceStats, &resources);
+      }
+      SDL_Delay(hasDecodedVideo && !settings.showPerformanceStats ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
     }
 
     inputThreadState.stopRequested.store(true);

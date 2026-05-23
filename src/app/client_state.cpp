@@ -187,7 +187,7 @@ namespace {
   void cycle_stream_framerate(app::ClientState &state) {
     const auto current = std::find(STREAM_FRAMERATE_OPTIONS.begin(), STREAM_FRAMERATE_OPTIONS.end(), state.settings.streamFramerate);
     if (current == STREAM_FRAMERATE_OPTIONS.end()) {
-      state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.front();
+      state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.back();
       return;
     }
 
@@ -1395,8 +1395,8 @@ namespace app {
     state.settings.logViewerPlacement = LogViewerPlacement::full;
     state.settings.loggingLevel = logging::LogLevel::none;
     state.settings.xemuConsoleLoggingLevel = logging::LogLevel::none;
-    state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS[1];
-    state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS[1];
+    state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.back();
+    state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS.front();
     state.settings.playAudioOnPc = false;
     state.settings.showPerformanceStats = false;
     state.settings.dirty = false;

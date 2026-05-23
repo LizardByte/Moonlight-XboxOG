@@ -35,6 +35,8 @@ namespace {
 
   constexpr Uint32 STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS = 250U;
   constexpr std::uint64_t STREAM_VIDEO_SUBMISSION_LOG_INTERVAL = 120;
+  constexpr int STREAM_VIDEO_DROPPED_FRAME_STATUS = -2;
+  constexpr std::uint64_t STREAM_VIDEO_DROP_LOG_INTERVAL = 30;
 
   streaming::FfmpegStreamBackend *g_active_video_backend = nullptr;
   streaming::FfmpegStreamBackend *g_active_audio_backend = nullptr;
@@ -331,9 +333,14 @@ namespace streaming {
     return video_.hasFrame.load();
   }
 
+  bool FfmpegStreamBackend::has_unrendered_video_frame() const {
+    return video_.publishedFrameVersion.load() != video_.renderedFrameVersion;
+  }
+
   std::string FfmpegStreamBackend::build_overlay_status_line() const {
     std::string audioState = audio_.deviceId != 0 ? std::to_string(SDL_GetQueuedAudioSize(audio_.deviceId)) + " queued audio bytes" : "audio idle";
-    return std::string("Video units: ") + std::to_string(video_.submittedDecodeUnitCount.load()) + " submitted / " + std::to_string(video_.decodedFrameCount.load()) + " decoded | " + audioState;
+    return std::string("Video units: ") + std::to_string(video_.submittedDecodeUnitCount.load()) + " submitted / " + std::to_string(video_.decodedFrameCount.load()) + " decoded / " +
+           std::to_string(video_.droppedDecodeUnitCount.load()) + " dropped | " + audioState;
   }
 
   bool FfmpegStreamBackend::render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight) {
@@ -425,6 +432,9 @@ namespace streaming {
 
     video_.codecContext->thread_count = 1;
     video_.codecContext->thread_type = 0;
+    video_.codecContext->flags |= AV_CODEC_FLAG_LOW_DELAY | AV_CODEC_FLAG_OUTPUT_CORRUPT;
+    video_.codecContext->flags2 |= AV_CODEC_FLAG2_FAST | AV_CODEC_FLAG2_SHOW_ALL;
+    video_.codecContext->err_recognition = AV_EF_EXPLODE;
     const int openResult = avcodec_open2(video_.codecContext, codec, nullptr);
     if (openResult < 0) {
       logging::error("stream", std::string("avcodec_open2 failed for H.264: ") + describe_ffmpeg_error(openResult));
@@ -504,6 +514,7 @@ namespace streaming {
     video_.hasFrame.store(false);
     video_.submittedDecodeUnitCount.store(0);
     video_.decodedFrameCount.store(0);
+    video_.droppedDecodeUnitCount.store(0);
   }
 
   int FfmpegStreamBackend::run_video_decode_thread_trampoline(void *context) {
@@ -523,11 +534,63 @@ namespace streaming {
         break;
       }
 
-      const int decodeStatus = video_.decoderStopRequested.load() || decodeUnit == nullptr ? DR_OK : decode_video_decode_unit(decodeUnit);
+      int decodeStatus = DR_OK;
+      if (!video_.decoderStopRequested.load() && decodeUnit != nullptr) {
+        const int droppedFrames = drop_queued_video_decode_units(&frameHandle, &decodeUnit);
+        if (droppedFrames > 0 && decodeUnit != nullptr && decodeUnit->frameType == FRAME_TYPE_IDR && video_.codecContext != nullptr) {
+          avcodec_flush_buffers(video_.codecContext);
+        }
+        decodeStatus = decode_video_decode_unit(decodeUnit);
+      }
       LiCompleteVideoFrame(frameHandle, decodeStatus);
     }
 
     return 0;
+  }
+
+  int FfmpegStreamBackend::drop_queued_video_decode_units(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit) {
+    if (frameHandle == nullptr || decodeUnit == nullptr || *frameHandle == nullptr || *decodeUnit == nullptr) {
+      return 0;
+    }
+
+    int droppedFrames = 0;
+    VIDEO_FRAME_HANDLE newestHandle = *frameHandle;
+    PDECODE_UNIT newestDecodeUnit = *decodeUnit;
+
+    while (true) {
+      VIDEO_FRAME_HANDLE nextHandle = nullptr;
+      PDECODE_UNIT nextDecodeUnit = nullptr;
+      if (!LiPollNextVideoFrame(&nextHandle, &nextDecodeUnit)) {
+        break;
+      }
+
+      LiCompleteVideoFrame(newestHandle, STREAM_VIDEO_DROPPED_FRAME_STATUS);
+      newestHandle = nextHandle;
+      newestDecodeUnit = nextDecodeUnit;
+      ++droppedFrames;
+    }
+
+    if (droppedFrames == 0) {
+      return 0;
+    }
+
+    *frameHandle = newestHandle;
+    *decodeUnit = newestDecodeUnit;
+
+    const std::uint64_t droppedDecodeUnitCount = video_.droppedDecodeUnitCount.fetch_add(static_cast<std::uint64_t>(droppedFrames)) + static_cast<std::uint64_t>(droppedFrames);
+    if (newestDecodeUnit != nullptr && newestDecodeUnit->frameType != FRAME_TYPE_IDR) {
+      LiRequestIdrFrame();
+    }
+
+    if (droppedDecodeUnitCount <= static_cast<std::uint64_t>(droppedFrames) || (droppedDecodeUnitCount % STREAM_VIDEO_DROP_LOG_INTERVAL) < static_cast<std::uint64_t>(droppedFrames)) {
+      logging::warn(
+        "stream",
+        std::string("Dropped queued video decode units before decode | dropped_total=") + std::to_string(droppedDecodeUnitCount) + " | dropped_now=" + std::to_string(droppedFrames) +
+          " | newest_frame=" + std::to_string(newestDecodeUnit != nullptr ? newestDecodeUnit->frameNumber : -1)
+      );
+    }
+
+    return droppedFrames;
   }
 
   bool FfmpegStreamBackend::publish_video_frame(AVFrame *frameToPresent) {

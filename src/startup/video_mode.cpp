@@ -20,16 +20,13 @@ namespace startup {
       int height;
     };
 
-    constexpr std::array<StreamResolutionPreset, 9> STREAM_RESOLUTION_PRESETS {{
+    constexpr std::array<StreamResolutionPreset, 6> STREAM_RESOLUTION_PRESETS {{
       {352, 240},
       {352, 288},
       {480, 480},
       {480, 576},
       {720, 480},
       {720, 576},
-      {960, 540},
-      {1280, 720},
-      {1920, 1080},
     }};
 
     bool is_1080i_mode(const VIDEO_MODE &videoMode) {
@@ -95,16 +92,7 @@ namespace startup {
     const int bpp = outputVideoMode.bpp > 0 ? outputVideoMode.bpp : 32;
     const int refresh = outputVideoMode.refresh > 0 ? outputVideoMode.refresh : 60;
 
-    if (outputVideoMode.width >= 1920 && outputVideoMode.height >= 1080) {
-      return make_stream_video_mode({1920, 1080}, bpp, refresh);
-    }
-    if (outputVideoMode.width >= 1280 && outputVideoMode.height >= 720) {
-      return make_stream_video_mode({1280, 720}, bpp, refresh);
-    }
-    if (refresh <= 50 || outputVideoMode.height >= 576) {
-      return make_stream_video_mode({720, 576}, bpp, refresh);
-    }
-    return make_stream_video_mode({720, 480}, bpp, refresh);
+    return refresh <= 50 ? make_stream_video_mode({352, 288}, bpp, refresh) : make_stream_video_mode({352, 240}, bpp, refresh);
   }
 
   VideoModeSelection select_best_video_mode(int bpp, int refresh) {

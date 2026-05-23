@@ -111,8 +111,8 @@ namespace {
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
-    EXPECT_EQ(loadResult.settings.streamFramerate, 20);
-    EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1500);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 30);
+    EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1000);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_FALSE(loadResult.settings.showPerformanceStats);
   }
@@ -141,7 +141,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.xemuConsoleLoggingLevel, logging::LogLevel::none);
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
-    EXPECT_EQ(loadResult.settings.streamFramerate, 20);
+    EXPECT_EQ(loadResult.settings.streamFramerate, 30);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
   }
 

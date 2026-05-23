@@ -319,8 +319,8 @@ namespace app {
     std::vector<VIDEO_MODE> availableVideoModes;  ///< Fixed stream-resolution presets exposed by the settings UI.
     VIDEO_MODE preferredVideoMode {};  ///< Preferred stream resolution requested from the host.
     bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a user-selected or default mode.
-    int streamFramerate = 20;  ///< Preferred stream frame rate in frames per second.
-    int streamBitrateKbps = 1500;  ///< Preferred stream bitrate in kilobits per second.
+    int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
+    int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
     bool showPerformanceStats = false;  ///< True when the streaming overlay should remain visible over decoded video.
     bool dirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.

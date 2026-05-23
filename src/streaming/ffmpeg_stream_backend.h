@@ -78,6 +78,13 @@ namespace streaming {
     bool has_decoded_video() const;
 
     /**
+     * @brief Report whether a newly decoded video frame has not been presented yet.
+     *
+     * @return True when rendering would present a newer decoded frame.
+     */
+    bool has_unrendered_video_frame() const;
+
+    /**
      * @brief Build a short user-visible media status line.
      *
      * @return Summary of decoded video and queued audio state.
@@ -178,6 +185,15 @@ namespace streaming {
     int run_video_decode_thread();
 
     /**
+     * @brief Drop queued decode units so the decoder works on the newest frame.
+     *
+     * @param frameHandle Current frame handle, replaced with the newest queued handle.
+     * @param decodeUnit Current decode unit, replaced with the newest queued unit.
+     * @return Number of decode units discarded.
+     */
+    int drop_queued_video_decode_units(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit);
+
+    /**
      * @brief Decode one Moonlight video decode unit on the video worker thread.
      *
      * @param decodeUnit Moonlight Annex B frame payload.
@@ -240,6 +256,7 @@ namespace streaming {
       std::atomic<std::uint64_t> publishedFrameVersion = 0;
       std::atomic<std::uint64_t> submittedDecodeUnitCount = 0;
       std::atomic<std::uint64_t> decodedFrameCount = 0;
+      std::atomic<std::uint64_t> droppedDecodeUnitCount = 0;
     };
 
     /**
