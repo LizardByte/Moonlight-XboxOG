@@ -2,7 +2,7 @@
 
 set -eu
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 ffmpeg_compat_header="${script_dir}/../src/_nxdk_compat/ffmpeg_compat.h"
 ffmpeg_compat_include_dir="${script_dir}/../src/_nxdk_compat"
 
