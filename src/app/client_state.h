@@ -323,6 +323,7 @@ namespace app {
     int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
     bool showPerformanceStats = false;  ///< True when the streaming overlay should remain visible over decoded video.
+    bool playAudioOnXbox = false;  ///< True when the Xbox should decode and play streamed audio locally.
     bool dirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.
     std::vector<startup::SavedFileEntry> savedFiles;  ///< Saved-file catalog shown on the reset settings page.
     bool savedFilesDirty = true;  ///< True when the saved-file catalog should be refreshed.

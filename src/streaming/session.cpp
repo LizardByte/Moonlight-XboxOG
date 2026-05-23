@@ -52,13 +52,15 @@ namespace {
   constexpr Uint32 STREAM_FRAME_DELAY_MILLISECONDS = 16U;
   constexpr Uint32 STREAM_PRESENT_POLL_MILLISECONDS = 2U;
   constexpr Uint32 STREAM_INPUT_POLL_MILLISECONDS = 4U;
+  constexpr Uint32 STREAM_VIDEO_IDLE_IDR_MILLISECONDS = 1500U;
+  constexpr Uint32 STREAM_VIDEO_IDLE_IDR_COOLDOWN_MILLISECONDS = 2000U;
   constexpr int DEFAULT_STREAM_FPS = 30;
   constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
   constexpr int MIN_STREAM_FPS = 15;
   constexpr int MAX_STREAM_FPS = 30;
   constexpr int MIN_STREAM_BITRATE_KBPS = 250;
   constexpr int MAX_STREAM_BITRATE_KBPS = 50000;
-  constexpr int DEFAULT_PACKET_SIZE = 1392;
+  constexpr int DEFAULT_PACKET_SIZE = 1024;
   constexpr std::size_t MAX_CONNECTION_PROTOCOL_MESSAGES = 24U;
   constexpr uint16_t PRESENT_GAMEPAD_MASK = 0x0001;
   constexpr uint32_t CONTROLLER_BUTTON_CAPABILITIES =
@@ -127,6 +129,28 @@ namespace {
     int bitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
     int packetSize = DEFAULT_PACKET_SIZE;
     int streamingRemotely = STREAM_CFG_AUTO;
+  };
+
+  class ScopedThreadPriority {
+  public:
+    explicit ScopedThreadPriority(SDL_ThreadPriority priority) {
+      active_ = SDL_SetThreadPriority(priority) == 0;
+      if (!active_) {
+        logging::debug("stream", std::string("SDL_SetThreadPriority failed for stream render thread: ") + SDL_GetError());
+      }
+    }
+
+    ~ScopedThreadPriority() {
+      if (active_) {
+        SDL_SetThreadPriority(SDL_THREAD_PRIORITY_NORMAL);
+      }
+    }
+
+    ScopedThreadPriority(const ScopedThreadPriority &) = delete;
+    ScopedThreadPriority &operator=(const ScopedThreadPriority &) = delete;
+
+  private:
+    bool active_ = false;
   };
 
   /**
@@ -1017,6 +1041,25 @@ namespace {
     return snapshot;
   }
 
+  void request_idle_video_refresh_if_needed(streaming::FfmpegStreamBackend *mediaBackend, Uint32 *lastRequestTicks) {
+    if (mediaBackend == nullptr || lastRequestTicks == nullptr || !mediaBackend->has_decoded_video()) {
+      return;
+    }
+
+    const Uint32 nowTicks = SDL_GetTicks();
+    const Uint32 idleMilliseconds = mediaBackend->milliseconds_since_last_decoded_video_frame(nowTicks);
+    if (idleMilliseconds < STREAM_VIDEO_IDLE_IDR_MILLISECONDS) {
+      return;
+    }
+    if (*lastRequestTicks != 0U && nowTicks - *lastRequestTicks < STREAM_VIDEO_IDLE_IDR_COOLDOWN_MILLISECONDS) {
+      return;
+    }
+
+    LiRequestIdrFrame();
+    *lastRequestTicks = nowTicks;
+    logging::debug("stream", std::string("Requested IDR frame after ") + std::to_string(idleMilliseconds) + " ms without decoded video");
+  }
+
   bool render_stream_frame(
     const app::HostRecord &host,
     const app::HostAppRecord &app,
@@ -1148,6 +1191,7 @@ namespace streaming {
       logging::error("stream", initializationError);
       return false;
     }
+    ScopedThreadPriority streamThreadPriority(SDL_THREAD_PRIORITY_HIGH);
 
     startup::log_memory_statistics();
 
@@ -1207,6 +1251,8 @@ namespace streaming {
       "stream",
       std::string("Requested stream configuration | resolution=") + std::to_string(startContext.streamConfiguration.width) + "x" + std::to_string(startContext.streamConfiguration.height) + " | fps=" + std::to_string(startContext.streamConfiguration.fps) + " | bitrate=" + std::to_string(startContext.streamConfiguration.bitrate) + " kbps | packetSize=" + std::to_string(startContext.streamConfiguration.packetSize) + " | networkProfile=" + describe_streaming_remotely_mode(startContext.streamConfiguration.streamingRemotely) + " | clientRefreshX100=" + std::to_string(startContext.streamConfiguration.clientRefreshRateX100)
     );
+    resources.mediaBackend.set_audio_playback_enabled(settings.playAudioOnXbox);
+    logging::info("stream", std::string("Xbox audio playback ") + (settings.playAudioOnXbox ? "enabled" : "disabled for lower decode latency"));
     logging::debug(
       "stream",
       std::string("Stream connection metadata | active=") + printable_log_value(startContext.serverInformation.address == nullptr ? std::string_view {} : std::string_view {startContext.serverInformation.address}) +
@@ -1295,6 +1341,7 @@ namespace streaming {
     bool fallbackControllerArrivalSent = false;
     ControllerSnapshot fallbackLastControllerSnapshot {};
     Uint32 fallbackExitComboActivatedTick = 0U;
+    Uint32 lastIdleVideoIdrRequestTick = 0U;
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
     while (!connectionState.connectionTerminated.load() && !connectionState.stopRequested.load()) {
       pump_stream_events(&resources);
@@ -1309,6 +1356,7 @@ namespace streaming {
       if (shouldRenderFrame) {
         render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, settings.showPerformanceStats, &resources);
       }
+      request_idle_video_refresh_if_needed(&resources.mediaBackend, &lastIdleVideoIdrRequestTick);
       SDL_Delay(hasDecodedVideo && !settings.showPerformanceStats ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
     }
 

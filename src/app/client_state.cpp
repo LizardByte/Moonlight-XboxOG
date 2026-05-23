@@ -28,8 +28,9 @@ namespace {
   constexpr const char *SETTINGS_CATEGORY_PREFIX = "settings-category:";
   constexpr std::array<char, 11> ADD_HOST_ADDRESS_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'};
   constexpr std::array<char, 10> ADD_HOST_PORT_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
+  constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
   constexpr std::array<int, 5> STREAM_FRAMERATE_OPTIONS {15, 20, 24, 25, 30};
-  constexpr std::array<int, 7> STREAM_BITRATE_OPTIONS {1000, 1500, 2000, 2500, 3000, 4000, 5000};
+  constexpr std::array<int, 9> STREAM_BITRATE_OPTIONS {500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000};
 
   /**
    * @brief Describes the keypad characters available for the active add-host field.
@@ -107,7 +108,7 @@ namespace {
       case app::SettingsCategory::logging:
         return "Control the runtime log file, the in-app log viewer, and xemu debugger output verbosity.";
       case app::SettingsCategory::display:
-        return "Tune streaming video resolution, frame rate, bitrate, host audio playback, and the in-stream diagnostics overlay.";
+        return "Tune streaming video resolution, frame rate, bitrate, audio playback, and the in-stream diagnostics overlay.";
       case app::SettingsCategory::input:
         return "Input options will live here when controller and navigation customization is added.";
       case app::SettingsCategory::reset:
@@ -546,6 +547,12 @@ namespace {
             "toggle-play-audio-on-pc",
             std::string("Play Audio on PC: ") + (state.settings.playAudioOnPc ? "On" : "Off"),
             "Toggle whether the host PC should continue local audio playback while also streaming audio to this Xbox client.",
+            true,
+          },
+          {
+            "toggle-play-audio-on-xbox",
+            std::string("Play Audio on Xbox: ") + (state.settings.playAudioOnXbox ? "On" : "Off"),
+            "Toggle local audio playback on the Xbox. Disable this to skip Opus decode work when video latency matters more than sound.",
             true,
           },
           {
@@ -1396,9 +1403,10 @@ namespace app {
     state.settings.loggingLevel = logging::LogLevel::none;
     state.settings.xemuConsoleLoggingLevel = logging::LogLevel::none;
     state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.back();
-    state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS.front();
+    state.settings.streamBitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
     state.settings.playAudioOnPc = false;
     state.settings.showPerformanceStats = false;
+    state.settings.playAudioOnXbox = false;
     state.settings.dirty = false;
     state.settings.savedFilesDirty = true;
     return state;
@@ -1993,6 +2001,14 @@ namespace app {
       update->persistence.settingsChanged = true;
       state.shell.statusMessage = std::string("Play audio on PC ") + (state.settings.playAudioOnPc ? "enabled" : "disabled");
       rebuild_menu(state, "toggle-play-audio-on-pc");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "toggle-play-audio-on-xbox") {
+      state.settings.playAudioOnXbox = !state.settings.playAudioOnXbox;
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Play audio on Xbox ") + (state.settings.playAudioOnXbox ? "enabled" : "disabled");
+      rebuild_menu(state, "toggle-play-audio-on-xbox");
       return;
     }
     if (detailUpdate.activatedItemId == "toggle-show-performance-stats") {

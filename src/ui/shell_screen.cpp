@@ -2167,6 +2167,7 @@ namespace {
       state.settings.streamBitrateKbps,
       state.settings.playAudioOnPc,
       state.settings.showPerformanceStats,
+      state.settings.playAudioOnXbox,
     };
   }
 

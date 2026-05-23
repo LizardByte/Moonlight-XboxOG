@@ -46,6 +46,7 @@ namespace {
     state.settings.streamBitrateKbps = settings.streamBitrateKbps;
     state.settings.playAudioOnPc = settings.playAudioOnPc;
     state.settings.showPerformanceStats = settings.showPerformanceStats;
+    state.settings.playAudioOnXbox = settings.playAudioOnXbox;
     state.settings.dirty = false;
   }
 

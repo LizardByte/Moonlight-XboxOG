@@ -56,6 +56,13 @@ namespace streaming {
     void initialize_callbacks(DECODER_RENDERER_CALLBACKS *videoCallbacks, AUDIO_RENDERER_CALLBACKS *audioCallbacks);
 
     /**
+     * @brief Configure whether streamed audio should be decoded and played locally.
+     *
+     * @param enabled True to decode and play Opus audio on the Xbox.
+     */
+    void set_audio_playback_enabled(bool enabled);
+
+    /**
      * @brief Release all FFmpeg, SDL, and cached frame resources.
      */
     void shutdown();
@@ -84,6 +91,14 @@ namespace streaming {
      * @return True when rendering would present a newer decoded frame.
      */
     bool has_unrendered_video_frame() const;
+
+    /**
+     * @brief Return how long it has been since FFmpeg published a decoded video frame.
+     *
+     * @param nowTicks Current SDL tick value.
+     * @return Milliseconds since the last decoded frame, or zero before a frame is published.
+     */
+    Uint32 milliseconds_since_last_decoded_video_frame(Uint32 nowTicks) const;
 
     /**
      * @brief Build a short user-visible media status line.
@@ -270,6 +285,10 @@ namespace streaming {
       std::atomic<std::uint64_t> submittedDecodeUnitCount = 0;
       std::atomic<std::uint64_t> decodedFrameCount = 0;
       std::atomic<std::uint64_t> droppedDecodeUnitCount = 0;
+      std::atomic<std::uint64_t> lastDecodeQueueUs = 0;
+      std::atomic<std::uint64_t> lastReceiveAgeUs = 0;
+      std::atomic<Uint32> lastDecodedFrameTicks = 0;
+      std::atomic<int> lastDecodeFrameNumber = 0;
     };
 
     /**
@@ -282,6 +301,7 @@ namespace streaming {
       AVPacket *packet = nullptr;
       SDL_AudioDeviceID deviceId = 0;
       SDL_AudioSpec obtainedSpec {};
+      std::vector<std::uint8_t> outputBuffer;
       int resampleInputSampleRate = 0;
       int resampleInputSampleFormat = -1;
       int resampleInputChannelCount = 0;
@@ -291,6 +311,7 @@ namespace streaming {
 
     VideoState video_ {};
     AudioState audio_ {};
+    std::atomic<bool> audioPlaybackEnabled_ = false;
   };
 
 }  // namespace streaming

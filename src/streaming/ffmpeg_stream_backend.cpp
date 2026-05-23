@@ -35,12 +35,15 @@ extern "C" {
   #include <hal/video.h>
 #endif
 
+extern "C" std::uint64_t PltGetMicroseconds(void);
+
 namespace {
 
   constexpr Uint32 STREAM_OVERLAY_AUDIO_QUEUE_LIMIT_MS = 250U;
   constexpr std::uint64_t STREAM_VIDEO_SUBMISSION_LOG_INTERVAL = 120;
   constexpr int STREAM_VIDEO_DROPPED_FRAME_STATUS = -2;
   constexpr std::uint64_t STREAM_VIDEO_DROP_LOG_INTERVAL = 30;
+  constexpr Uint32 STREAM_VIDEO_DECODE_YIELD_MILLISECONDS = 1U;
 
   streaming::FfmpegStreamBackend *g_active_video_backend = nullptr;
   streaming::FfmpegStreamBackend *g_active_audio_backend = nullptr;
@@ -122,6 +125,9 @@ namespace {
     if (message.empty()) {
       return;
     }
+    if (message.find("No accelerated colorspace conversion found") != std::string::npos) {
+      return;
+    }
 
     logging::log(map_ffmpeg_log_level(level), "ffmpeg", std::move(message));
   }
@@ -131,7 +137,7 @@ namespace {
    */
   void ensure_ffmpeg_logging_installed() {
     std::call_once(g_ffmpeg_logging_once, []() {
-      av_log_set_level(AV_LOG_VERBOSE);
+      av_log_set_level(AV_LOG_ERROR);
       av_log_set_callback(ffmpeg_log_callback);
     });
   }
@@ -324,8 +330,15 @@ namespace streaming {
       audioCallbacks->stop = on_audio_stop;
       audioCallbacks->cleanup = on_audio_cleanup;
       audioCallbacks->decodeAndPlaySample = on_audio_decode_and_play_sample;
-      audioCallbacks->capabilities = 0;
+      audioCallbacks->capabilities = CAPABILITY_SLOW_OPUS_DECODER;
+      if (!audioPlaybackEnabled_.load()) {
+        audioCallbacks->capabilities |= CAPABILITY_DIRECT_SUBMIT;
+      }
     }
+  }
+
+  void FfmpegStreamBackend::set_audio_playback_enabled(bool enabled) {
+    audioPlaybackEnabled_.store(enabled);
   }
 
   void FfmpegStreamBackend::shutdown() {
@@ -415,10 +428,16 @@ namespace streaming {
     return video_.publishedFrameVersion.load() != video_.renderedFrameVersion;
   }
 
+  Uint32 FfmpegStreamBackend::milliseconds_since_last_decoded_video_frame(Uint32 nowTicks) const {
+    const Uint32 lastDecodedFrameTicks = video_.lastDecodedFrameTicks.load();
+    return lastDecodedFrameTicks == 0U ? 0U : nowTicks - lastDecodedFrameTicks;
+  }
+
   std::string FfmpegStreamBackend::build_overlay_status_line() const {
-    std::string audioState = audio_.deviceId != 0 ? std::to_string(SDL_GetQueuedAudioSize(audio_.deviceId)) + " queued audio bytes" : "audio idle";
+    std::string audioState = !audioPlaybackEnabled_.load() ? "audio decode disabled" : (audio_.deviceId != 0 ? std::to_string(SDL_GetQueuedAudioSize(audio_.deviceId)) + " queued audio bytes" : "audio idle");
     return std::string("Video units: ") + std::to_string(video_.submittedDecodeUnitCount.load()) + " submitted / " + std::to_string(video_.decodedFrameCount.load()) + " decoded / " +
-           std::to_string(video_.droppedDecodeUnitCount.load()) + " dropped | " + audioState;
+           std::to_string(video_.droppedDecodeUnitCount.load()) + " dropped | frame " + std::to_string(video_.lastDecodeFrameNumber.load()) + " queue " + std::to_string(video_.lastDecodeQueueUs.load() / 1000U) +
+           " ms / age " + std::to_string(video_.lastReceiveAgeUs.load() / 1000U) + " ms | " + audioState;
   }
 
   bool FfmpegStreamBackend::render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer) {
@@ -521,6 +540,8 @@ namespace streaming {
     video_.codecContext->flags |= AV_CODEC_FLAG_LOW_DELAY | AV_CODEC_FLAG_OUTPUT_CORRUPT;
     video_.codecContext->flags2 |= AV_CODEC_FLAG2_FAST | AV_CODEC_FLAG2_SHOW_ALL;
     video_.codecContext->err_recognition = AV_EF_EXPLODE;
+    video_.codecContext->skip_loop_filter = AVDISCARD_ALL;
+    video_.codecContext->skip_idct = AVDISCARD_NONREF;
     const int openResult = avcodec_open2(video_.codecContext, codec, nullptr);
     if (openResult < 0) {
       logging::error("stream", std::string("avcodec_open2 failed for H.264: ") + describe_ffmpeg_error(openResult));
@@ -607,6 +628,10 @@ namespace streaming {
     video_.submittedDecodeUnitCount.store(0);
     video_.decodedFrameCount.store(0);
     video_.droppedDecodeUnitCount.store(0);
+    video_.lastDecodeQueueUs.store(0);
+    video_.lastReceiveAgeUs.store(0);
+    video_.lastDecodedFrameTicks.store(0);
+    video_.lastDecodeFrameNumber.store(0);
   }
 
   int FfmpegStreamBackend::run_video_decode_thread_trampoline(void *context) {
@@ -615,7 +640,7 @@ namespace streaming {
   }
 
   int FfmpegStreamBackend::run_video_decode_thread() {
-    if (SDL_SetThreadPriority(SDL_THREAD_PRIORITY_TIME_CRITICAL) != 0) {
+    if (SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH) != 0) {
       logging::debug("stream", std::string("SDL_SetThreadPriority failed for video decoder: ") + SDL_GetError());
     }
 
@@ -635,6 +660,9 @@ namespace streaming {
         decodeStatus = decode_video_decode_unit(decodeUnit);
       }
       LiCompleteVideoFrame(frameHandle, decodeStatus);
+      if (!video_.decoderStopRequested.load() && decodeStatus == DR_OK) {
+        SDL_Delay(STREAM_VIDEO_DECODE_YIELD_MILLISECONDS);
+      }
     }
 
     return 0;
@@ -717,6 +745,7 @@ namespace streaming {
       video_.publishedFrameVersion.store(video_.latestFrameVersion);
     }
 
+    video_.lastDecodedFrameTicks.store(SDL_GetTicks());
     video_.hasFrame.store(true);
     video_.decodedFrameCount.fetch_add(1);
     return true;
@@ -918,6 +947,14 @@ namespace streaming {
     video_.packet->size = offset;
 
     const std::uint64_t submittedDecodeUnitCount = video_.submittedDecodeUnitCount.fetch_add(1) + 1;
+    const std::uint64_t decodeStartUs = PltGetMicroseconds();
+    video_.lastDecodeFrameNumber.store(decodeUnit->frameNumber);
+    if (decodeUnit->enqueueTimeUs > 0 && decodeStartUs >= decodeUnit->enqueueTimeUs) {
+      video_.lastDecodeQueueUs.store(decodeStartUs - decodeUnit->enqueueTimeUs);
+    }
+    if (decodeUnit->receiveTimeUs > 0 && decodeStartUs >= decodeUnit->receiveTimeUs) {
+      video_.lastReceiveAgeUs.store(decodeStartUs - decodeUnit->receiveTimeUs);
+    }
     if (submittedDecodeUnitCount == 1 || (submittedDecodeUnitCount % STREAM_VIDEO_SUBMISSION_LOG_INTERVAL) == 0) {
       const std::uint64_t receiveWindowUs = decodeUnit->enqueueTimeUs >= decodeUnit->receiveTimeUs ? decodeUnit->enqueueTimeUs - decodeUnit->receiveTimeUs : 0;
       logging::debug(
@@ -958,6 +995,11 @@ namespace streaming {
     (void) arFlags;
 
     cleanup_audio_decoder();
+
+    if (!audioPlaybackEnabled_.load()) {
+      logging::info("stream", "Xbox audio playback is disabled; dropping streamed audio before Opus decode");
+      return 0;
+    }
 
     if (opusConfig == nullptr) {
       logging::error("stream", "Moonlight did not provide an Opus configuration for audio startup");
@@ -1064,6 +1106,7 @@ namespace streaming {
     }
 
     audio_.obtainedSpec = SDL_AudioSpec {};
+    audio_.outputBuffer.clear();
     audio_.resampleInputSampleRate = 0;
     audio_.resampleInputSampleFormat = -1;
     audio_.resampleInputChannelCount = 0;
@@ -1117,6 +1160,10 @@ namespace streaming {
   }
 
   void FfmpegStreamBackend::decode_and_play_audio_sample(char *sampleData, int sampleLength) {
+    if (!audioPlaybackEnabled_.load()) {
+      return;
+    }
+
     if (audio_.codecContext == nullptr || audio_.packet == nullptr || audio_.decodedFrame == nullptr || audio_.deviceId == 0) {
       return;
     }
@@ -1175,8 +1222,8 @@ namespace streaming {
         return;
       }
 
-      std::vector<std::uint8_t> outputBuffer(static_cast<std::size_t>(outputBufferSize));
-      std::uint8_t *outputData[] = {outputBuffer.data()};
+      audio_.outputBuffer.resize(static_cast<std::size_t>(outputBufferSize));
+      std::uint8_t *outputData[] = {audio_.outputBuffer.data()};
       const int convertedSamples = swr_convert(
         audio_.resampleContext,
         outputData,
@@ -1195,7 +1242,7 @@ namespace streaming {
       if (SDL_GetQueuedAudioSize(audio_.deviceId) > maxQueuedBytes) {
         SDL_ClearQueuedAudio(audio_.deviceId);
       }
-      if (convertedBytes > 0 && SDL_QueueAudio(audio_.deviceId, outputBuffer.data(), static_cast<Uint32>(convertedBytes)) == 0) {
+      if (convertedBytes > 0 && SDL_QueueAudio(audio_.deviceId, audio_.outputBuffer.data(), static_cast<Uint32>(convertedBytes)) == 0) {
         audio_.queuedAudioBytes.fetch_add(static_cast<std::uint64_t>(convertedBytes));
       }
 

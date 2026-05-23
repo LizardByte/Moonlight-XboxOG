@@ -347,6 +347,7 @@ namespace {
     content += std::string("fps = ") + std::to_string(settings.streamFramerate) + "\n";
     content += std::string("bitrate_kbps = ") + std::to_string(settings.streamBitrateKbps) + "\n";
     content += std::string("play_audio_on_pc = ") + (settings.playAudioOnPc ? "true" : "false") + "\n";
+    content += std::string("play_audio_on_xbox = ") + (settings.playAudioOnXbox ? "true" : "false") + "\n";
     content += std::string("show_performance_stats = ") + (settings.showPerformanceStats ? "true" : "false") + "\n";
     return content;
   }
@@ -390,7 +391,7 @@ namespace {
   void inspect_streaming_keys(const toml::table &streamingTable, const std::string &filePath, app::LoadAppSettingsResult *result) {
     for (const auto &[rawKey, node] : streamingTable) {
       const std::string key(rawKey.str());
-      if (key == "video_width" || key == "video_height" || key == "video_bpp" || key == "video_refresh" || key == "video_mode_selected" || key == "fps" || key == "bitrate_kbps" || key == "play_audio_on_pc" || key == "show_performance_stats") {
+      if (key == "video_width" || key == "video_height" || key == "video_bpp" || key == "video_refresh" || key == "video_mode_selected" || key == "fps" || key == "bitrate_kbps" || key == "play_audio_on_pc" || key == "play_audio_on_xbox" || key == "show_performance_stats") {
         continue;
       }
 
@@ -489,6 +490,7 @@ namespace app {
     load_integer_setting(settingsTable["streaming"]["fps"], filePath, "streaming.fps", &result.settings.streamFramerate, &result.warnings);
     load_integer_setting(settingsTable["streaming"]["bitrate_kbps"], filePath, "streaming.bitrate_kbps", &result.settings.streamBitrateKbps, &result.warnings);
     load_boolean_setting(settingsTable["streaming"]["play_audio_on_pc"], filePath, "streaming.play_audio_on_pc", &result.settings.playAudioOnPc, &result.warnings);
+    load_boolean_setting(settingsTable["streaming"]["play_audio_on_xbox"], filePath, "streaming.play_audio_on_xbox", &result.settings.playAudioOnXbox, &result.warnings);
     load_boolean_setting(settingsTable["streaming"]["show_performance_stats"], filePath, "streaming.show_performance_stats", &result.settings.showPerformanceStats, &result.warnings);
 
     return result;

@@ -51,6 +51,7 @@ namespace {
       2500,
       true,
       true,
+      true,
     };
 
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(savedSettings, settingsPath);
@@ -70,6 +71,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 2500);
     EXPECT_TRUE(loadResult.settings.playAudioOnPc);
     EXPECT_TRUE(loadResult.settings.showPerformanceStats);
+    EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
     EXPECT_FALSE(loadResult.cleanupRequired);
   }
 
@@ -115,6 +117,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1000);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_FALSE(loadResult.settings.showPerformanceStats);
+    EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
   }
 
   TEST_F(SettingsStorageTest, InvalidValuesFallBackToDefaultsWithWarnings) {
@@ -131,6 +134,7 @@ namespace {
       "video_width = \"wide\"\n"
       "fps = \"fast\"\n"
       "play_audio_on_pc = \"sometimes\"\n"
+      "play_audio_on_xbox = \"sometimes\"\n"
     );
 
     const app::LoadAppSettingsResult loadResult = app::load_app_settings(settingsPath);
@@ -143,6 +147,7 @@ namespace {
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
+    EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
   }
 
   TEST_F(SettingsStorageTest, LegacyLoggingKeyLoadsAndRequestsCleanup) {
