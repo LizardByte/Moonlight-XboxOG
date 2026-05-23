@@ -76,14 +76,10 @@ namespace {
       return;
     }
 
-    const auto preferredMode = std::find_if(
-      state.settings.availableVideoModes.begin(),
-      state.settings.availableVideoModes.end(),
-      [&state](const VIDEO_MODE &candidate) {
-        return stream_resolutions_match(candidate, state.settings.preferredVideoMode);
-      }
-    );
-    if (state.settings.preferredVideoModeSet && preferredMode != state.settings.availableVideoModes.end()) {
+    if (const auto preferredMode = std::find_if(state.settings.availableVideoModes.begin(), state.settings.availableVideoModes.end(), [&state](const VIDEO_MODE &candidate) {
+          return stream_resolutions_match(candidate, state.settings.preferredVideoMode);
+        });
+        state.settings.preferredVideoModeSet && preferredMode != state.settings.availableVideoModes.end()) {
       state.settings.preferredVideoMode = *preferredMode;
       return;
     }

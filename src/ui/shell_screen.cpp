@@ -4492,8 +4492,7 @@ namespace {
     }
 
     const std::vector<logging::LogEntry> retainedEntries = logging::snapshot(logging::LogLevel::info);
-    if (const auto viewModel = ui::build_shell_view_model(state, retainedEntries);
-        draw_shell(resources->renderer, videoMode, resources->encoderSettings, resources->titleFont, resources->bodyFont, resources->smallFont, viewModel, &resources->coverArtTextureCache, &resources->assetTextureCache, &resources->keypadModalLayoutCache)) {
+    if (const auto viewModel = ui::build_shell_view_model(state, retainedEntries); draw_shell(resources->renderer, videoMode, resources->encoderSettings, resources->titleFont, resources->bodyFont, resources->smallFont, viewModel, &resources->coverArtTextureCache, &resources->assetTextureCache, &resources->keypadModalLayoutCache)) {
       runtime->keypadRedrawRequested = false;
       return true;
     }
@@ -4573,8 +4572,7 @@ namespace {
     }
 
     network::PairingIdentity clientIdentity {};
-    std::string identityError;
-    if (!load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
+    if (std::string identityError; !load_saved_pairing_identity_for_streaming(&clientIdentity, &identityError)) {
       state.shell.statusMessage = identityError;
       logging::warn("stream", identityError);
       return true;
@@ -4678,7 +4676,7 @@ namespace {
    * @param runtime Runtime state that carries input and task progress.
    * @return True when the shell should continue processing future frames.
    */
-  bool run_shell_frame(SDL_Window *window, VIDEO_MODE *videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
+  bool run_shell_frame(SDL_Window *window, const VIDEO_MODE *videoMode, app::ClientState &state, ShellResources *resources, ShellRuntimeState *runtime) {
     if (window == nullptr || resources == nullptr || runtime == nullptr) {
       return false;
     }
@@ -4702,8 +4700,7 @@ namespace {
     finish_shell_background_tasks(state, resources, runtime);
     start_shell_background_tasks_if_needed(state, runtime, SDL_GetTicks());
 
-    if ((state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) &&
-        !draw_current_shell_frame(videoMode != nullptr ? *videoMode : VIDEO_MODE {}, state, resources, runtime)) {
+    if ((state.shell.activeScreen != app::ScreenId::add_host || !state.addHostDraft.keypad.visible || runtime->keypadRedrawRequested) && !draw_current_shell_frame(videoMode != nullptr ? *videoMode : VIDEO_MODE {}, state, resources, runtime)) {
       return false;
     }
 

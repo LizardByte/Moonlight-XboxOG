@@ -262,7 +262,7 @@ namespace streaming {
     /**
      * @brief Hold FFmpeg and SDL state used by the video path.
      */
-    struct VideoState {
+    struct VideoState {  // NOSONAR(cpp:S1820) Owned video pipeline state intentionally groups FFmpeg, SDL, queue, and metric lifetimes.
       AVCodecContext *codecContext = nullptr;
       SwsContext *scaleContext = nullptr;
       SwsContext *presentScaleContext = nullptr;

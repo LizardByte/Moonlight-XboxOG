@@ -1375,8 +1375,7 @@ namespace {
     }
 
     uint32_t rootStatusCode = 200;
-    std::string rootStatusMessage;
-    if (extract_root_status(response.body, &rootStatusCode, &rootStatusMessage) && rootStatusCode != 200U) {
+    if (std::string rootStatusMessage; extract_root_status(response.body, &rootStatusCode, &rootStatusMessage) && rootStatusCode != 200U) {
       if (network::error_indicates_unpaired_client(rootStatusMessage)) {
         return append_error(errorMessage, std::string(UNPAIRED_CLIENT_ERROR_MESSAGE));
       }
@@ -1393,8 +1392,7 @@ namespace {
     extract_xml_tag_value(response.body, "ServerCodecModeSupport", &serverCodecModeSupportText);
 
     int serverCodecModeSupport = serverInfo.serverCodecModeSupport == 0 ? DEFAULT_SERVER_CODEC_MODE_SUPPORT : serverInfo.serverCodecModeSupport;
-    uint32_t parsedServerCodecModeSupport = 0;
-    if (!serverCodecModeSupportText.empty() && try_parse_uint32(trim_ascii_whitespace(serverCodecModeSupportText), &parsedServerCodecModeSupport)) {
+    if (uint32_t parsedServerCodecModeSupport = 0; !serverCodecModeSupportText.empty() && try_parse_uint32(trim_ascii_whitespace(serverCodecModeSupportText), &parsedServerCodecModeSupport)) {
       serverCodecModeSupport = parsedServerCodecModeSupport == 0U ? DEFAULT_SERVER_CODEC_MODE_SUPPORT : static_cast<int>(parsedServerCodecModeSupport);
     }
 

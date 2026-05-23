@@ -130,6 +130,32 @@ namespace {
     std::string rtspSessionUrl;
   };
 
+  struct StreamStartAttemptContext {
+    const app::HostRecord &host;
+    const app::HostAppRecord &app;
+    StreamStartContext &startContext;
+    StreamConnectionState &connectionState;
+    StreamUiResources &resources;
+    std::string *statusMessage = nullptr;
+  };
+
+  struct ActiveStreamLoopContext {
+    const app::SettingsState &settings;
+    const app::HostRecord &host;
+    const app::HostAppRecord &app;
+    StreamStartContext &startContext;
+    StreamConnectionState &connectionState;
+    StreamUiResources &resources;
+  };
+
+  struct TextLineLayout {
+    SDL_Color color {};
+    int x = 0;
+    int y = 0;
+    int maxWidth = 0;
+    int *drawnHeight = nullptr;
+  };
+
   struct ResolvedStreamParameters {
     VIDEO_MODE videoMode {};
     int fps = DEFAULT_STREAM_FPS;
@@ -137,6 +163,12 @@ namespace {
     int packetSize = DEFAULT_PACKET_SIZE;
     int streamingRemotely = STREAM_CFG_AUTO;
   };
+
+  void assign_status_message(std::string *statusMessage, const std::string &message) {
+    if (statusMessage != nullptr) {
+      *statusMessage = message;
+    }
+  }
 
   class ScopedThreadPriority {
   public:
@@ -291,8 +323,8 @@ namespace {
     }
 
     for (std::size_t index = 0; index < prefix.size(); ++index) {
-      const unsigned char textCharacter = static_cast<unsigned char>(text[index]);
-      const unsigned char prefixCharacter = static_cast<unsigned char>(prefix[index]);
+      const auto textCharacter = static_cast<unsigned char>(text[index]);
+      const auto prefixCharacter = static_cast<unsigned char>(prefix[index]);
       if (std::tolower(textCharacter) != std::tolower(prefixCharacter)) {
         return false;
       }
@@ -394,8 +426,7 @@ namespace {
     int minor = 1;
     int patch = 431;
     int build = 0;
-    const int parsedFields = std::sscanf(std::string(appVersion).c_str(), "%d.%d.%d.%d", &major, &minor, &patch, &build);
-    if (parsedFields < 3) {
+    if (const int parsedFields = std::sscanf(std::string(appVersion).c_str(), "%d.%d.%d.%d", &major, &minor, &patch, &build); parsedFields < 3) {
       return "7.1.431.-1";
     }
 
@@ -632,22 +663,22 @@ namespace {
     std::string output;
     output.resize(size * 2U);
     for (std::size_t index = 0; index < size; ++index) {
-      output[index * 2U] = HEX_DIGITS[(data[index] >> 4U) & 0x0F];
-      output[(index * 2U) + 1U] = HEX_DIGITS[data[index] & 0x0F];
+      output[index * 2U] = HEX_DIGITS[(data[index] >> 4U) & 0x0F];  // NOSONAR(cpp:S6022) hex encoding is byte-oriented by design.
+      output[(index * 2U) + 1U] = HEX_DIGITS[data[index] & 0x0F];  // NOSONAR(cpp:S6022) hex encoding is byte-oriented by design.
     }
     return output;
   }
 
   int select_stream_width(const VIDEO_MODE &videoMode) {
-    return videoMode.width > 0 ? std::max(320, static_cast<int>(videoMode.width)) : 640;
+    return videoMode.width > 0 ? std::max(320, videoMode.width) : 640;
   }
 
   int select_stream_height(const VIDEO_MODE &videoMode) {
-    return videoMode.height > 0 ? std::max(240, static_cast<int>(videoMode.height)) : 480;
+    return videoMode.height > 0 ? std::max(240, videoMode.height) : 480;
   }
 
   int select_client_refresh_rate_x100(const VIDEO_MODE &videoMode) {
-    return videoMode.refresh > 0 ? static_cast<int>(videoMode.refresh) * 100 : 6000;
+    return videoMode.refresh > 0 ? videoMode.refresh * 100 : 6000;
   }
 
   /**
@@ -793,7 +824,7 @@ namespace {
     }
   }
 
-  void on_log_message(const char *format, ...) {
+  void on_log_message(const char *format, ...) {  // NOSONAR(cpp:S923) moonlight-common-c log callback requires printf-style ellipsis.
     if (format == nullptr || is_high_volume_connection_log(format)) {
       return;
     }
@@ -834,18 +865,18 @@ namespace {
     return 0;
   }
 
-  bool render_text_line(SDL_Renderer *renderer, TTF_Font *font, const std::string &text, SDL_Color color, int x, int y, int maxWidth, int *drawnHeight = nullptr) {
-    if (renderer == nullptr || font == nullptr || maxWidth <= 0) {
-      if (drawnHeight != nullptr) {
-        *drawnHeight = 0;
+  bool render_text_line(SDL_Renderer *renderer, TTF_Font *font, const std::string &text, const TextLineLayout &layout) {
+    if (renderer == nullptr || font == nullptr || layout.maxWidth <= 0) {
+      if (layout.drawnHeight != nullptr) {
+        *layout.drawnHeight = 0;
       }
       return false;
     }
 
-    SDL_Surface *surface = TTF_RenderUTF8_Blended_Wrapped(font, text.c_str(), color, static_cast<Uint32>(maxWidth));
+    SDL_Surface *surface = TTF_RenderUTF8_Blended_Wrapped(font, text.c_str(), layout.color, static_cast<Uint32>(layout.maxWidth));
     if (surface == nullptr) {
-      if (drawnHeight != nullptr) {
-        *drawnHeight = 0;
+      if (layout.drawnHeight != nullptr) {
+        *layout.drawnHeight = 0;
       }
       return false;
     }
@@ -853,26 +884,25 @@ namespace {
     SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
     if (texture == nullptr) {
       SDL_FreeSurface(surface);
-      if (drawnHeight != nullptr) {
-        *drawnHeight = 0;
+      if (layout.drawnHeight != nullptr) {
+        *layout.drawnHeight = 0;
       }
       return false;
     }
 
-    const SDL_Rect destination {x, y, surface->w, surface->h};
+    const SDL_Rect destination {layout.x, layout.y, surface->w, surface->h};
     const int surfaceHeight = surface->h;
     SDL_FreeSurface(surface);
     const bool rendered = SDL_RenderCopy(renderer, texture, nullptr, &destination) == 0;
     SDL_DestroyTexture(texture);
-    if (drawnHeight != nullptr) {
-      *drawnHeight = surfaceHeight;
+    if (layout.drawnHeight != nullptr) {
+      *layout.drawnHeight = surfaceHeight;
     }
     return rendered;
   }
 
   std::string build_stage_status_line(const StreamConnectionState &connectionState) {
-    const int failedStage = connectionState.failedStage.load();
-    if (failedStage != STAGE_NONE) {
+    if (const int failedStage = connectionState.failedStage.load(); failedStage != STAGE_NONE) {
       return std::string("Connection failed during ") + LiGetStageName(failedStage) + " (error " + std::to_string(connectionState.failedCode.load()) + ")";
     }
     if (connectionState.connectionTerminated.load()) {
@@ -885,6 +915,34 @@ namespace {
     return std::string("Connecting: ") + LiGetStageName(connectionState.currentStage.load());
   }
 
+  void open_controller_if_needed(StreamUiResources *resources, int deviceIndex) {
+    if (resources == nullptr) {
+      return;
+    }
+
+    std::scoped_lock lock(resources->controllerMutex);
+    if (resources->controller == nullptr) {
+      resources->controller = SDL_GameControllerOpen(deviceIndex);
+    }
+  }
+
+  void close_controller_if_removed(StreamUiResources *resources, int joystickInstanceId) {
+    if (resources == nullptr) {
+      return;
+    }
+
+    std::scoped_lock lock(resources->controllerMutex);
+    if (resources->controller == nullptr) {
+      return;
+    }
+
+    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(resources->controller);
+    if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == joystickInstanceId) {
+      close_controller(resources->controller);
+      resources->controller = nullptr;
+    }
+  }
+
   void pump_stream_events(StreamUiResources *resources) {
     SDL_Event event {};
     while (SDL_PollEvent(&event) != 0) {
@@ -893,23 +951,9 @@ namespace {
       }
 
       if (event.type == SDL_CONTROLLERDEVICEADDED) {
-        SDL_ControllerDeviceEvent controllerEvent {};
-        std::memcpy(&controllerEvent, &event, sizeof(controllerEvent));
-        std::scoped_lock lock(resources->controllerMutex);
-        if (resources->controller == nullptr) {
-          resources->controller = SDL_GameControllerOpen(controllerEvent.which);
-        }
+        open_controller_if_needed(resources, event.cdevice.which);
       } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
-        SDL_ControllerDeviceEvent controllerEvent {};
-        std::memcpy(&controllerEvent, &event, sizeof(controllerEvent));
-        std::scoped_lock lock(resources->controllerMutex);
-        if (resources->controller != nullptr) {
-          SDL_Joystick *joystick = SDL_GameControllerGetJoystick(resources->controller);
-          if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == controllerEvent.which) {
-            close_controller(resources->controller);
-            resources->controller = nullptr;
-          }
-        }
+        close_controller_if_removed(resources, event.cdevice.which);
       }
     }
   }
@@ -988,8 +1032,7 @@ namespace {
     }
 
     const bool backPressed = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK) != 0;
-    const bool startPressed = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START) != 0;
-    if (!backPressed || !startPressed) {
+    if (const bool startPressed = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START) != 0; !backPressed || !startPressed) {
       *comboActivatedTick = 0U;
       return;
     }
@@ -1013,8 +1056,7 @@ namespace {
     }
 
     const bool backPressed = (snapshot.buttonFlags & BACK_FLAG) != 0;
-    const bool startPressed = (snapshot.buttonFlags & PLAY_FLAG) != 0;
-    if (!backPressed || !startPressed) {
+    if (const bool startPressed = (snapshot.buttonFlags & PLAY_FLAG) != 0; !backPressed || !startPressed) {
       *comboActivatedTick = 0U;
       return;
     }
@@ -1108,8 +1150,7 @@ namespace {
     };
 
     uint32_t estimatedRtt = 0;
-    uint32_t estimatedRttVariance = 0;
-    if (LiGetEstimatedRttInfo(&estimatedRtt, &estimatedRttVariance)) {
+    if (uint32_t estimatedRttVariance = 0; LiGetEstimatedRttInfo(&estimatedRtt, &estimatedRttVariance)) {
       (void) estimatedRttVariance;
       snapshot.roundTripTimeMs = static_cast<int>(estimatedRtt);
     }
@@ -1124,7 +1165,7 @@ namespace {
     return snapshot;
   }
 
-  void request_idle_video_refresh_if_needed(streaming::FfmpegStreamBackend *mediaBackend, Uint32 *lastRequestTicks) {
+  void request_idle_video_refresh_if_needed(const streaming::FfmpegStreamBackend *mediaBackend, Uint32 *lastRequestTicks) {
     if (mediaBackend == nullptr || lastRequestTicks == nullptr || !mediaBackend->has_decoded_video()) {
       return;
     }
@@ -1188,7 +1229,7 @@ namespace {
 
     int cursorY = 28;
     int titleHeight = 0;
-    render_text_line(resources->renderer, resources->titleFont, "Moonlight Streaming", {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight);
+    render_text_line(resources->renderer, resources->titleFont, "Moonlight Streaming", {{ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight});
     cursorY += titleHeight + 8;
 
     std::vector<std::string> lines = {
@@ -1199,9 +1240,9 @@ namespace {
       "Hold Back + Start for about one second to stop streaming.",
     };
     if (!renderedVideo) {
-      lines.insert(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | H.264 | Stereo");
-      lines.insert(lines.begin() + 4, std::string("Launch mode: ") + (context.serverInformation.rtspSessionUrl != nullptr ? "Session URL supplied by host" : "Default RTSP discovery"));
-      lines.insert(lines.begin() + 5, "Waiting for the first decoded video frame and audio output.");
+      lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | H.264 | Stereo");
+      lines.emplace(lines.begin() + 4, std::string("Launch mode: ") + (context.serverInformation.rtspSessionUrl != nullptr ? "Session URL supplied by host" : "Default RTSP discovery"));
+      lines.emplace(lines.begin() + 5, "Waiting for the first decoded video frame and audio output.");
     }
 
     if (showPerformanceStats) {
@@ -1212,12 +1253,134 @@ namespace {
 
     for (const std::string &line : lines) {
       int drawnHeight = 0;
-      render_text_line(resources->renderer, resources->bodyFont, line, {TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &drawnHeight);
+      render_text_line(resources->renderer, resources->bodyFont, line, {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &drawnHeight});
       cursorY += drawnHeight + 6;
     }
 
     SDL_RenderPresent(resources->renderer);
     return true;
+  }
+
+  bool run_stream_start_attempt(const StreamStartAttemptContext &attempt) {
+    if (SDL_Thread *startThread = SDL_CreateThread(run_stream_start_thread, "start-stream", &attempt.startContext); startThread != nullptr) {
+      Uint32 exitComboActivatedTick = 0U;
+      while (!attempt.connectionState.startCompleted.load() && !attempt.connectionState.stopRequested.load()) {
+        pump_stream_events(&attempt.resources);
+        update_stream_exit_combo(attempt.resources.controller, &exitComboActivatedTick, &attempt.connectionState);
+        render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, true, &attempt.resources);
+        if (attempt.connectionState.stopRequested.load()) {
+          LiInterruptConnection();
+        }
+        SDL_Delay(STREAM_FRAME_DELAY_MILLISECONDS);
+      }
+
+      int threadResult = 0;
+      SDL_WaitThread(startThread, &threadResult);
+      (void) threadResult;
+      return true;
+    }
+
+    const std::string createThreadError = std::string("Failed to start the streaming transport thread: ") + SDL_GetError();
+    close_stream_ui_resources(&attempt.resources);
+    assign_status_message(attempt.statusMessage, createThreadError);
+    logging::error("stream", createThreadError);
+    return false;
+  }
+
+  bool should_retry_stream_without_rtsp_session_url(const StreamStartContext &startContext, const StreamConnectionState &connectionState) {
+    return !connectionState.stopRequested.load() && !connectionState.connectionStarted.load() && connectionState.failedStage.load() == STAGE_RTSP_HANDSHAKE && !startContext.rtspSessionUrl.empty();
+  }
+
+  bool run_stream_start_with_rtsp_fallback(const StreamStartAttemptContext &attempt, bool *rtspFallbackAttempted) {
+    if (rtspFallbackAttempted != nullptr) {
+      *rtspFallbackAttempted = false;
+    }
+    if (!run_stream_start_attempt(attempt)) {
+      return false;
+    }
+    if (!should_retry_stream_without_rtsp_session_url(attempt.startContext, attempt.connectionState)) {
+      return true;
+    }
+
+    if (rtspFallbackAttempted != nullptr) {
+      *rtspFallbackAttempted = true;
+    }
+    logging::warn("stream", "RTSP handshake failed with the host-supplied session URL; retrying with default RTSP discovery");
+    attempt.resources.mediaBackend.shutdown();
+    attempt.startContext.rtspSessionUrl.clear();
+    attempt.startContext.serverInformation.rtspSessionUrl = nullptr;
+    reset_connection_state(&attempt.connectionState);
+    return run_stream_start_attempt(attempt);
+  }
+
+  void poll_fallback_controller_if_needed(
+    const SDL_Thread *inputThread,
+    StreamUiResources *resources,
+    StreamConnectionState *connectionState,
+    Uint32 *exitComboActivatedTick,
+    bool *controllerArrivalSent,
+    ControllerSnapshot *lastControllerSnapshot
+  ) {
+    if (inputThread != nullptr) {
+      return;
+    }
+
+    bool controllerPresent = false;
+    const ControllerSnapshot snapshot = read_controller_snapshot(resources, &controllerPresent);
+    update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, exitComboActivatedTick, connectionState);
+    send_controller_snapshot_if_needed(snapshot, controllerPresent, controllerArrivalSent, lastControllerSnapshot);
+  }
+
+  void render_active_stream_frame_if_needed(const ActiveStreamLoopContext &loopContext, Uint32 *lastIdleVideoIdrRequestTick) {
+    const bool hasDecodedVideo = loopContext.resources.mediaBackend.has_decoded_video();
+    if (const bool shouldRenderFrame = loopContext.settings.showPerformanceStats || !hasDecodedVideo || loopContext.resources.mediaBackend.has_unrendered_video_frame(); shouldRenderFrame) {
+      render_stream_frame(
+        loopContext.host,
+        loopContext.app,
+        loopContext.startContext,
+        loopContext.connectionState,
+        &loopContext.resources.mediaBackend,
+        loopContext.settings.showPerformanceStats,
+        &loopContext.resources
+      );
+    }
+    request_idle_video_refresh_if_needed(&loopContext.resources.mediaBackend, lastIdleVideoIdrRequestTick);
+    SDL_Delay(hasDecodedVideo && !loopContext.settings.showPerformanceStats ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
+  }
+
+  void wait_for_stream_input_thread(SDL_Thread *inputThread, StreamInputThreadState *inputThreadState) {
+    if (inputThreadState != nullptr) {
+      inputThreadState->stopRequested.store(true);
+    }
+    if (inputThread == nullptr) {
+      return;
+    }
+
+    int inputThreadResult = 0;
+    SDL_WaitThread(inputThread, &inputThreadResult);
+    (void) inputThreadResult;
+  }
+
+  void run_active_stream_loop(const ActiveStreamLoopContext &loopContext) {
+    StreamInputThreadState inputThreadState {};
+    inputThreadState.resources = &loopContext.resources;
+    inputThreadState.connectionState = &loopContext.connectionState;
+    SDL_Thread *inputThread = SDL_CreateThread(run_stream_input_thread, "stream-input", &inputThreadState);
+    if (inputThread == nullptr) {
+      logging::warn("stream", std::string("Failed to start the stream input thread; polling controller from the render loop: ") + SDL_GetError());
+    }
+
+    bool fallbackControllerArrivalSent = false;
+    ControllerSnapshot fallbackLastControllerSnapshot {};
+    Uint32 fallbackExitComboActivatedTick = 0U;
+    Uint32 lastIdleVideoIdrRequestTick = 0U;
+    while (!loopContext.connectionState.connectionTerminated.load() && !loopContext.connectionState.stopRequested.load()) {
+      pump_stream_events(&loopContext.resources);
+      poll_fallback_controller_if_needed(inputThread, &loopContext.resources, &loopContext.connectionState, &fallbackExitComboActivatedTick, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
+      render_active_stream_frame_if_needed(loopContext, &lastIdleVideoIdrRequestTick);
+    }
+
+    wait_for_stream_input_thread(inputThread, &inputThreadState);
   }
 
   std::string describe_start_failure(const StreamConnectionState &connectionState) {
@@ -1273,9 +1436,7 @@ namespace streaming {
 
     StreamUiResources resources {};
     if (std::string initializationError; !initialize_stream_ui_resources(window, activeStreamVideoMode, &resources, &initializationError)) {
-      if (statusMessage != nullptr) {
-        *statusMessage = initializationError;
-      }
+      assign_status_message(statusMessage, initializationError);
       logging::error("stream", initializationError);
       return false;
     }
@@ -1287,9 +1448,7 @@ namespace streaming {
     std::array<unsigned char, 16> remoteInputIv {};
     if (std::string randomError; !fill_random_bytes(remoteInputKey.data(), remoteInputKey.size(), &randomError) || !fill_random_bytes(remoteInputIv.data(), remoteInputIv.size(), &randomError)) {
       close_stream_ui_resources(&resources);
-      if (statusMessage != nullptr) {
-        *statusMessage = randomError;
-      }
+      assign_status_message(statusMessage, randomError);
       logging::error("stream", randomError);
       return false;
     }
@@ -1309,12 +1468,9 @@ namespace streaming {
     launchConfiguration.remoteInputAesKeyHex = hex_encode(remoteInputKey.data(), remoteInputKey.size());
     launchConfiguration.remoteInputAesIvHex = hex_encode(remoteInputIv.data(), remoteInputIv.size());
 
-    std::string launchError;
-    if (!network::launch_or_resume_stream(hostAddress, httpPort, clientIdentity, launchConfiguration, &launchResult, &launchError)) {
+    if (std::string launchError; !network::launch_or_resume_stream(hostAddress, httpPort, clientIdentity, launchConfiguration, &launchResult, &launchError)) {
       close_stream_ui_resources(&resources);
-      if (statusMessage != nullptr) {
-        *statusMessage = launchError;
-      }
+      assign_status_message(statusMessage, launchError);
       logging::error("stream", launchError);
       return false;
     }
@@ -1357,50 +1513,10 @@ namespace streaming {
     startContext.connectionCallbacks.connectionStatusUpdate = on_connection_status_update;
     startContext.connectionCallbacks.logMessage = on_log_message;
 
-    const auto run_start_attempt = [&]() -> bool {
-      SDL_Thread *startThread = SDL_CreateThread(run_stream_start_thread, "start-stream", &startContext);
-      if (startThread == nullptr) {
-        const std::string createThreadError = std::string("Failed to start the streaming transport thread: ") + SDL_GetError();
-        close_stream_ui_resources(&resources);
-        if (statusMessage != nullptr) {
-          *statusMessage = createThreadError;
-        }
-        logging::error("stream", createThreadError);
-        return false;
-      }
-
-      Uint32 exitComboActivatedTick = 0U;
-      while (!connectionState.startCompleted.load() && !connectionState.stopRequested.load()) {
-        pump_stream_events(&resources);
-        update_stream_exit_combo(resources.controller, &exitComboActivatedTick, &connectionState);
-        render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, true, &resources);
-        if (connectionState.stopRequested.load()) {
-          LiInterruptConnection();
-        }
-        SDL_Delay(STREAM_FRAME_DELAY_MILLISECONDS);
-      }
-
-      int threadResult = 0;
-      SDL_WaitThread(startThread, &threadResult);
-      (void) threadResult;
-      return true;
-    };
-
-    if (!run_start_attempt()) {
-      return false;
-    }
-
     bool rtspFallbackAttempted = false;
-    if (!connectionState.stopRequested.load() && !connectionState.connectionStarted.load() && connectionState.failedStage.load() == STAGE_RTSP_HANDSHAKE && !startContext.rtspSessionUrl.empty()) {
-      rtspFallbackAttempted = true;
-      logging::warn("stream", "RTSP handshake failed with the host-supplied session URL; retrying with default RTSP discovery");
-      resources.mediaBackend.shutdown();
-      startContext.rtspSessionUrl.clear();
-      startContext.serverInformation.rtspSessionUrl = nullptr;
-      reset_connection_state(&connectionState);
-      if (!run_start_attempt()) {
-        return false;
-      }
+    const StreamStartAttemptContext startAttempt {host, app, startContext, connectionState, resources, statusMessage};
+    if (!run_stream_start_with_rtsp_fallback(startAttempt, &rtspFallbackAttempted)) {
+      return false;
     }
 
     if (connectionState.startResult.load() != 0 || !connectionState.connectionStarted.load()) {
@@ -1410,49 +1526,13 @@ namespace streaming {
       }
       active_connection_state() = nullptr;
       close_stream_ui_resources(&resources);
-      if (statusMessage != nullptr) {
-        *statusMessage = failureMessage;
-      }
+      assign_status_message(statusMessage, failureMessage);
       logging::warn("stream", failureMessage);
       return false;
     }
 
-    StreamInputThreadState inputThreadState {};
-    inputThreadState.resources = &resources;
-    inputThreadState.connectionState = &connectionState;
-    SDL_Thread *inputThread = SDL_CreateThread(run_stream_input_thread, "stream-input", &inputThreadState);
-    if (inputThread == nullptr) {
-      logging::warn("stream", std::string("Failed to start the stream input thread; polling controller from the render loop: ") + SDL_GetError());
-    }
-
-    bool fallbackControllerArrivalSent = false;
-    ControllerSnapshot fallbackLastControllerSnapshot {};
-    Uint32 fallbackExitComboActivatedTick = 0U;
-    Uint32 lastIdleVideoIdrRequestTick = 0U;
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
-    while (!connectionState.connectionTerminated.load() && !connectionState.stopRequested.load()) {
-      pump_stream_events(&resources);
-      if (inputThread == nullptr) {
-        bool controllerPresent = false;
-        const ControllerSnapshot snapshot = read_controller_snapshot(&resources, &controllerPresent);
-        update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &fallbackExitComboActivatedTick, &connectionState);
-        send_controller_snapshot_if_needed(snapshot, controllerPresent, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
-      }
-      const bool hasDecodedVideo = resources.mediaBackend.has_decoded_video();
-      const bool shouldRenderFrame = settings.showPerformanceStats || !hasDecodedVideo || resources.mediaBackend.has_unrendered_video_frame();
-      if (shouldRenderFrame) {
-        render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, settings.showPerformanceStats, &resources);
-      }
-      request_idle_video_refresh_if_needed(&resources.mediaBackend, &lastIdleVideoIdrRequestTick);
-      SDL_Delay(hasDecodedVideo && !settings.showPerformanceStats ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
-    }
-
-    inputThreadState.stopRequested.store(true);
-    if (inputThread != nullptr) {
-      int inputThreadResult = 0;
-      SDL_WaitThread(inputThread, &inputThreadResult);
-      (void) inputThreadResult;
-    }
+    run_active_stream_loop({settings, host, app, startContext, connectionState, resources});
 
     LiStopConnection();
     active_connection_state() = nullptr;
@@ -1461,9 +1541,7 @@ namespace streaming {
     logging::info("stream", finalMessage);
     startup::log_memory_statistics();
     close_stream_ui_resources(&resources);
-    if (statusMessage != nullptr) {
-      *statusMessage = finalMessage;
-    }
+    assign_status_message(statusMessage, finalMessage);
     return true;
   }
 
