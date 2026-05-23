@@ -144,7 +144,7 @@ namespace {
   }
 
   /**
-   * @brief Return the selected stream-resolution index inside the preset list.
+   * @brief Return the selected stream-resolution index inside the detected mode list.
    *
    * @param state Current client state containing the preferred mode.
    * @return Zero-based index of the preferred mode, or zero when no exact match exists.
@@ -164,9 +164,9 @@ namespace {
   }
 
   /**
-   * @brief Advance the preferred stream resolution to the next preset.
+   * @brief Advance the preferred stream resolution to the next detected Xbox video mode.
    *
-   * @param state Current client state containing the configured stream-resolution presets.
+   * @param state Current client state containing detected stream-resolution modes.
    */
   void cycle_stream_video_mode(app::ClientState &state) {
     if (state.settings.availableVideoModes.empty()) {
@@ -528,7 +528,7 @@ namespace {
           {
             "cycle-stream-video-mode",
             std::string("Stream Resolution: ") + describe_stream_resolution(state.settings.preferredVideoMode),
-            "Cycle through fixed stream-resolution presets. The selected resolution is requested from the host the next time a stream starts and does not change the Xbox output mode.",
+            "Cycle through detected Xbox video modes enabled by the console settings. The selected resolution is requested from the host the next time a stream starts.",
             true,
           },
           {

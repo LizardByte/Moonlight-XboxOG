@@ -60,47 +60,106 @@ namespace {
     EXPECT_EQ(bestVideoMode.refresh, 60);
   }
 
-  TEST(VideoModeTest, ExposesFixedStreamResolutionPresetsWithinSoftwareDecodeRange) {
+  TEST(VideoModeTest, ExposesOnlyXboxVideoModeStreamChoicesAsFallbacks) {
     const std::vector<VIDEO_MODE> presets = startup::stream_resolution_presets(32, 60);
 
-    ASSERT_EQ(presets.size(), 6U);
-    EXPECT_EQ(presets.front().width, 352);
-    EXPECT_EQ(presets.front().height, 240);
-    EXPECT_EQ(presets[1].width, 352);
-    EXPECT_EQ(presets[1].height, 288);
-    EXPECT_EQ(presets[4].width, 720);
-    EXPECT_EQ(presets[4].height, 480);
-    EXPECT_EQ(presets.back().width, 720);
-    EXPECT_EQ(presets.back().height, 576);
+    ASSERT_EQ(presets.size(), 4U);
+    EXPECT_EQ(presets.front().width, 640);
+    EXPECT_EQ(presets.front().height, 480);
+    EXPECT_EQ(presets[1].width, 720);
+    EXPECT_EQ(presets[1].height, 480);
+    EXPECT_EQ(presets[2].width, 1280);
+    EXPECT_EQ(presets[2].height, 720);
+    EXPECT_EQ(presets.back().width, 1920);
+    EXPECT_EQ(presets.back().height, 1080);
     EXPECT_EQ(presets.back().bpp, 32);
     EXPECT_EQ(presets.back().refresh, 60);
   }
 
-  TEST(VideoModeTest, ChoosesLowLatencyNtscPresetForHdStreamDefaults) {
+  TEST(VideoModeTest, FiltersSdWideWidthModesWhenWidescreenIsDisabled) {
+    const std::vector<VIDEO_MODE> availableVideoModes = {
+      {640, 480, 32, 60},
+      {720, 480, 32, 60},
+      {1280, 720, 32, 60},
+    };
+
+    const std::vector<VIDEO_MODE> filteredVideoModes = startup::filter_stream_video_modes_for_encoder_settings(availableVideoModes, 0UL);
+
+    ASSERT_EQ(filteredVideoModes.size(), 2U);
+    EXPECT_EQ(filteredVideoModes[0].width, 640);
+    EXPECT_EQ(filteredVideoModes[0].height, 480);
+    EXPECT_EQ(filteredVideoModes[1].width, 1280);
+    EXPECT_EQ(filteredVideoModes[1].height, 720);
+  }
+
+  TEST(VideoModeTest, KeepsSdWideWidthModesWhenWidescreenIsEnabled) {
+    const std::vector<VIDEO_MODE> availableVideoModes = {
+      {640, 480, 32, 60},
+      {720, 480, 32, 60},
+      {1280, 720, 32, 60},
+    };
+
+    const std::vector<VIDEO_MODE> filteredVideoModes = startup::filter_stream_video_modes_for_encoder_settings(availableVideoModes, VIDEO_WIDESCREEN);
+
+    ASSERT_EQ(filteredVideoModes.size(), 3U);
+    EXPECT_EQ(filteredVideoModes[1].width, 720);
+    EXPECT_EQ(filteredVideoModes[1].height, 480);
+  }
+
+  TEST(VideoModeTest, ChoosesSdXboxModeForHdStreamDefaults) {
     const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({1280, 720, 32, 60});
 
-    EXPECT_EQ(defaultPreset.width, 352);
-    EXPECT_EQ(defaultPreset.height, 240);
+    EXPECT_EQ(defaultPreset.width, 640);
+    EXPECT_EQ(defaultPreset.height, 480);
     EXPECT_EQ(defaultPreset.bpp, 32);
     EXPECT_EQ(defaultPreset.refresh, 60);
   }
 
-  TEST(VideoModeTest, ChoosesLowLatencyNtscPresetFor60HzOutputModes) {
+  TEST(VideoModeTest, ChoosesSdXboxModeFor60HzOutputModes) {
     const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({640, 480, 32, 60});
 
-    EXPECT_EQ(defaultPreset.width, 352);
-    EXPECT_EQ(defaultPreset.height, 240);
+    EXPECT_EQ(defaultPreset.width, 640);
+    EXPECT_EQ(defaultPreset.height, 480);
     EXPECT_EQ(defaultPreset.bpp, 32);
     EXPECT_EQ(defaultPreset.refresh, 60);
   }
 
-  TEST(VideoModeTest, ChoosesLowLatencyPalPresetFor50HzOutputModes) {
+  TEST(VideoModeTest, ChoosesSdXboxModeFor50HzOutputModes) {
     const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode({640, 480, 32, 50});
 
-    EXPECT_EQ(defaultPreset.width, 352);
-    EXPECT_EQ(defaultPreset.height, 288);
+    EXPECT_EQ(defaultPreset.width, 640);
+    EXPECT_EQ(defaultPreset.height, 480);
     EXPECT_EQ(defaultPreset.bpp, 32);
     EXPECT_EQ(defaultPreset.refresh, 50);
+  }
+
+  TEST(VideoModeTest, ChoosesDetectedSdModeWhenAvailable) {
+    const std::vector<VIDEO_MODE> availableVideoModes = {
+      {720, 480, 32, 60},
+      {640, 480, 16, 60},
+      {1280, 720, 32, 60},
+    };
+
+    const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode(availableVideoModes, {1280, 720, 32, 60});
+
+    EXPECT_EQ(defaultPreset.width, 640);
+    EXPECT_EQ(defaultPreset.height, 480);
+    EXPECT_EQ(defaultPreset.bpp, 16);
+    EXPECT_EQ(defaultPreset.refresh, 60);
+  }
+
+  TEST(VideoModeTest, ChoosesSmallestDetectedModeWhenSdModeIsUnavailable) {
+    const std::vector<VIDEO_MODE> availableVideoModes = {
+      {1280, 720, 32, 60},
+      {720, 480, 32, 60},
+    };
+
+    const VIDEO_MODE defaultPreset = startup::choose_default_stream_video_mode(availableVideoModes, {1280, 720, 32, 60});
+
+    EXPECT_EQ(defaultPreset.width, 720);
+    EXPECT_EQ(defaultPreset.height, 480);
+    EXPECT_EQ(defaultPreset.bpp, 32);
+    EXPECT_EQ(defaultPreset.refresh, 60);
   }
 
 }  // namespace

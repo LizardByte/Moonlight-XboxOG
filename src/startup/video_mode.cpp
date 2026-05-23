@@ -20,13 +20,11 @@ namespace startup {
       int height;
     };
 
-    constexpr std::array<StreamResolutionPreset, 6> STREAM_RESOLUTION_PRESETS {{
-      {352, 240},
-      {352, 288},
-      {480, 480},
-      {480, 576},
+    constexpr std::array<StreamResolutionPreset, 4> STREAM_RESOLUTION_PRESETS {{
+      {640, 480},
       {720, 480},
-      {720, 576},
+      {1280, 720},
+      {1920, 1080},
     }};
 
     bool is_1080i_mode(const VIDEO_MODE &videoMode) {
@@ -35,6 +33,23 @@ namespace startup {
 
     VIDEO_MODE make_stream_video_mode(const StreamResolutionPreset &preset, int bpp, int refresh) {
       return {preset.width, preset.height, bpp, refresh};
+    }
+
+    bool stream_resolutions_match(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+      return left.width == right.width && left.height == right.height;
+    }
+
+    bool is_smaller_video_mode(const VIDEO_MODE &left, const VIDEO_MODE &right) {
+      const int leftArea = left.width * left.height;
+      const int rightArea = right.width * right.height;
+      if (leftArea != rightArea) {
+        return leftArea < rightArea;
+      }
+      return left.width < right.width;
+    }
+
+    bool is_sd_wide_width_mode(const VIDEO_MODE &videoMode) {
+      return videoMode.height <= 576 && videoMode.width > 640;
     }
 
   }  // namespace
@@ -88,11 +103,47 @@ namespace startup {
     return presets;
   }
 
+  std::vector<VIDEO_MODE> filter_stream_video_modes_for_encoder_settings(const std::vector<VIDEO_MODE> &availableVideoModes, unsigned long encoderSettings) {
+    if ((encoderSettings & VIDEO_WIDESCREEN) != 0UL) {
+      return availableVideoModes;
+    }
+
+    std::vector<VIDEO_MODE> filteredVideoModes;
+    filteredVideoModes.reserve(availableVideoModes.size());
+    for (const VIDEO_MODE &availableVideoMode : availableVideoModes) {
+      if (!is_sd_wide_width_mode(availableVideoMode)) {
+        filteredVideoModes.push_back(availableVideoMode);
+      }
+    }
+    return filteredVideoModes;
+  }
+
   VIDEO_MODE choose_default_stream_video_mode(const VIDEO_MODE &outputVideoMode) {
     const int bpp = outputVideoMode.bpp > 0 ? outputVideoMode.bpp : 32;
     const int refresh = outputVideoMode.refresh > 0 ? outputVideoMode.refresh : 60;
 
-    return refresh <= 50 ? make_stream_video_mode({352, 288}, bpp, refresh) : make_stream_video_mode({352, 240}, bpp, refresh);
+    return make_stream_video_mode({640, 480}, bpp, refresh);
+  }
+
+  VIDEO_MODE choose_default_stream_video_mode(const std::vector<VIDEO_MODE> &availableVideoModes, const VIDEO_MODE &outputVideoMode) {
+    const VIDEO_MODE fallbackDefault = choose_default_stream_video_mode(outputVideoMode);
+    for (const VIDEO_MODE &availableVideoMode : availableVideoModes) {
+      if (stream_resolutions_match(availableVideoMode, fallbackDefault)) {
+        return availableVideoMode;
+      }
+    }
+
+    if (availableVideoModes.empty()) {
+      return fallbackDefault;
+    }
+
+    VIDEO_MODE smallestVideoMode = availableVideoModes.front();
+    for (const VIDEO_MODE &availableVideoMode : availableVideoModes) {
+      if (is_smaller_video_mode(availableVideoMode, smallestVideoMode)) {
+        smallestVideoMode = availableVideoMode;
+      }
+    }
+    return smallestVideoMode;
   }
 
   VideoModeSelection select_best_video_mode(int bpp, int refresh) {

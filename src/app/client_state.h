@@ -316,7 +316,7 @@ namespace app {
     LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;  ///< Log viewer pane placement relative to the shell.
     logging::LogLevel loggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written to the persisted log file.
     logging::LogLevel xemuConsoleLoggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level mirrored through DbgPrint() to xemu's serial console.
-    std::vector<VIDEO_MODE> availableVideoModes;  ///< Fixed stream-resolution presets exposed by the settings UI.
+    std::vector<VIDEO_MODE> availableVideoModes;  ///< Detected Xbox video modes exposed as stream-resolution choices.
     VIDEO_MODE preferredVideoMode {};  ///< Preferred stream resolution requested from the host.
     bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a user-selected or default mode.
     int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.

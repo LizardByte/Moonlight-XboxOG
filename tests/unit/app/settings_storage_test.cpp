@@ -75,12 +75,12 @@ namespace {
     EXPECT_FALSE(loadResult.cleanupRequired);
   }
 
-  TEST_F(SettingsStorageTest, SavesAndLoadsLowStreamResolutionPresets) {
+  TEST_F(SettingsStorageTest, SavesAndLoadsXboxStreamResolutionModes) {
     const app::AppSettings savedSettings {
       logging::LogLevel::none,
       logging::LogLevel::none,
       app::LogViewerPlacement::full,
-      VIDEO_MODE {352, 240, 32, 60},
+      VIDEO_MODE {640, 480, 32, 60},
       true,
       15,
       500,
@@ -95,8 +95,8 @@ namespace {
     EXPECT_TRUE(loadResult.fileFound);
     EXPECT_TRUE(loadResult.warnings.empty());
     EXPECT_TRUE(loadResult.settings.preferredVideoModeSet);
-    EXPECT_EQ(loadResult.settings.preferredVideoMode.width, 352);
-    EXPECT_EQ(loadResult.settings.preferredVideoMode.height, 240);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.width, 640);
+    EXPECT_EQ(loadResult.settings.preferredVideoMode.height, 480);
     EXPECT_EQ(loadResult.settings.preferredVideoMode.bpp, 32);
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 15);

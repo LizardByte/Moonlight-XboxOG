@@ -160,22 +160,11 @@ namespace {
   }
 
   VIDEO_MODE select_stream_presentation_video_mode(const VIDEO_MODE &fallbackVideoMode, const VIDEO_MODE &streamVideoMode) {
-    VIDEO_MODE presentationMode = fallbackVideoMode;
-    presentationMode.bpp = fallbackVideoMode.bpp > 0 ? fallbackVideoMode.bpp : 32;
-    presentationMode.refresh = fallbackVideoMode.refresh > 0 ? fallbackVideoMode.refresh : 60;
-
-    if (streamVideoMode.height <= 288) {
-      presentationMode.width = 640;
-      presentationMode.height = 480;
-    } else if (streamVideoMode.height <= 480) {
-      presentationMode.width = streamVideoMode.width >= 700 ? 720 : 640;
-      presentationMode.height = 480;
-    } else if (streamVideoMode.height <= 576) {
-      presentationMode.width = 720;
-      presentationMode.height = presentationMode.refresh <= 50 ? 576 : 480;
+    if (streamVideoMode.width > 0 && streamVideoMode.height > 0) {
+      return streamVideoMode;
     }
 
-    return presentationMode;
+    return fallbackVideoMode;
   }
 
   class ScopedStreamVideoMode {

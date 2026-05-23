@@ -1007,12 +1007,12 @@ namespace {
     EXPECT_FALSE(update.navigation.screenChanged);
   }
 
-  TEST(ClientStateTest, DisplaySettingsCanCycleLowStreamResolutionPresets) {
+  TEST(ClientStateTest, DisplaySettingsCanCycleXboxVideoModeStreamChoices) {
     app::ClientState state = app::create_initial_state();
     state.settings.availableVideoModes = {
-      VIDEO_MODE {352, 240, 32, 60},
-      VIDEO_MODE {352, 288, 32, 60},
-      VIDEO_MODE {480, 480, 32, 60},
+      VIDEO_MODE {640, 480, 32, 60},
+      VIDEO_MODE {720, 480, 32, 60},
+      VIDEO_MODE {1280, 720, 32, 60},
     };
     state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
     state.settings.preferredVideoModeSet = true;
@@ -1030,9 +1030,9 @@ namespace {
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
     EXPECT_TRUE(update.persistence.settingsChanged);
-    EXPECT_EQ(state.settings.preferredVideoMode.width, 352);
-    EXPECT_EQ(state.settings.preferredVideoMode.height, 288);
-    EXPECT_EQ(state.shell.statusMessage, "Stream resolution set to 352x288");
+    EXPECT_EQ(state.settings.preferredVideoMode.width, 720);
+    EXPECT_EQ(state.settings.preferredVideoMode.height, 480);
+    EXPECT_EQ(state.shell.statusMessage, "Stream resolution set to 720x480");
   }
 
   TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {

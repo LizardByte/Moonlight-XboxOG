@@ -64,14 +64,18 @@ namespace {
   /**
    * @brief Finalize the preferred stream resolution after startup detection.
    *
-   * @param state Mutable client state receiving the fixed stream-resolution presets.
+   * @param state Mutable client state receiving detected Xbox video modes.
    * @param selection Detected Xbox output modes and preferred startup mode.
+   * @param encoderSettings Active Xbox video encoder settings.
    */
-  void initialize_stream_video_mode_settings(app::ClientState &state, const startup::VideoModeSelection &selection) {
-    state.settings.availableVideoModes = startup::stream_resolution_presets(
-      selection.bestVideoMode.bpp > 0 ? selection.bestVideoMode.bpp : 32,
-      selection.bestVideoMode.refresh > 0 ? selection.bestVideoMode.refresh : 60
-    );
+  void initialize_stream_video_mode_settings(app::ClientState &state, const startup::VideoModeSelection &selection, DWORD encoderSettings) {
+    state.settings.availableVideoModes = startup::filter_stream_video_modes_for_encoder_settings(selection.availableVideoModes, encoderSettings);
+    if (state.settings.availableVideoModes.empty()) {
+      state.settings.preferredVideoMode = {};
+      state.settings.preferredVideoModeSet = false;
+      return;
+    }
+
     const auto preferredMode = std::find_if(
       state.settings.availableVideoModes.begin(),
       state.settings.availableVideoModes.end(),
@@ -84,7 +88,7 @@ namespace {
       return;
     }
 
-    state.settings.preferredVideoMode = startup::choose_default_stream_video_mode(selection.bestVideoMode);
+    state.settings.preferredVideoMode = startup::choose_default_stream_video_mode(state.settings.availableVideoModes, selection.bestVideoMode);
     state.settings.preferredVideoModeSet = state.settings.preferredVideoMode.width > 0 && state.settings.preferredVideoMode.height > 0;
   }
 
@@ -231,10 +235,11 @@ int main() {
 
   logging::info("app", std::string("Initial screen: ") + app::to_string(clientState.shell.activeScreen));
   debug_print_startup_checkpoint("Runtime logging initialized");
-  debug_print_encoder_settings(XVideoGetEncoderSettings());
+  const DWORD encoderSettings = XVideoGetEncoderSettings();
+  debug_print_encoder_settings(encoderSettings);
 
   const startup::VideoModeSelection videoModeSelection = startup::select_best_video_mode();
-  initialize_stream_video_mode_settings(clientState, videoModeSelection);
+  initialize_stream_video_mode_settings(clientState, videoModeSelection, encoderSettings);
   const VIDEO_MODE &bestVideoMode = videoModeSelection.bestVideoMode;
   debug_print_video_mode_selection(videoModeSelection);
   startup::log_memory_statistics();
