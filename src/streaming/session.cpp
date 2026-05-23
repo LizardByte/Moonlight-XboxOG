@@ -50,6 +50,7 @@ namespace {
   constexpr Uint8 ACCENT_BLUE = 0xD4;
   constexpr Uint32 STREAM_EXIT_COMBO_HOLD_MILLISECONDS = 900U;
   constexpr Uint32 STREAM_FRAME_DELAY_MILLISECONDS = 16U;
+  constexpr Uint32 STREAM_INPUT_POLL_MILLISECONDS = 4U;
   constexpr int DEFAULT_STREAM_FPS = 20;
   constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1500;
   constexpr int MIN_STREAM_FPS = 15;
@@ -69,6 +70,7 @@ namespace {
     TTF_Font *bodyFont = nullptr;
     SDL_GameController *controller = nullptr;
     streaming::FfmpegStreamBackend mediaBackend {};
+    mutable std::mutex controllerMutex;
     bool ttfInitialized = false;
   };
 
@@ -95,6 +97,12 @@ namespace {
     std::atomic<bool> stopRequested = false;
     mutable std::mutex protocolLogMutex;
     std::deque<std::string> recentProtocolMessages;
+  };
+
+  struct StreamInputThreadState {
+    StreamUiResources *resources = nullptr;
+    StreamConnectionState *connectionState = nullptr;
+    std::atomic<bool> stopRequested = false;
   };
 
   struct StreamStartContext {
@@ -336,8 +344,11 @@ namespace {
     }
 
     resources->mediaBackend.shutdown();
-    close_controller(resources->controller);
-    resources->controller = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(resources->controllerMutex);
+      close_controller(resources->controller);
+      resources->controller = nullptr;
+    }
     if (resources->bodyFont != nullptr) {
       TTF_CloseFont(resources->bodyFont);
       resources->bodyFont = nullptr;
@@ -703,8 +714,24 @@ namespace {
   void pump_stream_events(StreamUiResources *resources) {
     SDL_Event event {};
     while (SDL_PollEvent(&event) != 0) {
-      if (event.type == SDL_CONTROLLERDEVICEADDED && resources != nullptr && resources->controller == nullptr) {
-        resources->controller = SDL_GameControllerOpen(event.cdevice.which);
+      if (resources == nullptr) {
+        continue;
+      }
+
+      if (event.type == SDL_CONTROLLERDEVICEADDED) {
+        std::lock_guard<std::mutex> lock(resources->controllerMutex);
+        if (resources->controller == nullptr) {
+          resources->controller = SDL_GameControllerOpen(event.cdevice.which);
+        }
+      } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+        std::lock_guard<std::mutex> lock(resources->controllerMutex);
+        if (resources->controller != nullptr) {
+          SDL_Joystick *joystick = SDL_GameControllerGetJoystick(resources->controller);
+          if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == event.cdevice.which) {
+            close_controller(resources->controller);
+            resources->controller = nullptr;
+          }
+        }
       }
     }
   }
@@ -799,8 +826,52 @@ namespace {
     }
   }
 
-  void send_controller_state_if_needed(SDL_GameController *controller, bool *arrivalSent, ControllerSnapshot *lastSnapshot) {
-    if (controller == nullptr || arrivalSent == nullptr || lastSnapshot == nullptr) {
+  void update_stream_exit_combo_from_snapshot(const ControllerSnapshot &snapshot, bool controllerPresent, Uint32 *comboActivatedTick, StreamConnectionState *connectionState) {
+    if (comboActivatedTick == nullptr || connectionState == nullptr || !controllerPresent) {
+      if (comboActivatedTick != nullptr) {
+        *comboActivatedTick = 0U;
+      }
+      return;
+    }
+
+    const bool backPressed = (snapshot.buttonFlags & BACK_FLAG) != 0;
+    const bool startPressed = (snapshot.buttonFlags & PLAY_FLAG) != 0;
+    if (!backPressed || !startPressed) {
+      *comboActivatedTick = 0U;
+      return;
+    }
+
+    const Uint32 now = SDL_GetTicks();
+    if (*comboActivatedTick == 0U) {
+      *comboActivatedTick = now;
+      return;
+    }
+    if (now - *comboActivatedTick >= STREAM_EXIT_COMBO_HOLD_MILLISECONDS) {
+      connectionState->stopRequested.store(true);
+    }
+  }
+
+  ControllerSnapshot read_controller_snapshot(StreamUiResources *resources, bool *controllerPresent) {
+    if (controllerPresent != nullptr) {
+      *controllerPresent = false;
+    }
+    if (resources == nullptr) {
+      return {};
+    }
+
+    std::lock_guard<std::mutex> lock(resources->controllerMutex);
+    if (resources->controller == nullptr) {
+      return {};
+    }
+
+    if (controllerPresent != nullptr) {
+      *controllerPresent = true;
+    }
+    return read_controller_snapshot(resources->controller);
+  }
+
+  void send_controller_snapshot_if_needed(const ControllerSnapshot &snapshot, bool controllerPresent, bool *arrivalSent, ControllerSnapshot *lastSnapshot) {
+    if (!controllerPresent || arrivalSent == nullptr || lastSnapshot == nullptr) {
       return;
     }
 
@@ -809,13 +880,37 @@ namespace {
       *arrivalSent = true;
     }
 
-    const ControllerSnapshot snapshot = read_controller_snapshot(controller);
     if (controller_snapshots_match(snapshot, *lastSnapshot)) {
       return;
     }
 
     LiSendControllerEvent(snapshot.buttonFlags, snapshot.leftTrigger, snapshot.rightTrigger, snapshot.leftStickX, snapshot.leftStickY, snapshot.rightStickX, snapshot.rightStickY);
     *lastSnapshot = snapshot;
+  }
+
+  int run_stream_input_thread(void *context) {
+    auto *inputThreadState = static_cast<StreamInputThreadState *>(context);
+    if (inputThreadState == nullptr || inputThreadState->resources == nullptr || inputThreadState->connectionState == nullptr) {
+      return -1;
+    }
+
+    if (SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH) != 0) {
+      logging::debug("stream", std::string("SDL_SetThreadPriority failed for stream input: ") + SDL_GetError());
+    }
+
+    bool controllerArrivalSent = false;
+    ControllerSnapshot lastControllerSnapshot {};
+    Uint32 exitComboActivatedTick = 0U;
+
+    while (!inputThreadState->stopRequested.load() && !inputThreadState->connectionState->connectionTerminated.load() && !inputThreadState->connectionState->stopRequested.load()) {
+      bool controllerPresent = false;
+      const ControllerSnapshot snapshot = read_controller_snapshot(inputThreadState->resources, &controllerPresent);
+      update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &exitComboActivatedTick, inputThreadState->connectionState);
+      send_controller_snapshot_if_needed(snapshot, controllerPresent, &controllerArrivalSent, &lastControllerSnapshot);
+      SDL_Delay(STREAM_INPUT_POLL_MILLISECONDS);
+    }
+
+    return 0;
   }
 
   streaming::StreamStatisticsSnapshot sample_stream_statistics(const StreamStartContext &context, const StreamConnectionState &connectionState) {
@@ -1113,16 +1208,35 @@ namespace streaming {
       return false;
     }
 
-    bool controllerArrivalSent = false;
-    ControllerSnapshot lastControllerSnapshot {};
-    Uint32 exitComboActivatedTick = 0U;
+    StreamInputThreadState inputThreadState {};
+    inputThreadState.resources = &resources;
+    inputThreadState.connectionState = &connectionState;
+    SDL_Thread *inputThread = SDL_CreateThread(run_stream_input_thread, "stream-input", &inputThreadState);
+    if (inputThread == nullptr) {
+      logging::warn("stream", std::string("Failed to start the stream input thread; polling controller from the render loop: ") + SDL_GetError());
+    }
+
+    bool fallbackControllerArrivalSent = false;
+    ControllerSnapshot fallbackLastControllerSnapshot {};
+    Uint32 fallbackExitComboActivatedTick = 0U;
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
     while (!connectionState.connectionTerminated.load() && !connectionState.stopRequested.load()) {
       pump_stream_events(&resources);
-      update_stream_exit_combo(resources.controller, &exitComboActivatedTick, &connectionState);
-      send_controller_state_if_needed(resources.controller, &controllerArrivalSent, &lastControllerSnapshot);
+      if (inputThread == nullptr) {
+        bool controllerPresent = false;
+        const ControllerSnapshot snapshot = read_controller_snapshot(&resources, &controllerPresent);
+        update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &fallbackExitComboActivatedTick, &connectionState);
+        send_controller_snapshot_if_needed(snapshot, controllerPresent, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
+      }
       render_stream_frame(host, app, startContext, connectionState, &resources.mediaBackend, settings.showPerformanceStats, &resources);
       SDL_Delay(STREAM_FRAME_DELAY_MILLISECONDS);
+    }
+
+    inputThreadState.stopRequested.store(true);
+    if (inputThread != nullptr) {
+      int inputThreadResult = 0;
+      SDL_WaitThread(inputThread, &inputThreadResult);
+      (void) inputThreadResult;
     }
 
     LiStopConnection();

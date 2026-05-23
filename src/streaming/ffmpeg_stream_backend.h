@@ -163,6 +163,44 @@ namespace streaming {
 
   private:
     /**
+     * @brief Entry point used by the SDL video decode worker thread.
+     *
+     * @param context Backend instance.
+     * @return Zero when the worker exits normally.
+     */
+    static int run_video_decode_thread_trampoline(void *context);
+
+    /**
+     * @brief Pull Moonlight decode units and feed them into FFmpeg.
+     *
+     * @return Zero when the worker exits normally.
+     */
+    int run_video_decode_thread();
+
+    /**
+     * @brief Decode one Moonlight video decode unit on the video worker thread.
+     *
+     * @param decodeUnit Moonlight Annex B frame payload.
+     * @return Moonlight decoder status code.
+     */
+    int decode_video_decode_unit(PDECODE_UNIT decodeUnit);
+
+    /**
+     * @brief Drain decoded frames currently available from FFmpeg.
+     *
+     * @return FFmpeg receive result.
+     */
+    int receive_available_video_frames();
+
+    /**
+     * @brief Publish one decoded or converted frame for SDL presentation.
+     *
+     * @param frameToPresent FFmpeg frame in IYUV-compatible layout.
+     * @return True when the frame was copied into the presentation buffer.
+     */
+    bool publish_video_frame(AVFrame *frameToPresent);
+
+    /**
      * @brief Hold the latest IYUV video frame ready for SDL upload.
      */
     struct LatestVideoFrame {
@@ -186,12 +224,20 @@ namespace streaming {
       AVFrame *convertedFrame = nullptr;
       AVPacket *packet = nullptr;
       SDL_Texture *texture = nullptr;
+      SDL_Thread *decoderThread = nullptr;
       int textureWidth = 0;
       int textureHeight = 0;
+      std::uint64_t latestFrameVersion = 0;
+      std::uint64_t renderedFrameVersion = 0;
       std::vector<std::uint8_t> convertedBuffer;
+      std::vector<std::uint8_t> packetBuffer;
       mutable std::mutex frameMutex;
       LatestVideoFrame latestFrame;
+      LatestVideoFrame decodeFrame;
+      LatestVideoFrame renderFrame;
+      std::atomic<bool> decoderStopRequested = false;
       std::atomic<bool> hasFrame = false;
+      std::atomic<std::uint64_t> publishedFrameVersion = 0;
       std::atomic<std::uint64_t> submittedDecodeUnitCount = 0;
       std::atomic<std::uint64_t> decodedFrameCount = 0;
     };
