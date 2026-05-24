@@ -65,7 +65,7 @@ namespace {
   constexpr int DEFAULT_STREAM_FPS = 30;
   constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
   constexpr int MIN_STREAM_FPS = 15;
-  constexpr int MAX_STREAM_FPS = 30;
+  constexpr int MAX_STREAM_FPS = 60;
   constexpr int MIN_STREAM_BITRATE_KBPS = 250;
   constexpr int MAX_STREAM_BITRATE_KBPS = 50000;
   constexpr int DEFAULT_PACKET_SIZE = 1024;

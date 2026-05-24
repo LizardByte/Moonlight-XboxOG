@@ -28,8 +28,9 @@ namespace {
   constexpr const char *SETTINGS_CATEGORY_PREFIX = "settings-category:";
   constexpr std::array<char, 11> ADD_HOST_ADDRESS_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0'};
   constexpr std::array<char, 10> ADD_HOST_PORT_KEYPAD_CHARACTERS {'1', '2', '3', '4', '5', '6', '7', '8', '9', '0'};
+  constexpr int DEFAULT_STREAM_FRAMERATE = 30;
   constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
-  constexpr std::array<int, 5> STREAM_FRAMERATE_OPTIONS {15, 20, 24, 25, 30};
+  constexpr std::array<int, 6> STREAM_FRAMERATE_OPTIONS {15, 20, 24, 25, 30, 60};
   constexpr std::array<int, 9> STREAM_BITRATE_OPTIONS {500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000};
 
   /**
@@ -188,7 +189,7 @@ namespace {
   void cycle_stream_framerate(app::ClientState &state) {
     const auto current = std::find(STREAM_FRAMERATE_OPTIONS.begin(), STREAM_FRAMERATE_OPTIONS.end(), state.settings.streamFramerate);
     if (current == STREAM_FRAMERATE_OPTIONS.end()) {
-      state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.back();
+      state.settings.streamFramerate = DEFAULT_STREAM_FRAMERATE;
       return;
     }
 
@@ -1402,7 +1403,7 @@ namespace app {
     state.settings.logViewerPlacement = LogViewerPlacement::full;
     state.settings.loggingLevel = logging::LogLevel::none;
     state.settings.xemuConsoleLoggingLevel = logging::LogLevel::none;
-    state.settings.streamFramerate = STREAM_FRAMERATE_OPTIONS.back();
+    state.settings.streamFramerate = DEFAULT_STREAM_FRAMERATE;
     state.settings.streamBitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
     state.settings.playAudioOnPc = false;
     state.settings.showPerformanceStats = false;
