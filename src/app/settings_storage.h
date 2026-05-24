@@ -25,8 +25,8 @@ namespace app {
     int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
     int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
-    bool showPerformanceStats = false;  ///< True when the streaming overlay should remain visible over decoded video.
-    bool playAudioOnXbox = false;  ///< True when the Xbox should decode and play streamed audio locally.
+    bool showPerformanceStats = false;  ///< True when stream telemetry should be shown after streaming ends.
+    bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.
   };
 
   /**

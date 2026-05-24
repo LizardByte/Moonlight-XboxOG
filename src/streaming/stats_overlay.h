@@ -11,7 +11,7 @@
 namespace streaming {
 
   /**
-   * @brief Snapshot of stream telemetry shown in the on-screen stats overlay.
+   * @brief Snapshot of stream telemetry shown in diagnostics or stream summaries.
    */
   struct StreamStatisticsSnapshot {
     int width;  ///< Stream width in pixels.
@@ -29,7 +29,7 @@ namespace streaming {
   };
 
   /**
-   * @brief Build text rows for the streaming statistics overlay.
+   * @brief Build text rows for streaming statistics displays.
    *
    * Negative metric values are treated as unavailable and omitted from the
    * corresponding row.

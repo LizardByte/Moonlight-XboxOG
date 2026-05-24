@@ -59,6 +59,7 @@ namespace {
   constexpr Uint32 STREAM_FRAME_DELAY_MILLISECONDS = 16U;
   constexpr Uint32 STREAM_PRESENT_POLL_MILLISECONDS = 2U;
   constexpr Uint32 STREAM_INPUT_POLL_MILLISECONDS = 4U;
+  constexpr Uint32 STREAM_END_STATS_POLL_MILLISECONDS = 50U;
   constexpr Uint32 STREAM_VIDEO_IDLE_IDR_MILLISECONDS = 1500U;
   constexpr Uint32 STREAM_VIDEO_IDLE_IDR_COOLDOWN_MILLISECONDS = 2000U;
   constexpr int DEFAULT_STREAM_FPS = 30;
@@ -901,6 +902,18 @@ namespace {
     return rendered;
   }
 
+  void render_text_lines(SDL_Renderer *renderer, TTF_Font *font, const std::vector<std::string> &lines, int screenWidth, int *cursorY) {
+    if (cursorY == nullptr) {
+      return;
+    }
+
+    for (const std::string &line : lines) {
+      int drawnHeight = 0;
+      render_text_line(renderer, font, line, {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, 28, *cursorY, std::max(1, screenWidth - 56), &drawnHeight});
+      *cursorY += drawnHeight + 6;
+    }
+  }
+
   std::string build_stage_status_line(const StreamConnectionState &connectionState) {
     if (const int failedStage = connectionState.failedStage.load(); failedStage != STAGE_NONE) {
       return std::string("Connection failed during ") + LiGetStageName(failedStage) + " (error " + std::to_string(connectionState.failedCode.load()) + ")";
@@ -1198,7 +1211,6 @@ namespace {
     const StreamStartContext &context,
     const StreamConnectionState &connectionState,
     streaming::FfmpegStreamBackend *mediaBackend,
-    bool showPerformanceStats,
     StreamUiResources *resources
   ) {
     if (resources == nullptr || resources->renderer == nullptr || resources->titleFont == nullptr || resources->bodyFont == nullptr) {
@@ -1211,7 +1223,7 @@ namespace {
 
     const bool hasDecodedVideo = mediaBackend != nullptr && mediaBackend->has_decoded_video();
 #ifdef NXDK
-    if (hasDecodedVideo && !showPerformanceStats && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, true)) {
+    if (hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, true)) {
       return true;
     }
 #endif
@@ -1223,14 +1235,7 @@ namespace {
     SDL_RenderClear(resources->renderer);
 
     const bool renderedVideo = hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, false);
-    if (renderedVideo && showPerformanceStats) {
-      SDL_SetRenderDrawBlendMode(resources->renderer, SDL_BLENDMODE_BLEND);
-      SDL_SetRenderDrawColor(resources->renderer, 0x00, 0x00, 0x00, 0x90);
-      const SDL_Rect overlayBackground {18, 18, std::max(1, screenWidth - 36), std::max(1, std::min(screenHeight - 36, 220))};
-      SDL_RenderFillRect(resources->renderer, &overlayBackground);
-    }
-
-    if (renderedVideo && !showPerformanceStats) {
+    if (renderedVideo) {
       SDL_RenderPresent(resources->renderer);
       return true;
     }
@@ -1253,20 +1258,100 @@ namespace {
       lines.emplace(lines.begin() + 5, "Waiting for the first decoded video frame and audio output.");
     }
 
-    if (showPerformanceStats) {
-      for (const std::string &line : streaming::build_stats_overlay_lines(sample_stream_statistics(context, connectionState))) {
-        lines.push_back(line);
-      }
-    }
-
-    for (const std::string &line : lines) {
-      int drawnHeight = 0;
-      render_text_line(resources->renderer, resources->bodyFont, line, {{TEXT_RED, TEXT_GREEN, TEXT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &drawnHeight});
-      cursorY += drawnHeight + 6;
-    }
+    render_text_lines(resources->renderer, resources->bodyFont, lines, screenWidth, &cursorY);
 
     SDL_RenderPresent(resources->renderer);
     return true;
+  }
+
+  bool render_stream_end_statistics_frame(
+    const app::HostRecord &host,
+    const app::HostAppRecord &app,
+    const StreamStartContext &context,
+    const streaming::StreamStatisticsSnapshot &statisticsSnapshot,
+    const std::string &finalMessage,
+    StreamUiResources *resources
+  ) {
+    if (resources == nullptr || resources->renderer == nullptr || resources->titleFont == nullptr || resources->bodyFont == nullptr) {
+      return false;
+    }
+
+    int screenWidth = 0;
+    SDL_GetRendererOutputSize(resources->renderer, &screenWidth, nullptr);
+
+    SDL_SetRenderDrawColor(resources->renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
+    SDL_RenderClear(resources->renderer);
+
+    int cursorY = 28;
+    int titleHeight = 0;
+    render_text_line(resources->renderer, resources->titleFont, "Stream Summary", {{ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight});
+    cursorY += titleHeight + 8;
+
+    std::vector<std::string> lines = {
+      finalMessage,
+      std::string("Host: ") + host.displayName + " (" + context.address + ")",
+      std::string("App: ") + app.name,
+    };
+    for (const std::string &line : streaming::build_stats_overlay_lines(statisticsSnapshot)) {
+      lines.push_back(line);
+    }
+    lines.emplace_back("Press any button to return.");
+
+    render_text_lines(resources->renderer, resources->bodyFont, lines, screenWidth, &cursorY);
+
+    SDL_RenderPresent(resources->renderer);
+    return true;
+  }
+
+  bool should_close_stream_end_statistics(const SDL_Event &event, StreamUiResources *resources) {
+    if (event.type == SDL_CONTROLLERDEVICEADDED) {
+      const SDL_ControllerDeviceEvent controllerEvent = copy_controller_device_event(event);
+      open_controller_if_needed(resources, controllerEvent.which);
+      return false;
+    }
+    if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
+      const SDL_ControllerDeviceEvent controllerEvent = copy_controller_device_event(event);
+      close_controller_if_removed(resources, controllerEvent.which);
+      return false;
+    }
+    return event.type == SDL_QUIT || event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
+  }
+
+  bool controller_snapshot_has_button_press(const ControllerSnapshot &snapshot) {
+    return snapshot.buttonFlags != 0 || snapshot.leftTrigger > 0 || snapshot.rightTrigger > 0;
+  }
+
+  void show_stream_end_statistics(
+    const app::HostRecord &host,
+    const app::HostAppRecord &app,
+    const StreamStartContext &context,
+    const streaming::StreamStatisticsSnapshot &statisticsSnapshot,
+    const std::string &finalMessage,
+    StreamUiResources *resources
+  ) {
+    if (!render_stream_end_statistics_frame(host, app, context, statisticsSnapshot, finalMessage, resources)) {
+      return;
+    }
+
+    bool initialControllerPresent = false;
+    const ControllerSnapshot initialSnapshot = read_controller_snapshot(resources, &initialControllerPresent);
+    bool controllerReadyForPress = !initialControllerPresent || !controller_snapshot_has_button_press(initialSnapshot);
+
+    for (;;) {
+      SDL_Event event {};
+      while (SDL_PollEvent(&event) != 0) {
+        if (should_close_stream_end_statistics(event, resources)) {
+          return;
+        }
+      }
+      bool controllerPresent = false;
+      if (const ControllerSnapshot snapshot = read_controller_snapshot(resources, &controllerPresent); !controllerPresent || !controller_snapshot_has_button_press(snapshot)) {
+        controllerReadyForPress = true;
+      } else if (controllerReadyForPress) {
+        return;
+      }
+      SDL_Delay(STREAM_END_STATS_POLL_MILLISECONDS);
+    }
   }
 
   bool run_stream_start_attempt(const StreamStartAttemptContext &attempt) {
@@ -1275,7 +1360,7 @@ namespace {
       while (!attempt.connectionState.startCompleted.load() && !attempt.connectionState.stopRequested.load()) {
         pump_stream_events(&attempt.resources);
         update_stream_exit_combo(attempt.resources.controller, &exitComboActivatedTick, &attempt.connectionState);
-        render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, true, &attempt.resources);
+        render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, &attempt.resources);
         if (attempt.connectionState.stopRequested.load()) {
           LiInterruptConnection();
         }
@@ -1341,19 +1426,18 @@ namespace {
 
   void render_active_stream_frame_if_needed(const ActiveStreamLoopContext &loopContext, Uint32 *lastIdleVideoIdrRequestTick) {
     const bool hasDecodedVideo = loopContext.resources.mediaBackend.has_decoded_video();
-    if (const bool shouldRenderFrame = loopContext.settings.showPerformanceStats || !hasDecodedVideo || loopContext.resources.mediaBackend.has_unrendered_video_frame(); shouldRenderFrame) {
+    if (const bool shouldRenderFrame = !hasDecodedVideo || loopContext.resources.mediaBackend.has_unrendered_video_frame(); shouldRenderFrame) {
       render_stream_frame(
         loopContext.host,
         loopContext.app,
         loopContext.startContext,
         loopContext.connectionState,
         &loopContext.resources.mediaBackend,
-        loopContext.settings.showPerformanceStats,
         &loopContext.resources
       );
     }
     request_idle_video_refresh_if_needed(&loopContext.resources.mediaBackend, lastIdleVideoIdrRequestTick);
-    SDL_Delay(hasDecodedVideo && !loopContext.settings.showPerformanceStats ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
+    SDL_Delay(hasDecodedVideo ? STREAM_PRESENT_POLL_MILLISECONDS : STREAM_FRAME_DELAY_MILLISECONDS);
   }
 
   void wait_for_stream_input_thread(SDL_Thread *inputThread, StreamInputThreadState *inputThreadState) {
@@ -1541,12 +1625,16 @@ namespace streaming {
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
     run_active_stream_loop({settings, host, app, startContext, connectionState, resources});
 
+    const streaming::StreamStatisticsSnapshot finalStatistics = sample_stream_statistics(startContext, connectionState);
     LiStopConnection();
     active_connection_state() = nullptr;
 
     const std::string finalMessage = describe_session_end(connectionState, app.name);
     logging::info("stream", finalMessage);
     startup::log_memory_statistics();
+    if (settings.showPerformanceStats) {
+      show_stream_end_statistics(host, app, startContext, finalStatistics, finalMessage, &resources);
+    }
     close_stream_ui_resources(&resources);
     assign_status_message(statusMessage, finalMessage);
     return true;

@@ -557,8 +557,8 @@ namespace {
           },
           {
             "toggle-show-performance-stats",
-            std::string("Show Performance Stats: ") + (state.settings.showPerformanceStats ? "On" : "Off"),
-            "Toggle the in-stream performance overlay that shows decoded frames, queued audio, and transport telemetry over the video output.",
+            std::string("Show End Stream Stats: ") + (state.settings.showPerformanceStats ? "On" : "Off"),
+            "Toggle the performance summary shown after streaming ends.",
             true,
           },
         };
@@ -1406,7 +1406,7 @@ namespace app {
     state.settings.streamBitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
     state.settings.playAudioOnPc = false;
     state.settings.showPerformanceStats = false;
-    state.settings.playAudioOnXbox = false;
+    state.settings.playAudioOnXbox = true;
     state.settings.dirty = false;
     state.settings.savedFilesDirty = true;
     return state;
@@ -2015,7 +2015,7 @@ namespace app {
       state.settings.showPerformanceStats = !state.settings.showPerformanceStats;
       state.settings.dirty = true;
       update->persistence.settingsChanged = true;
-      state.shell.statusMessage = std::string("Performance stats overlay ") + (state.settings.showPerformanceStats ? "enabled" : "disabled");
+      state.shell.statusMessage = std::string("End stream performance stats ") + (state.settings.showPerformanceStats ? "enabled" : "disabled");
       rebuild_menu(state, "toggle-show-performance-stats");
       return;
     }

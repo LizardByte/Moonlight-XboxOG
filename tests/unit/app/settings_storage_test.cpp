@@ -117,7 +117,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1000);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_FALSE(loadResult.settings.showPerformanceStats);
-    EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
+    EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
   }
 
   TEST_F(SettingsStorageTest, InvalidValuesFallBackToDefaultsWithWarnings) {
@@ -147,7 +147,7 @@ namespace {
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
-    EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
+    EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
   }
 
   TEST_F(SettingsStorageTest, LegacyLoggingKeyLoadsAndRequestsCleanup) {

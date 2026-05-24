@@ -28,7 +28,7 @@ namespace streaming {
    *
    * @param window Shared SDL window reused from the shell.
    * @param videoMode Active Xbox video mode.
-   * @param settings Active shell settings that control stream resolution, bitrate, frame rate, host audio playback, and the optional stats overlay.
+   * @param settings Active shell settings that control stream resolution, bitrate, frame rate, host audio playback, and the optional end-of-stream stats summary.
    * @param host Selected paired host.
    * @param app Selected host app.
    * @param clientIdentity Paired client identity used for authenticated launch requests.

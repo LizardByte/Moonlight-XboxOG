@@ -348,6 +348,7 @@ namespace {
     content += std::string("bitrate_kbps = ") + std::to_string(settings.streamBitrateKbps) + "\n";
     content += std::string("play_audio_on_pc = ") + (settings.playAudioOnPc ? "true" : "false") + "\n";
     content += std::string("play_audio_on_xbox = ") + (settings.playAudioOnXbox ? "true" : "false") + "\n";
+    content += "# Show stream telemetry after streaming ends.\n";
     content += std::string("show_performance_stats = ") + (settings.showPerformanceStats ? "true" : "false") + "\n";
     return content;
   }
