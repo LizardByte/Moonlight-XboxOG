@@ -58,4 +58,30 @@ namespace {
     EXPECT_EQ(lines[1], "Connection: Poor");
   }
 
+  TEST(StreamStatsOverlayTest, FormatsPartiallyAvailableMetricGroups) {
+    const streaming::StreamStatisticsSnapshot snapshot {
+      720,
+      480,
+      30,
+      -1,
+      7,
+      -1,
+      -1,
+      42,
+      -1,
+      2,
+      -1,
+      false,
+    };
+
+    const std::vector<std::string> lines = streaming::build_stats_overlay_lines(snapshot);
+
+    ASSERT_EQ(lines.size(), 5U);
+    EXPECT_EQ(lines[0], "Stream: 720x480 @ 30 FPS");
+    EXPECT_EQ(lines[1], "Latency: Host 7 ms");
+    EXPECT_EQ(lines[2], "Queues: Audio 42 ms");
+    EXPECT_EQ(lines[3], "Video packets: 2 recovered");
+    EXPECT_EQ(lines[4], "Connection: Okay");
+  }
+
 }  // namespace

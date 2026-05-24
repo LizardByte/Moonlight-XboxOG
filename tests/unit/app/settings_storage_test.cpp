@@ -86,6 +86,7 @@ namespace {
       500,
       false,
       false,
+      false,
     };
 
     const app::SaveAppSettingsResult saveResult = app::save_app_settings(savedSettings, settingsPath);
@@ -101,6 +102,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 15);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 500);
+    EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
   }
 
   TEST_F(SettingsStorageTest, MissingFilesReturnDefaultsWithoutWarnings) {

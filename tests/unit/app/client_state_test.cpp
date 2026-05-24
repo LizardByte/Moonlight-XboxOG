@@ -1035,6 +1035,40 @@ namespace {
     EXPECT_EQ(state.shell.statusMessage, "Stream resolution set to 720x480");
   }
 
+  TEST(ClientStateTest, DisplaySettingsCanToggleXboxAudioAndEndStreamStats) {
+    app::ClientState state = app::create_initial_state();
+    ASSERT_TRUE(state.settings.playAudioOnXbox);
+    ASSERT_FALSE(state.settings.showPerformanceStats);
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("toggle-play-audio-on-xbox"));
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "toggle-play-audio-on-xbox");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_FALSE(state.settings.playAudioOnXbox);
+    EXPECT_EQ(state.shell.statusMessage, "Play audio on Xbox disabled");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Play Audio on Xbox: Off");
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("toggle-show-performance-stats"));
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "toggle-show-performance-stats");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_TRUE(state.settings.showPerformanceStats);
+    EXPECT_EQ(state.shell.statusMessage, "End stream performance stats enabled");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Show End Stream Stats: On");
+  }
+
   TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {
     app::ClientState state = app::create_initial_state();
     app::handle_command(state, input::UiCommand::move_left);
