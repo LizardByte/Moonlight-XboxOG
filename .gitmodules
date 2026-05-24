@@ -14,8 +14,8 @@
 	shallow = true
 [submodule "third-party/moonlight-common-c"]
 	path = third-party/moonlight-common-c
-	url = https://github.com/ReenigneArcher/moonlight-common-c.git
-	branch = nxdk-compat
+	url = https://github.com/moonlight-stream/moonlight-common-c.git
+	branch = master
 	shallow = true
 [submodule "third-party/nxdk"]
 	path = third-party/nxdk
