@@ -174,7 +174,7 @@ endfunction()
 
 # Detect the MSYS2 installation root on Windows and cache the resolved path.
 function(moonlight_detect_windows_msys2_root out_var)
-    if(NOT WIN32)
+    if(NOT CMAKE_HOST_WIN32)
         message(FATAL_ERROR "moonlight_detect_windows_msys2_root is only available on Windows hosts")
     endif()
 

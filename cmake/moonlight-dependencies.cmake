@@ -209,11 +209,7 @@ endfunction()
 
 # Execute an FFmpeg command in MSYS2 with nxdk paths ahead of the host PATH.
 function(_moonlight_run_windows_ffmpeg_command description nxdk_shell_path ffmpeg_build_shell_path)
-    set(msys2_shell "C:/msys64/msys2_shell.cmd")
-    if(NOT EXISTS "${msys2_shell}")
-        message(FATAL_ERROR "MSYS2 shell not found at ${msys2_shell}")
-    endif()
-
+    _moonlight_get_windows_msys2_shell(msys2_shell)
     _moonlight_join_shell_command(ffmpeg_command ${ARGN})
     _moonlight_shell_quote(quoted_nxdk_shell_path "${nxdk_shell_path}")
     _moonlight_shell_quote(quoted_ffmpeg_build_shell_path "${ffmpeg_build_shell_path}")
