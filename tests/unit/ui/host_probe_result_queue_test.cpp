@@ -18,6 +18,14 @@
 
 namespace {
 
+  network::HostPairingServerInfo make_probe_server_info(std::string_view hostName) {
+    network::HostPairingServerInfo serverInfo {};
+    serverInfo.httpPort = test_support::kTestPorts[test_support::kPortResolvedHttp];
+    serverInfo.httpsPort = test_support::kTestPorts[test_support::kPortResolvedHttps];
+    serverInfo.hostName = hostName;
+    return serverInfo;
+  }
+
   TEST(HostProbeResultQueueTest, DrainsPublishedResultsBeforeTheRoundCompletes) {
     ui::HostProbeResultQueue queue {};
     ui::begin_host_probe_result_round(&queue, 3U);
@@ -26,7 +34,7 @@ namespace {
                                             test_support::kTestIpv4Addresses[test_support::kIpHostGridA],
                                             test_support::kTestPorts[test_support::kPortDefaultHost],
                                             true,
-                                            {0, test_support::kTestPorts[test_support::kPortResolvedHttp], test_support::kTestPorts[test_support::kPortResolvedHttps], false, false, false, "Host A"},
+                                            make_probe_server_info("Host A"),
                                           });
 
     std::vector<ui::HostProbeResult> drainedResults = ui::drain_host_probe_results(&queue);
@@ -45,7 +53,7 @@ namespace {
                                             test_support::kTestIpv4Addresses[test_support::kIpHostGridC],
                                             test_support::kTestPorts[test_support::kPortDefaultHost],
                                             true,
-                                            {0, test_support::kTestPorts[test_support::kPortResolvedHttp], test_support::kTestPorts[test_support::kPortResolvedHttps], false, false, false, "Host C"},
+                                            make_probe_server_info("Host C"),
                                           });
 
     drainedResults = ui::drain_host_probe_results(&queue);
@@ -64,7 +72,7 @@ namespace {
                                             test_support::kTestIpv4Addresses[test_support::kIpOffice],
                                             test_support::kTestPorts[test_support::kPortDefaultHost],
                                             true,
-                                            {0, test_support::kTestPorts[test_support::kPortResolvedHttp], test_support::kTestPorts[test_support::kPortResolvedHttps], false, false, false, "Office PC"},
+                                            make_probe_server_info("Office PC"),
                                           });
 
     const std::vector<ui::HostProbeResult> drainedResults = ui::drain_host_probe_results(&queue);

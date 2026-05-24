@@ -194,10 +194,13 @@ else()
                 "--prefix=${_openssl_install_dir_msys}"
                 "--openssldir=${_openssl_install_dir_msys}/ssl")
         _moonlight_shell_quote(_openssl_build_dir_msys_quoted "${_openssl_build_dir_msys}")
+        string(CONCAT _openssl_configure_script
+                "cd ${_openssl_build_dir_msys_quoted} && "
+                "${_openssl_tool_prefix} exec ${_openssl_configure_command}")
         set(OPENSSL_CONFIGURE_COMMAND
                 "${OPENSSL_MSYS2_SHELL}"
                 -defterm -here -no-start -mingw64
-                -c "cd ${_openssl_build_dir_msys_quoted} && ${_openssl_tool_prefix} exec ${_openssl_configure_command}")
+                -c "${_openssl_configure_script}")
         set(OPENSSL_BUILD_COMMAND
                 "${OPENSSL_MSYS2_SHELL}"
                 -defterm -here -no-start -mingw64

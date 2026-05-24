@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+// nxdk includes
+#include <hal/video.h>
+
 // standard includes
 #include "src/app/host_records.h"
 #include "src/app/pairing_flow.h"
@@ -313,6 +316,14 @@ namespace app {
     LogViewerPlacement logViewerPlacement = LogViewerPlacement::full;  ///< Log viewer pane placement relative to the shell.
     logging::LogLevel loggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written to the persisted log file.
     logging::LogLevel xemuConsoleLoggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level mirrored through DbgPrint() to xemu's serial console.
+    std::vector<VIDEO_MODE> availableVideoModes;  ///< Detected Xbox video modes exposed as stream-resolution choices.
+    VIDEO_MODE preferredVideoMode {};  ///< Preferred stream resolution requested from the host.
+    bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a user-selected or default mode.
+    int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
+    int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
+    bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
+    bool showPerformanceStats = false;  ///< True when stream telemetry should be shown after streaming ends.
+    bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.
     bool dirty = false;  ///< True when persisted TOML-backed settings changed and should be saved.
     std::vector<startup::SavedFileEntry> savedFiles;  ///< Saved-file catalog shown on the reset settings page.
     bool savedFilesDirty = true;  ///< True when the saved-file catalog should be refreshed.
@@ -361,6 +372,7 @@ namespace app {
     std::string pairingPin;  ///< Generated client PIN that should be shown to the user.
     bool appsBrowseRequested = false;  ///< True when app browsing for the selected host should begin.
     bool appsBrowseShowHidden = false;  ///< Hidden-app visibility requested for the app browse action.
+    bool streamLaunchRequested = false;  ///< True when the selected host app should start or resume streaming.
     bool logViewRequested = false;  ///< True when the log viewer should be refreshed from disk.
   };
 

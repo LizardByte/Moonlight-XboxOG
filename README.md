@@ -5,10 +5,7 @@
 [![GitHub Workflow Status (CI)](https://img.shields.io/github/actions/workflow/status/lizardbyte/moonlight-xboxog/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/CI.yml?query=branch%3Amaster)
 [![Codecov](https://img.shields.io/codecov/c/gh/LizardByte/Moonlight-XboxOG?token=DoIh5pkEzA&style=for-the-badge&logo=codecov&label=codecov)](https://codecov.io/gh/LizardByte/Moonlight-XboxOG)
 
-Port of Moonlight for the Original Xbox. Unlikely to ever actually work. Do NOT use!
-
-> [!WARNING]
-> Streaming does not work yet.
+Port of Moonlight for the Original Xbox.
 
 ![Splash Screen](./docs/images/screenshots/01-splash.png)
 ![Hosts Screen](./docs/images/screenshots/02-hosts.png)
@@ -229,14 +226,14 @@ scripts\setup-xemu.cmd --skip-support-files
    - [x] App Details
    - [ ] Pause/Hotkey overlay
 - Streaming
-   - [ ] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions
+   - [x] Video - https://www.xbmc4xbox.org.uk/wiki/XBMC_Features_and_Supported_Formats#Xbox_supported_video_formats_and_resolutions
    - [ ] Audio
       - [ ] Mono
       - [ ] Stereo
       - [ ] 5.1 Surround
       - [ ] 7.1 Surround
 - Input
-   - [ ] Gamepad Input
+   - [x] Gamepad Input
    - [ ] Keyboard Input
    - [ ] Mouse Input
    - [ ] Mouse Emulation via Gamepad

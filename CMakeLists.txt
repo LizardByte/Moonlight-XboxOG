@@ -40,7 +40,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(CMAKE_HOST_WIN32 AND CMAKE_GENERATOR MATCHES "Makefiles")
-    set(CMAKE_DEPENDS_USE_COMPILER FALSE CACHE BOOL "Use CMake depfile scanning with Windows makefile generators" FORCE)
+    set(CMAKE_DEPENDS_USE_COMPILER
+            FALSE
+            CACHE BOOL
+            "Use CMake depfile scanning with Windows makefile generators"
+            FORCE)
 endif()
 
 #

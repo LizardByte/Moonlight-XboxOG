@@ -24,6 +24,7 @@ namespace {
     EXPECT_FALSE(state.shell.shouldExit);
     EXPECT_FALSE(state.hosts.dirty);
     EXPECT_EQ(state.settings.loggingLevel, logging::LogLevel::none);
+    EXPECT_EQ(state.settings.streamFramerate, 30);
   }
 
   TEST(ClientStateTest, ReplacesHostsFromPersistenceWithoutMarkingThemDirty) {
@@ -978,8 +979,14 @@ namespace {
     EXPECT_TRUE(state.hosts.active.apps.front().favorite);
   }
 
-  TEST(ClientStateTest, SettingsPlaceholderActivationAndBackNavigationUpdateFocusAndStatus) {
+  TEST(ClientStateTest, DisplaySettingsCanBeActivatedAndBackNavigationReturnsFocusToCategories) {
     app::ClientState state = app::create_initial_state();
+    state.settings.availableVideoModes = {
+      VIDEO_MODE {640, 480, 32, 60},
+      VIDEO_MODE {1280, 720, 32, 60},
+    };
+    state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
+    state.settings.preferredVideoModeSet = true;
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::move_left);
     app::handle_command(state, input::UiCommand::activate);
@@ -991,11 +998,110 @@ namespace {
     EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
 
     update = app::handle_command(state, input::UiCommand::activate);
-    EXPECT_EQ(state.shell.statusMessage, "display-placeholder is not implemented yet");
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.preferredVideoMode.width, 1280);
+    EXPECT_EQ(state.settings.preferredVideoMode.height, 720);
 
     update = app::handle_command(state, input::UiCommand::back);
     EXPECT_EQ(state.settings.focusArea, app::SettingsFocusArea::categories);
     EXPECT_FALSE(update.navigation.screenChanged);
+  }
+
+  TEST(ClientStateTest, DisplaySettingsCanCycleXboxVideoModeStreamChoices) {
+    app::ClientState state = app::create_initial_state();
+    state.settings.availableVideoModes = {
+      VIDEO_MODE {640, 480, 32, 60},
+      VIDEO_MODE {720, 480, 32, 60},
+      VIDEO_MODE {1280, 720, 32, 60},
+    };
+    state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
+    state.settings.preferredVideoModeSet = true;
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.preferredVideoMode.width, 720);
+    EXPECT_EQ(state.settings.preferredVideoMode.height, 480);
+    EXPECT_EQ(state.shell.statusMessage, "Stream resolution set to 720x480");
+  }
+
+  TEST(ClientStateTest, DisplaySettingsCanCycleStreamFramerateThroughSixtyFps) {
+    app::ClientState state = app::create_initial_state();
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("cycle-stream-framerate"));
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-framerate");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.streamFramerate, 60);
+    EXPECT_EQ(state.shell.statusMessage, "Stream frame rate set to 60 FPS");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Stream Frame Rate: 60 FPS");
+
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-framerate");
+    EXPECT_EQ(state.settings.streamFramerate, 15);
+    EXPECT_EQ(state.shell.statusMessage, "Stream frame rate set to 15 FPS");
+
+    state.settings.streamFramerate = 999;
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-framerate");
+    EXPECT_EQ(state.settings.streamFramerate, 30);
+    EXPECT_EQ(state.shell.statusMessage, "Stream frame rate set to 30 FPS");
+  }
+
+  TEST(ClientStateTest, DisplaySettingsCanToggleXboxAudioAndEndStreamStats) {
+    app::ClientState state = app::create_initial_state();
+    ASSERT_TRUE(state.settings.playAudioOnXbox);
+    ASSERT_FALSE(state.settings.showPerformanceStats);
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("toggle-play-audio-on-xbox"));
+    app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "toggle-play-audio-on-xbox");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_FALSE(state.settings.playAudioOnXbox);
+    EXPECT_EQ(state.shell.statusMessage, "Play audio on Xbox disabled");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Play Audio on Xbox: Off");
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("toggle-show-performance-stats"));
+    update = app::handle_command(state, input::UiCommand::activate);
+    EXPECT_EQ(update.navigation.activatedItemId, "toggle-show-performance-stats");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_TRUE(state.settings.showPerformanceStats);
+    EXPECT_EQ(state.shell.statusMessage, "End stream performance stats enabled");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Show End Stream Stats: On");
   }
 
   TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {
@@ -1037,7 +1143,8 @@ namespace {
 
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_EQ(update.navigation.activatedItemId, "launch-app");
-    EXPECT_EQ(state.shell.statusMessage, "Launching Steam is not implemented yet");
+    EXPECT_TRUE(update.requests.streamLaunchRequested);
+    EXPECT_EQ(state.shell.statusMessage, "Starting stream for Steam...");
 
     update = app::handle_command(state, input::UiCommand::delete_character);
     EXPECT_TRUE(state.shell.statusMessage.empty());

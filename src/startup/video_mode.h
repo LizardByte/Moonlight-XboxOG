@@ -42,6 +42,50 @@ namespace startup {
   VIDEO_MODE choose_best_video_mode(const std::vector<VIDEO_MODE> &availableVideoModes);
 
   /**
+   * @brief Return canonical Xbox video modes usable as stream-resolution choices.
+   *
+   * Runtime code should prefer modes detected by `XVideoListModes()`. These
+   * values are a fallback for code paths without live video-mode detection.
+   *
+   * @param bpp Bits-per-pixel metadata to attach to each mode.
+   * @param refresh Refresh-rate metadata to attach to each mode.
+   * @return Ordered list of canonical stream-resolution modes.
+   */
+  std::vector<VIDEO_MODE> stream_resolution_presets(int bpp = 32, int refresh = 60);
+
+  /**
+   * @brief Filter detected stream-resolution modes through display-aspect encoder settings.
+   *
+   * `XVideoListModes()` already filters progressive and HD modes through the
+   * encoder settings. This helper applies the widescreen flag so SD wide-width
+   * modes are only exposed when the console is configured for widescreen.
+   *
+   * @param availableVideoModes Detected Xbox video modes from `XVideoListModes()`.
+   * @param encoderSettings The value returned by `XVideoGetEncoderSettings()`.
+   * @return Modes suitable for the stream-resolution settings list.
+   */
+  std::vector<VIDEO_MODE> filter_stream_video_modes_for_encoder_settings(const std::vector<VIDEO_MODE> &availableVideoModes, unsigned long encoderSettings);
+
+  /**
+   * @brief Choose the default stream-resolution mode for the current output mode.
+   *
+   * The default favors an SD Xbox mode to keep software decoding practical.
+   *
+   * @param outputVideoMode Active Xbox output mode selected at startup.
+   * @return Default stream-resolution mode for new or missing settings.
+   */
+  VIDEO_MODE choose_default_stream_video_mode(const VIDEO_MODE &outputVideoMode);
+
+  /**
+   * @brief Choose the default stream-resolution mode from detected Xbox modes.
+   *
+   * @param availableVideoModes Detected Xbox video modes exposed in settings.
+   * @param outputVideoMode Active Xbox output mode selected at startup.
+   * @return A detected default mode when possible, otherwise a canonical fallback.
+   */
+  VIDEO_MODE choose_default_stream_video_mode(const std::vector<VIDEO_MODE> &availableVideoModes, const VIDEO_MODE &outputVideoMode);
+
+  /**
    * @brief Detect and choose the best available video mode.
    *
    * @param bpp Desired bits-per-pixel color depth. Default is 32.

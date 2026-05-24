@@ -20,6 +20,13 @@ namespace app {
     logging::LogLevel loggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written to the log file.
     logging::LogLevel xemuConsoleLoggingLevel = logging::LogLevel::none;  ///< Minimum runtime log level written through DbgPrint() for xemu's serial console.
     app::LogViewerPlacement logViewerPlacement = app::LogViewerPlacement::full;  ///< Preferred placement for the in-app log viewer.
+    VIDEO_MODE preferredVideoMode {};  ///< Preferred stream resolution requested from the host.
+    bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a saved user preference.
+    int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
+    int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
+    bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
+    bool showPerformanceStats = false;  ///< True when stream telemetry should be shown after streaming ends.
+    bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.
   };
 
   /**
