@@ -34,7 +34,7 @@ namespace streaming {
    * @brief Owns the FFmpeg decode and SDL presentation state for one stream.
    *
    * The backend exposes Moonlight-compatible callback tables for video and audio,
-   * decodes H.264 video and Opus stereo audio with FFmpeg, presents the most
+   * decodes negotiated video and Opus stereo audio with FFmpeg, presents the most
    * recent decoded frame through SDL, and queues decoded PCM samples to SDL audio.
    */
   class FfmpegStreamBackend {
@@ -91,6 +91,13 @@ namespace streaming {
     bool has_decoded_video() const;
 
     /**
+     * @brief Return the human-readable active video decoder name.
+     *
+     * @return Selected video decoder name, or a generic label before setup.
+     */
+    std::string active_video_decoder_name() const;
+
+    /**
      * @brief Report whether a newly decoded video frame has not been presented yet.
      *
      * @return True when rendering would present a newer decoded frame.
@@ -113,7 +120,7 @@ namespace streaming {
     std::string build_overlay_status_line() const;
 
     /**
-     * @brief Initialize the FFmpeg H.264 decoder for Moonlight video callbacks.
+     * @brief Initialize the FFmpeg decoder for Moonlight video callbacks.
      *
      * @param videoFormat Negotiated Moonlight video format.
      * @param width Negotiated stream width.
@@ -269,6 +276,7 @@ namespace streaming {
       AVFrame *decodedFrame = nullptr;
       AVFrame *convertedFrame = nullptr;
       AVPacket *packet = nullptr;
+      const char *codecName = "video";  ///< Human-readable active video decoder name.
       SDL_Texture *texture = nullptr;
       SDL_Thread *decoderThread = nullptr;
       int textureWidth = 0;

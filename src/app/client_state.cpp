@@ -32,6 +32,12 @@ namespace {
   constexpr int DEFAULT_STREAM_BITRATE_KBPS = 1000;
   constexpr std::array<int, 6> STREAM_FRAMERATE_OPTIONS {15, 20, 24, 25, 30, 60};
   constexpr std::array<int, 9> STREAM_BITRATE_OPTIONS {500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000};
+  constexpr std::array<app::VideoDecoderSelection, 4> VIDEO_DECODER_OPTIONS {
+    app::VideoDecoderSelection::autoDetect,
+    app::VideoDecoderSelection::h264,
+    app::VideoDecoderSelection::mpeg2,
+    app::VideoDecoderSelection::h263p,
+  };
 
   /**
    * @brief Describes the keypad characters available for the active add-host field.
@@ -145,6 +151,27 @@ namespace {
   }
 
   /**
+   * @brief Return the settings label for one video decoder preference.
+   *
+   * @param selection Decoder preference to describe.
+   * @return User-facing decoder preference label.
+   */
+  const char *video_decoder_selection_label(app::VideoDecoderSelection selection) {
+    switch (selection) {
+      case app::VideoDecoderSelection::autoDetect:
+        return "Auto";
+      case app::VideoDecoderSelection::h264:
+        return "H.264";
+      case app::VideoDecoderSelection::mpeg2:
+        return "MPEG-2/H.262";
+      case app::VideoDecoderSelection::h263p:
+        return "H.263+";
+    }
+
+    return "Auto";
+  }
+
+  /**
    * @brief Return the selected stream-resolution index inside the detected mode list.
    *
    * @param state Current client state containing the preferred mode.
@@ -211,6 +238,22 @@ namespace {
 
     const std::size_t nextIndex = (static_cast<std::size_t>(std::distance(STREAM_BITRATE_OPTIONS.begin(), current)) + 1U) % STREAM_BITRATE_OPTIONS.size();
     state.settings.streamBitrateKbps = STREAM_BITRATE_OPTIONS[nextIndex];
+  }
+
+  /**
+   * @brief Advance the preferred video decoder to the next supported option.
+   *
+   * @param state Current client state containing the preferred decoder.
+   */
+  void cycle_video_decoder(app::ClientState &state) {
+    const auto current = std::find(VIDEO_DECODER_OPTIONS.begin(), VIDEO_DECODER_OPTIONS.end(), state.settings.videoDecoder);
+    if (current == VIDEO_DECODER_OPTIONS.end()) {
+      state.settings.videoDecoder = app::VideoDecoderSelection::autoDetect;
+      return;
+    }
+
+    const std::size_t nextIndex = (static_cast<std::size_t>(std::distance(VIDEO_DECODER_OPTIONS.begin(), current)) + 1U) % VIDEO_DECODER_OPTIONS.size();
+    state.settings.videoDecoder = VIDEO_DECODER_OPTIONS[nextIndex];
   }
 
   std::string pairing_reset_endpoint_key(std::string_view address, uint16_t port) {
@@ -542,6 +585,12 @@ namespace {
             "cycle-stream-bitrate",
             std::string("Stream Bitrate: ") + std::to_string(state.settings.streamBitrateKbps) + " kbps",
             "Cycle through the preferred video bitrate. Lower bitrates reduce bandwidth use and can help when running Sunshine and xemu on the same NATed host.",
+            true,
+          },
+          {
+            "cycle-video-decoder",
+            std::string("Video Decoder: ") + video_decoder_selection_label(state.settings.videoDecoder),
+            "Choose automatic codec negotiation or force one FFmpeg video decoder for new streams.",
             true,
           },
           {
@@ -1405,6 +1454,7 @@ namespace app {
     state.settings.xemuConsoleLoggingLevel = logging::LogLevel::none;
     state.settings.streamFramerate = DEFAULT_STREAM_FRAMERATE;
     state.settings.streamBitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
+    state.settings.videoDecoder = VideoDecoderSelection::autoDetect;
     state.settings.playAudioOnPc = false;
     state.settings.showPerformanceStats = false;
     state.settings.playAudioOnXbox = true;
@@ -1994,6 +2044,14 @@ namespace app {
       update->persistence.settingsChanged = true;
       state.shell.statusMessage = std::string("Stream bitrate set to ") + std::to_string(state.settings.streamBitrateKbps) + " kbps";
       rebuild_menu(state, "cycle-stream-bitrate");
+      return;
+    }
+    if (detailUpdate.activatedItemId == "cycle-video-decoder") {
+      cycle_video_decoder(state);
+      state.settings.dirty = true;
+      update->persistence.settingsChanged = true;
+      state.shell.statusMessage = std::string("Video decoder set to ") + video_decoder_selection_label(state.settings.videoDecoder);
+      rebuild_menu(state, "cycle-video-decoder");
       return;
     }
     if (detailUpdate.activatedItemId == "toggle-play-audio-on-pc") {

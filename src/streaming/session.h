@@ -21,14 +21,14 @@ namespace streaming {
    * @brief Run one Xbox streaming session for the selected host app.
    *
    * The session launches or resumes the selected app on the host, starts the
-   * Moonlight transport runtime, decodes H.264 video and Opus audio with
+   * Moonlight transport runtime, decodes negotiated video and Opus audio with
    * FFmpeg, forwards controller input, renders the latest decoded frame with a
    * lightweight overlay, and returns once the user stops streaming or the host
    * terminates the session.
    *
    * @param window Shared SDL window reused from the shell.
    * @param videoMode Active Xbox video mode.
-   * @param settings Active shell settings that control stream resolution, bitrate, frame rate, host audio playback, and the optional end-of-stream stats summary.
+   * @param settings Active shell settings that control stream resolution, bitrate, frame rate, decoder selection, host audio playback, and the optional end-of-stream stats summary.
    * @param host Selected paired host.
    * @param app Selected host app.
    * @param clientIdentity Paired client identity used for authenticated launch requests.

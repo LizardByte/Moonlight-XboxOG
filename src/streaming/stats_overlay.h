@@ -26,6 +26,7 @@ namespace streaming {
     int videoPacketsRecovered;  ///< Video packets recovered through FEC or retransmission.
     int videoPacketsLost;  ///< Video packets permanently lost.
     bool poorConnection;  ///< True when the host flags the connection as poor.
+    std::string videoDecoder;  ///< Human-readable video decoder used for the stream.
   };
 
   /**
