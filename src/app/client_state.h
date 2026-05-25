@@ -66,6 +66,16 @@ namespace app {
   };
 
   /**
+   * @brief Video decoder preference applied to new streaming sessions.
+   */
+  enum class VideoDecoderSelection {
+    autoDetect,  ///< Let moonlight-common-c negotiate the best mutually supported video format.
+    h264,  ///< Force H.264 video decode.
+    mpeg2,  ///< Force MPEG-2/H.262 video decode.
+    h263p,  ///< Force H.263+ video decode.
+  };
+
+  /**
    * @brief Focus areas used by the two-pane settings screen.
    */
   enum class SettingsFocusArea {
@@ -321,6 +331,7 @@ namespace app {
     bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a user-selected or default mode.
     int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
     int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
+    VideoDecoderSelection videoDecoder = VideoDecoderSelection::autoDetect;  ///< Preferred video decoder for new streams.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
     bool showPerformanceStats = false;  ///< True when stream telemetry should be shown after streaming ends.
     bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.

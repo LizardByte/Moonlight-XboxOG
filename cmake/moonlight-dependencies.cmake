@@ -82,7 +82,7 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     set(signature_inputs
             "FFMPEG_REVISION=${ffmpeg_revision}"
             "NXDK_DIR=${nxdk_dir}"
-            "FFMPEG_PROFILE=h264-opus-xbox"
+            "FFMPEG_PROFILE=h264-mpeg2-h263-opus-xbox"
             "FFMPEG_TARGET_OS=none"
             "FFMPEG_ARCH=x86"
             "FFMPEG_CC_WRAPPER_SHA256=${ffmpeg_cc_wrapper_hash}"
@@ -201,7 +201,13 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
             --enable-swscale
             --enable-swresample
             --enable-parser=h264
+            --enable-parser=h263
+            --enable-parser=mpegvideo
             --enable-decoder=h264
+            --enable-decoder=h263
+            --enable-decoder=h263i
+            --enable-decoder=h263p
+            --enable-decoder=mpeg2video
             --enable-decoder=opus)
 
     set(${out_var} "${ffmpeg_configure_args}" PARENT_SCOPE)

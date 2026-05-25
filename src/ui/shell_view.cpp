@@ -193,6 +193,27 @@ namespace {
     return "Logging";
   }
 
+  /**
+   * @brief Return a compact settings label for one decoder preference.
+   *
+   * @param selection Decoder preference to describe.
+   * @return User-facing decoder preference label.
+   */
+  const char *video_decoder_selection_label(app::VideoDecoderSelection selection) {
+    switch (selection) {
+      case app::VideoDecoderSelection::autoDetect:
+        return "Auto";
+      case app::VideoDecoderSelection::h264:
+        return "H.264";
+      case app::VideoDecoderSelection::mpeg2:
+        return "MPEG-2/H.262";
+      case app::VideoDecoderSelection::h263p:
+        return "H.263+";
+    }
+
+    return "Auto";
+  }
+
   std::vector<ui::ShellModalButton> keypad_buttons(const app::ClientState &state) {
     const std::vector<std::string> labels = state.addHostDraft.activeField == app::AddHostField::address ? std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0"} : std::vector<std::string> {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
 
@@ -325,7 +346,9 @@ namespace {
       return lines;
     }
     if (state.settings.selectedCategory == app::SettingsCategory::display) {
-      lines.emplace_back("Display options will be added here.");
+      lines.push_back(std::string("Stream frame rate: ") + std::to_string(state.settings.streamFramerate) + " FPS");
+      lines.push_back(std::string("Stream bitrate: ") + std::to_string(state.settings.streamBitrateKbps) + " kbps");
+      lines.push_back(std::string("Video decoder: ") + video_decoder_selection_label(state.settings.videoDecoder));
       return lines;
     }
 

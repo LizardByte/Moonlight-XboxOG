@@ -44,6 +44,7 @@ namespace {
     state.settings.preferredVideoModeSet = settings.preferredVideoModeSet;
     state.settings.streamFramerate = settings.streamFramerate;
     state.settings.streamBitrateKbps = settings.streamBitrateKbps;
+    state.settings.videoDecoder = settings.videoDecoder;
     state.settings.playAudioOnPc = settings.playAudioOnPc;
     state.settings.showPerformanceStats = settings.showPerformanceStats;
     state.settings.playAudioOnXbox = settings.playAudioOnXbox;

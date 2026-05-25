@@ -49,6 +49,7 @@ namespace {
       true,
       24,
       2500,
+      app::VideoDecoderSelection::mpeg2,
       true,
       true,
       true,
@@ -69,6 +70,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 24);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 2500);
+    EXPECT_EQ(loadResult.settings.videoDecoder, app::VideoDecoderSelection::mpeg2);
     EXPECT_TRUE(loadResult.settings.playAudioOnPc);
     EXPECT_TRUE(loadResult.settings.showPerformanceStats);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
@@ -84,6 +86,7 @@ namespace {
       true,
       15,
       500,
+      app::VideoDecoderSelection::h264,
       false,
       false,
       false,
@@ -102,6 +105,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 15);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 500);
+    EXPECT_EQ(loadResult.settings.videoDecoder, app::VideoDecoderSelection::h264);
     EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
   }
 
@@ -117,6 +121,7 @@ namespace {
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1000);
+    EXPECT_EQ(loadResult.settings.videoDecoder, app::VideoDecoderSelection::autoDetect);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_FALSE(loadResult.settings.showPerformanceStats);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
@@ -135,6 +140,7 @@ namespace {
       "[streaming]\n"
       "video_width = \"wide\"\n"
       "fps = \"fast\"\n"
+      "video_decoder = \"vp9\"\n"
       "play_audio_on_pc = \"sometimes\"\n"
       "play_audio_on_xbox = \"sometimes\"\n"
     );
@@ -148,6 +154,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
+    EXPECT_EQ(loadResult.settings.videoDecoder, app::VideoDecoderSelection::autoDetect);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
   }
