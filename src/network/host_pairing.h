@@ -277,6 +277,7 @@ namespace network {
       bool useTls = false;  ///< True when the request would normally use TLS.
       const PairingIdentity *tlsClientIdentity = nullptr;  ///< Optional client identity attached to TLS requests.
       std::string expectedTlsCertificatePem;  ///< Optional pinned host certificate expected by the request.
+      int socketIoTimeoutMilliseconds = 0;  ///< Socket read/write timeout that the real transport would apply.
     };
 
     /**

@@ -33,6 +33,8 @@ namespace {
   using network::testing::HostPairingHttpTestRequest;
   using network::testing::HostPairingHttpTestResponse;
 
+  constexpr int kDefaultPairingSocketTimeoutMilliseconds = 5000;
+  constexpr int kPinEntrySocketTimeoutMilliseconds = 90000;
   constexpr std::string_view kUnpairedClientErrorMessage = "The host reports that this client is no longer paired. Pair the host again.";
 
   class ScopedHostPairingHttpTestHandler {
@@ -1305,6 +1307,39 @@ namespace {
       identity,
     });
 
+    EXPECT_FALSE(result.success);
+    EXPECT_EQ(result.message, "Pairing failed during phase 1 (getservercert): The host rejected the initial pairing request");
+  }
+
+  TEST(HostPairingTest, PairHostUsesExtendedTimeoutForPinEntryResponse) {
+    const network::PairingIdentity identity = network::create_pairing_identity();
+    ASSERT_TRUE(network::is_valid_pairing_identity(identity));
+
+    std::size_t callCount = 0U;
+    ScopedHostPairingHttpTestHandler guard([&callCount](const HostPairingHttpTestRequest &request, HostPairingHttpTestResponse *response, std::string *, const std::atomic<bool> *) {
+      if (callCount++ == 0U) {
+        EXPECT_EQ(request.socketIoTimeoutMilliseconds, kDefaultPairingSocketTimeoutMilliseconds);
+        response->statusCode = 200;
+        response->body = make_server_info_xml(false, 47989U, 47990U, "Pair Host", "pair-host");
+        return true;
+      }
+
+      EXPECT_NE(request.pathAndQuery.find("phrase=getservercert"), std::string::npos);
+      EXPECT_EQ(request.socketIoTimeoutMilliseconds, kPinEntrySocketTimeoutMilliseconds);
+      response->statusCode = 200;
+      response->body = make_pair_phase_response("0");
+      return true;
+    });
+
+    const network::HostPairingResult result = network::pair_host({
+      test_support::kTestIpv4Addresses[test_support::kIpLivingRoom],
+      47989U,
+      "1234",
+      "MoonlightXboxOG",
+      identity,
+    });
+
+    EXPECT_EQ(callCount, 2U);
     EXPECT_FALSE(result.success);
     EXPECT_EQ(result.message, "Pairing failed during phase 1 (getservercert): The host rejected the initial pairing request");
   }
