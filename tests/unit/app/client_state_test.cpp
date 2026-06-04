@@ -14,6 +14,23 @@
 
 namespace {
 
+  /**
+   * @brief Navigates from the initial hosts toolbar selection to the display settings options.
+   *
+   * @param state Client state to drive through the display settings commands.
+   */
+  void open_display_settings_options(app::ClientState &state) {
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+  }
+
   TEST(ClientStateTest, StartsOnTheHostsScreenWithTheToolbarSelected) {
     const app::ClientState state = app::create_initial_state();
 
@@ -1018,15 +1035,7 @@ namespace {
     state.settings.preferredVideoMode = state.settings.availableVideoModes.front();
     state.settings.preferredVideoModeSet = true;
 
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
-
-    app::handle_command(state, input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
-    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+    ASSERT_NO_FATAL_FAILURE(open_display_settings_options(state));
 
     const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
     EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-video-mode");
@@ -1039,15 +1048,7 @@ namespace {
   TEST(ClientStateTest, DisplaySettingsCanCycleStreamFramerateThroughSixtyFps) {
     app::ClientState state = app::create_initial_state();
 
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
-
-    app::handle_command(state, input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
-    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+    ASSERT_NO_FATAL_FAILURE(open_display_settings_options(state));
 
     ASSERT_TRUE(state.detailMenu.select_item_by_id("cycle-stream-framerate"));
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
@@ -1075,15 +1076,7 @@ namespace {
     ASSERT_TRUE(state.settings.playAudioOnXbox);
     ASSERT_FALSE(state.settings.showPerformanceStats);
 
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::move_left);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
-
-    app::handle_command(state, input::UiCommand::move_down);
-    app::handle_command(state, input::UiCommand::activate);
-    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
-    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+    ASSERT_NO_FATAL_FAILURE(open_display_settings_options(state));
 
     ASSERT_TRUE(state.detailMenu.select_item_by_id("toggle-play-audio-on-xbox"));
     app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
