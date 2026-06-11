@@ -2165,6 +2165,7 @@ namespace {
       state.settings.preferredVideoModeSet,
       state.settings.streamFramerate,
       state.settings.streamBitrateKbps,
+      state.settings.videoDecoder,
       state.settings.playAudioOnPc,
       state.settings.showPerformanceStats,
       state.settings.playAudioOnXbox,

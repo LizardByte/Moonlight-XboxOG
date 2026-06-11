@@ -69,6 +69,10 @@ namespace {
   constexpr int MIN_STREAM_BITRATE_KBPS = 250;
   constexpr int MAX_STREAM_BITRATE_KBPS = 50000;
   constexpr int DEFAULT_PACKET_SIZE = 1024;
+  /**
+   * @brief Video format mask advertised to moonlight-common-c.
+   */
+  constexpr int STREAM_SUPPORTED_VIDEO_FORMATS = VIDEO_FORMAT_H264 | VIDEO_FORMAT_MPEG2 | VIDEO_FORMAT_H263P;
   constexpr std::size_t MAX_CONNECTION_PROTOCOL_MESSAGES = 24U;
   constexpr uint16_t PRESENT_GAMEPAD_MASK = 0x0001;
   constexpr uint32_t CONTROLLER_BUTTON_CAPABILITIES =
@@ -158,9 +162,11 @@ namespace {
   };
 
   struct ResolvedStreamParameters {
-    VIDEO_MODE videoMode {};
+    VIDEO_MODE presentationVideoMode {};  ///< Xbox presentation mode selected by user settings.
+    VIDEO_MODE videoMode {};  ///< Stream mode requested from the host.
     int fps = DEFAULT_STREAM_FPS;
     int bitrateKbps = DEFAULT_STREAM_BITRATE_KBPS;
+    int supportedVideoFormats = VIDEO_FORMAT_H264;
     int packetSize = DEFAULT_PACKET_SIZE;
     int streamingRemotely = STREAM_CFG_AUTO;
   };
@@ -714,6 +720,48 @@ namespace {
   }
 
   /**
+   * @brief Return the supported Moonlight format mask for one decoder preference.
+   *
+   * @param selection Decoder preference selected in settings.
+   * @return Moonlight video format mask advertised to the host.
+   */
+  int select_supported_video_formats(app::VideoDecoderSelection selection) {
+    switch (selection) {
+      case app::VideoDecoderSelection::autoDetect:
+        return STREAM_SUPPORTED_VIDEO_FORMATS;
+      case app::VideoDecoderSelection::h264:
+        return VIDEO_FORMAT_H264;
+      case app::VideoDecoderSelection::mpeg2:
+        return VIDEO_FORMAT_MPEG2;
+      case app::VideoDecoderSelection::h263p:
+        return VIDEO_FORMAT_H263P;
+    }
+
+    return STREAM_SUPPORTED_VIDEO_FORMATS;
+  }
+
+  /**
+   * @brief Describe a decoder preference for logs and waiting screens.
+   *
+   * @param selection Decoder preference selected in settings.
+   * @return Human-readable decoder preference.
+   */
+  const char *describe_video_decoder_selection(app::VideoDecoderSelection selection) {
+    switch (selection) {
+      case app::VideoDecoderSelection::autoDetect:
+        return "Auto";
+      case app::VideoDecoderSelection::h264:
+        return "H.264";
+      case app::VideoDecoderSelection::mpeg2:
+        return "MPEG-2/H.262";
+      case app::VideoDecoderSelection::h263p:
+        return "H.263+";
+    }
+
+    return "Auto";
+  }
+
+  /**
    * @brief Resolve the effective stream parameters for the next session.
    *
    * @param fallbackVideoMode Active shell output mode.
@@ -722,9 +770,11 @@ namespace {
    */
   ResolvedStreamParameters resolve_stream_parameters(const VIDEO_MODE &fallbackVideoMode, const app::SettingsState &settings) {
     ResolvedStreamParameters resolved {};
-    resolved.videoMode = select_effective_stream_video_mode(fallbackVideoMode, settings);
+    resolved.presentationVideoMode = select_effective_stream_video_mode(fallbackVideoMode, settings);
+    resolved.videoMode = resolved.presentationVideoMode;
     resolved.fps = select_stream_fps(settings);
     resolved.bitrateKbps = select_stream_bitrate_kbps(settings);
+    resolved.supportedVideoFormats = select_supported_video_formats(settings.videoDecoder);
 
     return resolved;
   }
@@ -768,7 +818,7 @@ namespace {
     context->streamConfiguration.packetSize = streamParameters.packetSize;
     context->streamConfiguration.streamingRemotely = streamParameters.streamingRemotely;
     context->streamConfiguration.audioConfiguration = AUDIO_CONFIGURATION_STEREO;
-    context->streamConfiguration.supportedVideoFormats = VIDEO_FORMAT_H264;
+    context->streamConfiguration.supportedVideoFormats = streamParameters.supportedVideoFormats;
     context->streamConfiguration.clientRefreshRateX100 = select_client_refresh_rate_x100(outputVideoMode);
     context->streamConfiguration.colorSpace = COLORSPACE_REC_601;
     context->streamConfiguration.colorRange = COLOR_RANGE_LIMITED;
@@ -1154,7 +1204,19 @@ namespace {
     return 0;
   }
 
-  streaming::StreamStatisticsSnapshot sample_stream_statistics(const StreamStartContext &context, const StreamConnectionState &connectionState) {
+  /**
+   * @brief Capture the current transport and decoder statistics.
+   *
+   * @param context Active stream configuration and host connection details.
+   * @param connectionState Mutable connection state tracked by the session loop.
+   * @param mediaBackend FFmpeg backend that owns the active decoder.
+   * @return Snapshot ready for rendering in diagnostics or end-of-stream summary.
+   */
+  streaming::StreamStatisticsSnapshot sample_stream_statistics(
+    const StreamStartContext &context,
+    const StreamConnectionState &connectionState,
+    const streaming::FfmpegStreamBackend &mediaBackend
+  ) {
     streaming::StreamStatisticsSnapshot snapshot {
       context.streamConfiguration.width,
       context.streamConfiguration.height,
@@ -1168,6 +1230,7 @@ namespace {
       -1,
       -1,
       connectionState.poorConnection.load(),
+      mediaBackend.active_video_decoder_name(),
     };
 
     uint32_t estimatedRtt = 0;
@@ -1253,7 +1316,7 @@ namespace {
       "Hold Back + Start for about one second to stop streaming.",
     };
     if (!renderedVideo) {
-      lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | H.264 | Stereo");
+      lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | " + (mediaBackend != nullptr ? mediaBackend->active_video_decoder_name() : std::string("video")) + " | Stereo");
       lines.emplace(lines.begin() + 4, std::string("Launch mode: ") + (context.serverInformation.rtspSessionUrl != nullptr ? "Session URL supplied by host" : "Default RTSP discovery"));
       lines.emplace(lines.begin() + 5, "Waiting for the first decoded video frame and audio output.");
     }
@@ -1522,7 +1585,7 @@ namespace streaming {
     std::string *statusMessage
   ) {
     const ResolvedStreamParameters streamParameters = resolve_stream_parameters(videoMode, settings);
-    const VIDEO_MODE streamPresentationVideoMode = select_stream_presentation_video_mode(videoMode, streamParameters.videoMode);
+    const VIDEO_MODE streamPresentationVideoMode = select_stream_presentation_video_mode(videoMode, streamParameters.presentationVideoMode);
     ScopedStreamVideoMode scopedStreamVideoMode(window, videoMode, streamPresentationVideoMode);
     const VIDEO_MODE &activeStreamVideoMode = scopedStreamVideoMode.active_video_mode();
 
@@ -1584,7 +1647,7 @@ namespace streaming {
     );
     logging::info(
       "stream",
-      std::string("Requested stream configuration | resolution=") + std::to_string(startContext.streamConfiguration.width) + "x" + std::to_string(startContext.streamConfiguration.height) + " | fps=" + std::to_string(startContext.streamConfiguration.fps) + " | bitrate=" + std::to_string(startContext.streamConfiguration.bitrate) + " kbps | packetSize=" + std::to_string(startContext.streamConfiguration.packetSize) + " | networkProfile=" + describe_streaming_remotely_mode(startContext.streamConfiguration.streamingRemotely) + " | clientRefreshX100=" + std::to_string(startContext.streamConfiguration.clientRefreshRateX100)
+      std::string("Requested stream configuration | resolution=") + std::to_string(startContext.streamConfiguration.width) + "x" + std::to_string(startContext.streamConfiguration.height) + " | fps=" + std::to_string(startContext.streamConfiguration.fps) + " | bitrate=" + std::to_string(startContext.streamConfiguration.bitrate) + " kbps | decoder=" + describe_video_decoder_selection(settings.videoDecoder) + " | packetSize=" + std::to_string(startContext.streamConfiguration.packetSize) + " | networkProfile=" + describe_streaming_remotely_mode(startContext.streamConfiguration.streamingRemotely) + " | clientRefreshX100=" + std::to_string(startContext.streamConfiguration.clientRefreshRateX100)
     );
     resources.mediaBackend.set_audio_playback_enabled(settings.playAudioOnXbox);
     logging::info("stream", std::string("Xbox audio playback ") + (settings.playAudioOnXbox ? "enabled" : "disabled for lower decode latency"));
@@ -1625,7 +1688,7 @@ namespace streaming {
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
     run_active_stream_loop({settings, host, app, startContext, connectionState, resources});
 
-    const streaming::StreamStatisticsSnapshot finalStatistics = sample_stream_statistics(startContext, connectionState);
+    const streaming::StreamStatisticsSnapshot finalStatistics = sample_stream_statistics(startContext, connectionState, resources.mediaBackend);
     LiStopConnection();
     active_connection_state() = nullptr;
 

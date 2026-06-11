@@ -39,6 +39,9 @@ namespace streaming {
     {
       std::ostringstream streamLine;
       streamLine << "Stream: " << snapshot.width << "x" << snapshot.height << " @ " << snapshot.fps << " FPS";
+      if (!snapshot.videoDecoder.empty()) {
+        streamLine << " | Decoder: " << snapshot.videoDecoder;
+      }
       lines.push_back(streamLine.str());
     }
 
