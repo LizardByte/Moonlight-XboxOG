@@ -277,7 +277,20 @@ namespace streaming {
       std::uint64_t renderedFrameVersion = 0;
       std::vector<std::uint8_t> convertedBuffer;
       std::vector<std::uint8_t> packetBuffer;
-      mutable std::mutex frameMutex;
+
+      /**
+       * @brief Return the mutex guarding decoded frame publication.
+       *
+       * @return Mutex used to exchange frames between decode and render threads.
+       */
+      [[nodiscard]] std::mutex &frame_mutex() const {
+        return frameMutex_;
+      }
+
+    private:
+      mutable std::mutex frameMutex_;  ///< Guards latest decoded frame publication between worker and render threads.
+
+    public:
       SDL_Rect directFramebufferDestination {0, 0, 0, 0};
       LatestVideoFrame latestFrame;
       LatestVideoFrame decodeFrame;

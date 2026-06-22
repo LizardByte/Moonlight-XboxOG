@@ -30,10 +30,21 @@ namespace ui {
    * @brief Thread-safe queue used to publish per-host probe results back to the shell loop.
    */
   struct HostProbeResultQueue {
-    mutable std::mutex mutex;  ///< Guards the current round counters and pending result queue.
     std::size_t targetCount = 0U;  ///< Number of results expected for the active probe round.
     std::size_t publishedCount = 0U;  ///< Number of results published so far for the active round.
     std::vector<HostProbeResult> pendingResults;  ///< Probe results waiting to be drained by the main thread.
+
+    /**
+     * @brief Return the mutex guarding the probe round counters and result queue.
+     *
+     * @return Mutex used to synchronize worker publications with shell-loop drains.
+     */
+    [[nodiscard]] std::mutex &mutex() const {
+      return mutex_;
+    }
+
+  private:
+    mutable std::mutex mutex_;  ///< Guards the current round counters and pending result queue.
   };
 
   /**

@@ -81,8 +81,19 @@ namespace {
     TTF_Font *bodyFont = nullptr;
     SDL_GameController *controller = nullptr;
     streaming::FfmpegStreamBackend mediaBackend {};
-    mutable std::mutex controllerMutex;
     bool ttfInitialized = false;
+
+    /**
+     * @brief Return the mutex guarding controller lifetime and input reads.
+     *
+     * @return Mutex used to synchronize controller open, close, and snapshot access.
+     */
+    [[nodiscard]] std::mutex &controller_mutex() const {
+      return controllerMutex_;
+    }
+
+  private:
+    mutable std::mutex controllerMutex_;  ///< Guards controller lifetime and input reads across the stream loop.
   };
 
   struct ControllerSnapshot {
@@ -106,8 +117,19 @@ namespace {
     std::atomic<bool> connectionTerminated = false;
     std::atomic<bool> poorConnection = false;
     std::atomic<bool> stopRequested = false;
-    mutable std::mutex protocolLogMutex;
     std::deque<std::string> recentProtocolMessages;
+
+    /**
+     * @brief Return the mutex guarding retained protocol log messages.
+     *
+     * @return Mutex used to synchronize protocol message appends, reads, and resets.
+     */
+    [[nodiscard]] std::mutex &protocol_log_mutex() const {
+      return protocolLogMutex_;
+    }
+
+  private:
+    mutable std::mutex protocolLogMutex_;  ///< Guards the retained protocol log buffer.
   };
 
   struct StreamInputThreadState {
@@ -488,7 +510,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(connectionState->protocolLogMutex);
+    std::scoped_lock lock(connectionState->protocol_log_mutex());
     if (connectionState->recentProtocolMessages.size() >= MAX_CONNECTION_PROTOCOL_MESSAGES) {
       connectionState->recentProtocolMessages.pop_front();
     }
@@ -502,7 +524,7 @@ namespace {
    * @return Latest protocol message, or an empty string when none was recorded.
    */
   std::string latest_connection_protocol_message(const StreamConnectionState &connectionState) {
-    std::scoped_lock lock(connectionState.protocolLogMutex);
+    std::scoped_lock lock(connectionState.protocol_log_mutex());
     return connectionState.recentProtocolMessages.empty() ? std::string {} : connectionState.recentProtocolMessages.back();
   }
 
@@ -526,7 +548,7 @@ namespace {
     connectionState->connectionTerminated.store(false);
     connectionState->poorConnection.store(false);
     connectionState->stopRequested.store(false);
-    std::scoped_lock lock(connectionState->protocolLogMutex);
+    std::scoped_lock lock(connectionState->protocol_log_mutex());
     connectionState->recentProtocolMessages.clear();
   }
 
@@ -547,7 +569,7 @@ namespace {
 
     resources->mediaBackend.shutdown();
     {
-      std::scoped_lock lock(resources->controllerMutex);
+      std::scoped_lock lock(resources->controller_mutex());
       close_controller(resources->controller);
       resources->controller = nullptr;
     }
@@ -933,7 +955,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
+    std::scoped_lock lock(resources->controller_mutex());
     if (resources->controller == nullptr) {
       resources->controller = SDL_GameControllerOpen(deviceIndex);
     }
@@ -944,7 +966,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
+    std::scoped_lock lock(resources->controller_mutex());
     if (resources->controller == nullptr) {
       return;
     }
@@ -1100,7 +1122,7 @@ namespace {
       return {};
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
+    std::scoped_lock lock(resources->controller_mutex());
     if (resources->controller == nullptr) {
       return {};
     }

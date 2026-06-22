@@ -182,9 +182,20 @@ namespace {
    * @brief Thread-safe collector updated by the lwIP mDNS search callback.
    */
   struct DiscoveryCollector {
-    mutable std::mutex mutex;  ///< Guards the partial discovery state shared with the callback.
     std::unordered_map<std::string, PendingDiscoveredService> servicesByInstance;  ///< Partial records keyed by instance domain.
     std::unordered_map<std::string, std::string> ipv4ByDomain;  ///< Resolved IPv4 addresses keyed by target host domain.
+
+    /**
+     * @brief Return the mutex guarding the partial discovery state.
+     *
+     * @return Mutex used to synchronize callback writes with result assembly.
+     */
+    [[nodiscard]] std::mutex &mutex() const {
+      return mutex_;
+    }
+
+  private:
+    mutable std::mutex mutex_;  ///< Guards the partial discovery state shared with the callback.
   };
 
   std::string encoded_domain_to_string(const char *encodedDomain, std::size_t encodedLength) {
@@ -235,7 +246,7 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
+    const std::scoped_lock lock(collector->mutex());
     PendingDiscoveredService &service = collector->servicesByInstance[instanceDomain];
     service.instanceDomain = std::move(instanceDomain);
     if (service.displayName.empty()) {
@@ -248,7 +259,7 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
+    const std::scoped_lock lock(collector->mutex());
     PendingDiscoveredService &service = collector->servicesByInstance[instanceDomain];
     service.instanceDomain = std::move(instanceDomain);
     if (service.displayName.empty()) {
@@ -263,7 +274,7 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
+    const std::scoped_lock lock(collector->mutex());
     collector->ipv4ByDomain[std::move(domain)] = std::move(ipv4Address);
   }
 
@@ -315,7 +326,7 @@ namespace {
   network::DiscoverHostsResult build_discover_hosts_result(const DiscoveryCollector &collector) {
     network::DiscoverHostsResult result {};
 
-    const std::scoped_lock lock(collector.mutex);
+    const std::scoped_lock lock(collector.mutex());
     for (const auto &[instanceDomain, service] : collector.servicesByInstance) {
       (void) instanceDomain;
       if (service.targetDomain.empty() || service.port == 0) {
