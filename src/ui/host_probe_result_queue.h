@@ -29,11 +29,25 @@ namespace ui {
   /**
    * @brief Thread-safe queue used to publish per-host probe results back to the shell loop.
    */
-  struct HostProbeResultQueue {
-    mutable std::mutex mutex;  ///< Guards the current round counters and pending result queue.
-    std::size_t targetCount = 0U;  ///< Number of results expected for the active probe round.
-    std::size_t publishedCount = 0U;  ///< Number of results published so far for the active round.
-    std::vector<HostProbeResult> pendingResults;  ///< Probe results waiting to be drained by the main thread.
+  class HostProbeResultQueue {
+  public:
+    /**
+     * @brief Construct an empty probe result queue.
+     */
+    HostProbeResultQueue() = default;
+
+  private:
+    friend void reset_host_probe_result_queue(HostProbeResultQueue *queue);
+    friend void begin_host_probe_result_round(HostProbeResultQueue *queue, std::size_t targetCount);
+    friend void publish_host_probe_result(HostProbeResultQueue *queue, HostProbeResult result);
+    friend void skip_host_probe_result_target(HostProbeResultQueue *queue);
+    friend std::vector<HostProbeResult> drain_host_probe_results(HostProbeResultQueue *queue);
+    friend bool host_probe_result_round_complete(const HostProbeResultQueue &queue);
+
+    mutable std::mutex mutex_;  ///< Guards the current round counters and pending result queue.
+    std::size_t targetCount_ = 0U;  ///< Number of results expected for the active probe round.
+    std::size_t publishedCount_ = 0U;  ///< Number of results published so far for the active round.
+    std::vector<HostProbeResult> pendingResults_;  ///< Probe results waiting to be drained by the main thread.
   };
 
   /**

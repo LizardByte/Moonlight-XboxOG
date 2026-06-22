@@ -75,16 +75,6 @@ namespace {
     static_cast<uint32_t>(A_FLAG | B_FLAG | X_FLAG | Y_FLAG | UP_FLAG | DOWN_FLAG | LEFT_FLAG | RIGHT_FLAG | LB_FLAG | RB_FLAG | PLAY_FLAG | BACK_FLAG | LS_CLK_FLAG | RS_CLK_FLAG | SPECIAL_FLAG);
   constexpr uint16_t CONTROLLER_CAPABILITIES = LI_CCAP_ANALOG_TRIGGERS | LI_CCAP_RUMBLE;
 
-  struct StreamUiResources {
-    SDL_Renderer *renderer = nullptr;
-    TTF_Font *titleFont = nullptr;
-    TTF_Font *bodyFont = nullptr;
-    SDL_GameController *controller = nullptr;
-    streaming::FfmpegStreamBackend mediaBackend {};
-    mutable std::mutex controllerMutex;
-    bool ttfInitialized = false;
-  };
-
   struct ControllerSnapshot {
     int buttonFlags = 0;
     unsigned char leftTrigger = 0;
@@ -93,6 +83,107 @@ namespace {
     short leftStickY = 0;
     short rightStickX = 0;
     short rightStickY = 0;
+  };
+
+  /**
+   * @brief Thread-safe owner for the active stream controller handle.
+   */
+  class StreamControllerHandle {
+  public:
+    /**
+     * @brief Replace the current controller handle without closing the old one.
+     *
+     * @param controller New controller handle to store.
+     */
+    void reset(SDL_GameController *controller);
+
+    /**
+     * @brief Close and clear the current controller handle.
+     */
+    void close();
+
+    /**
+     * @brief Open a controller when no controller is currently active.
+     *
+     * @param deviceIndex SDL joystick device index reported by the add event.
+     */
+    void open_if_needed(int deviceIndex);
+
+    /**
+     * @brief Close the controller when SDL reports that its joystick was removed.
+     *
+     * @param joystickInstanceId SDL joystick instance identifier from the remove event.
+     */
+    void close_if_removed(int joystickInstanceId);
+
+    /**
+     * @brief Return the raw handle for same-thread startup polling.
+     *
+     * @return Current controller handle, or nullptr when no controller is open.
+     */
+    [[nodiscard]] SDL_GameController *startup_poll_handle() const;
+
+    /**
+     * @brief Read a synchronized controller input snapshot.
+     *
+     * @param controllerPresent Optional output set to true when a controller was read.
+     * @return Current controller input state, or a zeroed snapshot when unavailable.
+     */
+    [[nodiscard]] ControllerSnapshot read_snapshot(bool *controllerPresent) const;
+
+  private:
+    mutable std::mutex mutex_;  ///< Guards controller lifetime and input reads across the stream loop.
+    SDL_GameController *controller_ = nullptr;  ///< Currently opened SDL controller handle.
+  };
+
+  struct StreamUiResources {
+    SDL_Renderer *renderer = nullptr;
+    TTF_Font *titleFont = nullptr;
+    TTF_Font *bodyFont = nullptr;
+    StreamControllerHandle controller;
+    streaming::FfmpegStreamBackend mediaBackend {};
+    bool ttfInitialized = false;
+  };
+
+  /**
+   * @brief Retained connection-protocol messages protected by their own lock.
+   */
+  class StreamProtocolLogBuffer {
+  public:
+    /**
+     * @brief Append one trimmed protocol message to the rolling buffer.
+     *
+     * @param message Protocol log message to retain.
+     */
+    void append(std::string message) {
+      std::scoped_lock lock(mutex_);
+      if (messages_.size() >= MAX_CONNECTION_PROTOCOL_MESSAGES) {
+        messages_.pop_front();
+      }
+      messages_.push_back(std::move(message));
+    }
+
+    /**
+     * @brief Return the most recent retained protocol message.
+     *
+     * @return Latest message, or an empty string when the buffer is empty.
+     */
+    [[nodiscard]] std::string latest() const {
+      std::scoped_lock lock(mutex_);
+      return messages_.empty() ? std::string {} : messages_.back();
+    }
+
+    /**
+     * @brief Remove every retained protocol message.
+     */
+    void clear() {
+      std::scoped_lock lock(mutex_);
+      messages_.clear();
+    }
+
+  private:
+    mutable std::mutex mutex_;  ///< Guards retained protocol messages.
+    std::deque<std::string> messages_;  ///< Rolling protocol message buffer.
   };
 
   struct StreamConnectionState {
@@ -106,8 +197,7 @@ namespace {
     std::atomic<bool> connectionTerminated = false;
     std::atomic<bool> poorConnection = false;
     std::atomic<bool> stopRequested = false;
-    mutable std::mutex protocolLogMutex;
-    std::deque<std::string> recentProtocolMessages;
+    StreamProtocolLogBuffer protocolLog;  ///< Recent protocol messages reported by Moonlight callbacks.
   };
 
   struct StreamInputThreadState {
@@ -488,11 +578,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(connectionState->protocolLogMutex);
-    if (connectionState->recentProtocolMessages.size() >= MAX_CONNECTION_PROTOCOL_MESSAGES) {
-      connectionState->recentProtocolMessages.pop_front();
-    }
-    connectionState->recentProtocolMessages.push_back(std::move(message));
+    connectionState->protocolLog.append(std::move(message));
   }
 
   /**
@@ -502,8 +588,7 @@ namespace {
    * @return Latest protocol message, or an empty string when none was recorded.
    */
   std::string latest_connection_protocol_message(const StreamConnectionState &connectionState) {
-    std::scoped_lock lock(connectionState.protocolLogMutex);
-    return connectionState.recentProtocolMessages.empty() ? std::string {} : connectionState.recentProtocolMessages.back();
+    return connectionState.protocolLog.latest();
   }
 
   /**
@@ -526,8 +611,7 @@ namespace {
     connectionState->connectionTerminated.store(false);
     connectionState->poorConnection.store(false);
     connectionState->stopRequested.store(false);
-    std::scoped_lock lock(connectionState->protocolLogMutex);
-    connectionState->recentProtocolMessages.clear();
+    connectionState->protocolLog.clear();
   }
 
   std::string build_font_path() {
@@ -547,9 +631,7 @@ namespace {
 
     resources->mediaBackend.shutdown();
     {
-      std::scoped_lock lock(resources->controllerMutex);
-      close_controller(resources->controller);
-      resources->controller = nullptr;
+      resources->controller.close();
     }
     if (resources->bodyFont != nullptr) {
       TTF_CloseFont(resources->bodyFont);
@@ -620,7 +702,7 @@ namespace {
       return false;
     }
 
-    resources->controller = open_primary_controller();
+    resources->controller.reset(open_primary_controller());
     return true;
   }
 
@@ -933,10 +1015,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
-    if (resources->controller == nullptr) {
-      resources->controller = SDL_GameControllerOpen(deviceIndex);
-    }
+    resources->controller.open_if_needed(deviceIndex);
   }
 
   void close_controller_if_removed(StreamUiResources *resources, int joystickInstanceId) {
@@ -944,16 +1023,7 @@ namespace {
       return;
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
-    if (resources->controller == nullptr) {
-      return;
-    }
-
-    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(resources->controller);
-    if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == joystickInstanceId) {
-      close_controller(resources->controller);
-      resources->controller = nullptr;
-    }
+    resources->controller.close_if_removed(joystickInstanceId);
   }
 
   SDL_ControllerDeviceEvent copy_controller_device_event(const SDL_Event &event) {
@@ -1042,6 +1112,53 @@ namespace {
     return snapshot;
   }
 
+  void StreamControllerHandle::reset(SDL_GameController *controller) {
+    std::scoped_lock lock(mutex_);
+    controller_ = controller;
+  }
+
+  void StreamControllerHandle::close() {
+    std::scoped_lock lock(mutex_);
+    close_controller(controller_);
+    controller_ = nullptr;
+  }
+
+  void StreamControllerHandle::open_if_needed(int deviceIndex) {
+    std::scoped_lock lock(mutex_);
+    if (controller_ == nullptr) {
+      controller_ = SDL_GameControllerOpen(deviceIndex);
+    }
+  }
+
+  void StreamControllerHandle::close_if_removed(int joystickInstanceId) {
+    std::scoped_lock lock(mutex_);
+    if (controller_ == nullptr) {
+      return;
+    }
+
+    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller_);
+    if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == joystickInstanceId) {
+      close_controller(controller_);
+      controller_ = nullptr;
+    }
+  }
+
+  SDL_GameController *StreamControllerHandle::startup_poll_handle() const {
+    return controller_;
+  }
+
+  ControllerSnapshot StreamControllerHandle::read_snapshot(bool *controllerPresent) const {
+    std::scoped_lock lock(mutex_);
+    if (controller_ == nullptr) {
+      return {};
+    }
+
+    if (controllerPresent != nullptr) {
+      *controllerPresent = true;
+    }
+    return read_controller_snapshot(controller_);
+  }
+
   bool controller_snapshots_match(const ControllerSnapshot &left, const ControllerSnapshot &right) {
     return left.buttonFlags == right.buttonFlags && left.leftTrigger == right.leftTrigger && left.rightTrigger == right.rightTrigger && left.leftStickX == right.leftStickX && left.leftStickY == right.leftStickY &&
            left.rightStickX == right.rightStickX && left.rightStickY == right.rightStickY;
@@ -1092,7 +1209,7 @@ namespace {
     }
   }
 
-  ControllerSnapshot read_controller_snapshot(StreamUiResources *resources, bool *controllerPresent) {
+  ControllerSnapshot read_controller_snapshot(const StreamUiResources *resources, bool *controllerPresent) {
     if (controllerPresent != nullptr) {
       *controllerPresent = false;
     }
@@ -1100,15 +1217,7 @@ namespace {
       return {};
     }
 
-    std::scoped_lock lock(resources->controllerMutex);
-    if (resources->controller == nullptr) {
-      return {};
-    }
-
-    if (controllerPresent != nullptr) {
-      *controllerPresent = true;
-    }
-    return read_controller_snapshot(resources->controller);
+    return resources->controller.read_snapshot(controllerPresent);
   }
 
   void send_controller_snapshot_if_needed(const ControllerSnapshot &snapshot, bool controllerPresent, bool *arrivalSent, ControllerSnapshot *lastSnapshot) {
@@ -1359,7 +1468,7 @@ namespace {
       Uint32 exitComboActivatedTick = 0U;
       while (!attempt.connectionState.startCompleted.load() && !attempt.connectionState.stopRequested.load()) {
         pump_stream_events(&attempt.resources);
-        update_stream_exit_combo(attempt.resources.controller, &exitComboActivatedTick, &attempt.connectionState);
+        update_stream_exit_combo(attempt.resources.controller.startup_poll_handle(), &exitComboActivatedTick, &attempt.connectionState);
         render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, &attempt.resources);
         if (attempt.connectionState.stopRequested.load()) {
           LiInterruptConnection();
@@ -1408,7 +1517,7 @@ namespace {
 
   void poll_fallback_controller_if_needed(
     const SDL_Thread *inputThread,
-    StreamUiResources *resources,
+    const StreamUiResources *resources,
     StreamConnectionState *connectionState,
     Uint32 *exitComboActivatedTick,
     bool *controllerArrivalSent,

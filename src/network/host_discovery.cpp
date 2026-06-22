@@ -182,9 +182,20 @@ namespace {
    * @brief Thread-safe collector updated by the lwIP mDNS search callback.
    */
   struct DiscoveryCollector {
-    mutable std::mutex mutex;  ///< Guards the partial discovery state shared with the callback.
-    std::unordered_map<std::string, PendingDiscoveredService> servicesByInstance;  ///< Partial records keyed by instance domain.
-    std::unordered_map<std::string, std::string> ipv4ByDomain;  ///< Resolved IPv4 addresses keyed by target host domain.
+    /**
+     * @brief Construct an empty discovery collector.
+     */
+    DiscoveryCollector() = default;
+
+  private:
+    friend void remember_ptr_service_instance(DiscoveryCollector *collector, std::string instanceDomain);
+    friend void remember_srv_service_target(DiscoveryCollector *collector, std::string instanceDomain, std::string targetDomain, uint16_t port);
+    friend void remember_a_record(DiscoveryCollector *collector, std::string domain, std::string ipv4Address);
+    friend network::DiscoverHostsResult build_discover_hosts_result(const DiscoveryCollector &collector);
+
+    mutable std::mutex mutex_;  ///< Guards the partial discovery state shared with the callback.
+    std::unordered_map<std::string, PendingDiscoveredService> servicesByInstance_;  ///< Partial records keyed by instance domain.
+    std::unordered_map<std::string, std::string> ipv4ByDomain_;  ///< Resolved IPv4 addresses keyed by target host domain.
   };
 
   std::string encoded_domain_to_string(const char *encodedDomain, std::size_t encodedLength) {
@@ -235,8 +246,8 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
-    PendingDiscoveredService &service = collector->servicesByInstance[instanceDomain];
+    const std::scoped_lock lock(collector->mutex_);
+    PendingDiscoveredService &service = collector->servicesByInstance_[instanceDomain];
     service.instanceDomain = std::move(instanceDomain);
     if (service.displayName.empty()) {
       service.displayName = first_dns_label(service.instanceDomain);
@@ -248,8 +259,8 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
-    PendingDiscoveredService &service = collector->servicesByInstance[instanceDomain];
+    const std::scoped_lock lock(collector->mutex_);
+    PendingDiscoveredService &service = collector->servicesByInstance_[instanceDomain];
     service.instanceDomain = std::move(instanceDomain);
     if (service.displayName.empty()) {
       service.displayName = first_dns_label(service.instanceDomain);
@@ -263,8 +274,8 @@ namespace {
       return;
     }
 
-    const std::scoped_lock lock(collector->mutex);
-    collector->ipv4ByDomain[std::move(domain)] = std::move(ipv4Address);
+    const std::scoped_lock lock(collector->mutex_);
+    collector->ipv4ByDomain_[std::move(domain)] = std::move(ipv4Address);
   }
 
   /**
@@ -315,14 +326,14 @@ namespace {
   network::DiscoverHostsResult build_discover_hosts_result(const DiscoveryCollector &collector) {
     network::DiscoverHostsResult result {};
 
-    const std::scoped_lock lock(collector.mutex);
-    for (const auto &[instanceDomain, service] : collector.servicesByInstance) {
+    const std::scoped_lock lock(collector.mutex_);
+    for (const auto &[instanceDomain, service] : collector.servicesByInstance_) {
       (void) instanceDomain;
       if (service.targetDomain.empty() || service.port == 0) {
         continue;
       }
-      const auto addressIterator = collector.ipv4ByDomain.find(service.targetDomain);
-      if (addressIterator == collector.ipv4ByDomain.end()) {
+      const auto addressIterator = collector.ipv4ByDomain_.find(service.targetDomain);
+      if (addressIterator == collector.ipv4ByDomain_.end()) {
         continue;
       }
 

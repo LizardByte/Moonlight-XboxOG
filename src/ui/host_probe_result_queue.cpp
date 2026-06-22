@@ -15,10 +15,10 @@ namespace ui {
       return;
     }
 
-    const std::scoped_lock lock(queue->mutex);
-    queue->targetCount = 0U;
-    queue->publishedCount = 0U;
-    queue->pendingResults.clear();
+    const std::scoped_lock lock(queue->mutex_);
+    queue->targetCount_ = 0U;
+    queue->publishedCount_ = 0U;
+    queue->pendingResults_.clear();
   }
 
   void begin_host_probe_result_round(HostProbeResultQueue *queue, std::size_t targetCount) {
@@ -26,10 +26,10 @@ namespace ui {
       return;
     }
 
-    const std::scoped_lock lock(queue->mutex);
-    queue->targetCount = targetCount;
-    queue->publishedCount = 0U;
-    queue->pendingResults.clear();
+    const std::scoped_lock lock(queue->mutex_);
+    queue->targetCount_ = targetCount;
+    queue->publishedCount_ = 0U;
+    queue->pendingResults_.clear();
   }
 
   void publish_host_probe_result(HostProbeResultQueue *queue, HostProbeResult result) {
@@ -37,9 +37,9 @@ namespace ui {
       return;
     }
 
-    const std::scoped_lock lock(queue->mutex);
-    queue->pendingResults.push_back(std::move(result));
-    ++queue->publishedCount;
+    const std::scoped_lock lock(queue->mutex_);
+    queue->pendingResults_.push_back(std::move(result));
+    ++queue->publishedCount_;
   }
 
   void skip_host_probe_result_target(HostProbeResultQueue *queue) {
@@ -47,9 +47,9 @@ namespace ui {
       return;
     }
 
-    const std::scoped_lock lock(queue->mutex);
-    if (queue->targetCount > 0U) {
-      --queue->targetCount;
+    const std::scoped_lock lock(queue->mutex_);
+    if (queue->targetCount_ > 0U) {
+      --queue->targetCount_;
     }
   }
 
@@ -58,15 +58,15 @@ namespace ui {
       return {};
     }
 
-    const std::scoped_lock lock(queue->mutex);
+    const std::scoped_lock lock(queue->mutex_);
     std::vector<HostProbeResult> results;
-    results.swap(queue->pendingResults);
+    results.swap(queue->pendingResults_);
     return results;
   }
 
   bool host_probe_result_round_complete(const HostProbeResultQueue &queue) {
-    const std::scoped_lock lock(queue.mutex);
-    return queue.targetCount != 0U && queue.publishedCount >= queue.targetCount;
+    const std::scoped_lock lock(queue.mutex_);
+    return queue.targetCount_ != 0U && queue.publishedCount_ >= queue.targetCount_;
   }
 
 }  // namespace ui

@@ -457,7 +457,7 @@ namespace streaming {
 
     bool textureNeedsUpload = false;
     if (const std::uint64_t publishedFrameVersion = video_.publishedFrameVersion.load(); publishedFrameVersion != video_.renderedFrameVersion) {
-      std::scoped_lock lock(video_.frameMutex);
+      std::scoped_lock lock(video_.frame_mutex());
       if (video_.latestFrameVersion != video_.renderedFrameVersion && video_.latestFrame.width > 0 && video_.latestFrame.height > 0) {
         std::swap(video_.renderFrame, video_.latestFrame);
         video_.renderedFrameVersion = video_.latestFrameVersion;
@@ -611,7 +611,7 @@ namespace streaming {
     video_.renderFrame = LatestVideoFrame {};
     video_.decodeFrame = LatestVideoFrame {};
     {
-      std::scoped_lock lock(video_.frameMutex);
+      std::scoped_lock lock(video_.frame_mutex());
       video_.latestFrame = LatestVideoFrame {};
       video_.latestFrameVersion = 0;
     }
@@ -742,7 +742,7 @@ namespace streaming {
     std::memcpy(nextFrame.vPlane.data(), frameToPresent->data[2], nextFrame.vPlane.size());
 
     {
-      std::scoped_lock lock(video_.frameMutex);
+      std::scoped_lock lock(video_.frame_mutex());
       std::swap(video_.latestFrame, video_.decodeFrame);
       ++video_.latestFrameVersion;
       video_.publishedFrameVersion.store(video_.latestFrameVersion);
