@@ -15,6 +15,12 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 set(INSTALL_GMOCK OFF CACHE BOOL "" FORCE)
 add_subdirectory("${GTEST_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/googletest" EXCLUDE_FROM_ALL)
 
+set(LIZARDBYTE_COMMON_BUILD_TEST_SUPPORT OFF CACHE BOOL "Build lizardbyte-common GoogleTest support helpers" FORCE)
+if(NOT TARGET lizardbyte::common)
+    add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/lizardbyte-common"
+                     "${CMAKE_CURRENT_BINARY_DIR}/lizardbyte-common"
+                     EXCLUDE_FROM_ALL)
+endif()
 if(NOT TARGET moonlight-common-c OR NOT TARGET Moonlight::OpenSSL)
     message(FATAL_ERROR
             "tests/CMakeLists.txt requires the shared Moonlight dependency targets from the top-level configure")
@@ -52,7 +58,8 @@ target_include_directories(${PROJECT_NAME}
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
         gtest_main
-        Moonlight::OpenSSL)
+        Moonlight::OpenSSL
+        lizardbyte::common)
 target_compile_definitions(${PROJECT_NAME}
         PRIVATE
         TOML_EXCEPTIONS=0
