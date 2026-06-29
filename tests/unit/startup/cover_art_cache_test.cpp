@@ -22,6 +22,7 @@ namespace {
     void TearDown() override {
       test_support::remove_if_present(testFilePath);
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
 
     std::string testDirectory = "cover-art-cache-test";

@@ -26,6 +26,7 @@ namespace {
       test_support::remove_directory_if_present(test_support::join_path(testDirectory, "nested"));
       test_support::remove_if_present(testFilePath);
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
 
     std::string testDirectory = "host-storage-test";

@@ -34,6 +34,7 @@ namespace {
 
     void TearDown() override {
       test_support::remove_tree_if_present(rootDirectory);
+      BaseTest::TearDown();
     }
   };
 

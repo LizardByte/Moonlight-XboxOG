@@ -47,6 +47,7 @@ namespace {
     };
 
     void SetUp() override {
+      BaseTest::SetUp();
       ASSERT_TRUE(test_support::create_directory(testDirectory));
       ASSERT_TRUE(test_support::create_directory(pairingDirectory));
       ASSERT_TRUE(test_support::create_directory(coverArtDirectory));
@@ -66,6 +67,7 @@ namespace {
       test_support::remove_directory_if_present(coverArtDirectory);
       test_support::remove_directory_if_present(pairingDirectory);
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
   };
 

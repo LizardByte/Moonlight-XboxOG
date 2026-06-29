@@ -31,12 +31,14 @@ namespace {
     std::string settingsPath = test_support::join_path(testDirectory, "moonlight.toml");
 
     void SetUp() override {
+      BaseTest::SetUp();
       ASSERT_TRUE(test_support::create_directory(testDirectory));
     }
 
     void TearDown() override {
       test_support::remove_if_present(settingsPath);
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
   };
 

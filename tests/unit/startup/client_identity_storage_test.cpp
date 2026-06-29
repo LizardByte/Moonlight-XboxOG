@@ -37,6 +37,7 @@ namespace {
       test_support::remove_if_present(test_support::join_path(testDirectory, "client.pem"));
       test_support::remove_if_present(test_support::join_path(testDirectory, "key.pem"));
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
 
     std::string testDirectory = "pairing-storage-test";
