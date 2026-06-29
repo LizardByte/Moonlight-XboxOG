@@ -10,7 +10,7 @@
 #include <vector>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
@@ -24,7 +24,7 @@ namespace {
     ASSERT_EQ(std::fclose(file), 0);
   }
 
-  class SavedFilesTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
+  class SavedFilesTest: public BaseTest {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     std::string testDirectory = "saved-files-test";
     std::string pairingDirectory = test_support::join_path(testDirectory, "pairing");

@@ -4,7 +4,7 @@
  */
 #include "src/streaming/stats_overlay.h"
 
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 #include <vector>
 
 namespace {

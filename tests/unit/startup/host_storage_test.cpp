@@ -11,7 +11,7 @@
 #include <vector>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
@@ -19,7 +19,7 @@
 
 namespace {
 
-  class HostStorageTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
+  class HostStorageTest: public BaseTest {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     void TearDown() override {
       test_support::remove_if_present(nestedFilePath);

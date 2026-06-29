@@ -6,7 +6,7 @@
 #include "src/logging/logger.h"
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 namespace {
 

@@ -6,7 +6,7 @@
 #include "src/app/pairing_flow.h"
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/network_test_constants.h"

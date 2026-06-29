@@ -10,7 +10,7 @@
 #include <vector>
 
 // lib inclues
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/network_test_constants.h"
