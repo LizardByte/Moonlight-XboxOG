@@ -11,7 +11,6 @@
 <div align="center">
   <a href="https://github.com/LizardByte/Moonlight-XboxOG"><img src="https://img.shields.io/github/stars/lizardbyte/Moonlight-XboxOG.svg?logo=github&style=for-the-badge" alt="GitHub stars"></a>
   <a href="https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/ci.yml?query=branch%3Amaster"><img src="https://img.shields.io/github/actions/workflow/status/lizardbyte/Moonlight-XboxOG/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge" alt="GitHub Workflow Status (CI)"></a>
-  <a href="https://docs.lizardbyte.dev/projects/Moonlight-XboxOG"><img src="https://img.shields.io/readthedocs/Moonlight-XboxOG.svg?label=Docs&style=for-the-badge&logo=readthedocs" alt="Read the Docs"></a>
   <a href="https://codecov.io/gh/LizardByte/Moonlight-XboxOG"><img src="https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fapp.lizardbyte.dev%2Fdashboard%2Fshields%2Fcodecov%2FMoonlight-XboxOG.json&style=for-the-badge&logo=codecov" alt="Codecov"></a>
   <a href="https://sonarcloud.io/project/overview?id=Moonlight-XboxOG"><img src="https://img.shields.io/sonar/quality_gate/LizardByte_Moonlight-XboxOG.svg?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarqubecloud&label=sonarcloud" alt="SonarCloud"></a>
 </div>
