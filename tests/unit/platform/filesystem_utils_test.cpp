@@ -12,7 +12,7 @@
 #include <string>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
@@ -26,7 +26,7 @@ namespace {
     ASSERT_EQ(std::fclose(file), 0);
   }
 
-  class FilesystemUtilsTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
+  class FilesystemUtilsTest: public BaseTest {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     std::string rootDirectory = "filesystem-utils-test";
     std::string nestedDirectory = test_support::join_path(test_support::join_path(rootDirectory, "level-one"), "level-two");
@@ -34,6 +34,7 @@ namespace {
 
     void TearDown() override {
       test_support::remove_tree_if_present(rootDirectory);
+      BaseTest::TearDown();
     }
   };
 

@@ -4,7 +4,7 @@
  */
 #include "src/ui/menu_model.h"
 
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 namespace {
 

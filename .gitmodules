@@ -8,10 +8,6 @@
 	url = https://github.com/FFmpeg/FFmpeg.git
 	branch = release/8.1
 	shallow = true
-[submodule "third-party/googletest"]
-	path = third-party/googletest
-	url = https://github.com/google/googletest.git
-	shallow = true
 [submodule "third-party/lizardbyte-common"]
 	path = third-party/lizardbyte-common
 	url = https://github.com/LizardByte/lizardbyte-common.git

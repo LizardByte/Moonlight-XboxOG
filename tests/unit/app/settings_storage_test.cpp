@@ -11,7 +11,7 @@
 #include <string_view>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"
@@ -25,18 +25,20 @@ namespace {
     ASSERT_EQ(std::fclose(file), 0);
   }
 
-  class SettingsStorageTest: public ::testing::Test {  // NOSONAR(cpp:S3656) protected members are required by gtest
+  class SettingsStorageTest: public BaseTest {  // NOSONAR(cpp:S3656) protected members are required by gtest
   protected:
     std::string testDirectory = "settings-storage-test";
     std::string settingsPath = test_support::join_path(testDirectory, "moonlight.toml");
 
     void SetUp() override {
+      BaseTest::SetUp();
       ASSERT_TRUE(test_support::create_directory(testDirectory));
     }
 
     void TearDown() override {
       test_support::remove_if_present(settingsPath);
       test_support::remove_directory_if_present(testDirectory);
+      BaseTest::TearDown();
     }
   };
 

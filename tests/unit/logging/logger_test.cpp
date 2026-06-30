@@ -11,7 +11,7 @@
 #include <vector>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 namespace {
 

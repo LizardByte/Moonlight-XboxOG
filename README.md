@@ -1,18 +1,28 @@
-# Moonlight-XboxOG
+<div align="center">
+  <img
+    src="moonlight-logo.svg"
+    alt="Moonlight icon"
+    width="256"
+  />
+  <h1 align="center">Moonlight-XboxOG</h1>
+  <h4 align="center">Port of Moonlight for the Original Xbox.</h4>
+</div>
 
-[![GitHub stars](https://img.shields.io/github/stars/lizardbyte/moonlight-xboxog.svg?logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG)
-[![GitHub Releases](https://img.shields.io/github/downloads/lizardbyte/moonlight-xboxog/total.svg?style=for-the-badge&logo=github)](https://github.com/LizardByte/Moonlight-XboxOG/releases/latest)
-[![GitHub Workflow Status (CI)](https://img.shields.io/github/actions/workflow/status/lizardbyte/moonlight-xboxog/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge)](https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/CI.yml?query=branch%3Amaster)
-[![Codecov](https://img.shields.io/codecov/c/gh/LizardByte/Moonlight-XboxOG?token=DoIh5pkEzA&style=for-the-badge&logo=codecov&label=codecov)](https://codecov.io/gh/LizardByte/Moonlight-XboxOG)
+<div align="center">
+  <a href="https://github.com/LizardByte/Moonlight-XboxOG"><img src="https://img.shields.io/github/stars/lizardbyte/Moonlight-XboxOG.svg?logo=github&style=for-the-badge" alt="GitHub stars"></a>
+  <a href="https://github.com/LizardByte/Moonlight-XboxOG/actions/workflows/ci.yml?query=branch%3Amaster"><img src="https://img.shields.io/github/actions/workflow/status/lizardbyte/Moonlight-XboxOG/ci.yml.svg?branch=master&label=CI%20build&logo=github&style=for-the-badge" alt="GitHub Workflow Status (CI)"></a>
+  <a href="https://codecov.io/gh/LizardByte/Moonlight-XboxOG"><img src="https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fapp.lizardbyte.dev%2Fdashboard%2Fshields%2Fcodecov%2FMoonlight-XboxOG.json&style=for-the-badge&logo=codecov" alt="Codecov"></a>
+  <a href="https://sonarcloud.io/project/overview?id=Moonlight-XboxOG"><img src="https://img.shields.io/sonar/quality_gate/LizardByte_Moonlight-XboxOG.svg?server=https%3A%2F%2Fsonarcloud.io&style=for-the-badge&logo=sonarqubecloud&label=sonarcloud" alt="SonarCloud"></a>
+</div>
 
-Port of Moonlight for the Original Xbox.
+# Overview
 
 ![Splash Screen](./docs/images/screenshots/01-splash.png)
 ![Hosts Screen](./docs/images/screenshots/02-hosts.png)
 ![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
-## Build
+## 🛠️ Build
 
 ### Prerequisites
 
@@ -195,7 +205,7 @@ scripts\setup-xemu.cmd --skip-support-files
 > You can set Xemu to use widescreen mode by using https://github.com/Ernegien/XboxEepromEditor
 > but 1080i does not work in Xemu.
 
-## Todo
+## 📋 Todo
 
 - Build
    - [x] Build in GitHub CI

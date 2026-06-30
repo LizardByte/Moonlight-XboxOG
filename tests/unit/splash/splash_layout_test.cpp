@@ -6,7 +6,7 @@
 #include "src/splash/splash_layout.h"
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 namespace {
 

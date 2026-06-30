@@ -6,7 +6,7 @@
 #include "src/app/client_state.h"
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 #include <string>
 
 // test includes

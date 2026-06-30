@@ -10,7 +10,7 @@
 #include <string>
 
 // lib includes
-#include <gtest/gtest.h>
+#include <lizardbyte/common/testing.h>
 
 // test includes
 #include "tests/support/filesystem_test_utils.h"

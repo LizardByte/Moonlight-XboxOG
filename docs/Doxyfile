@@ -25,6 +25,8 @@
 DOCSET_BUNDLE_ID = dev.lizardbyte.Moonlight-XboxOG
 DOCSET_PUBLISHER_ID = dev.lizardbyte.Moonlight-XboxOG.documentation
 PROJECT_BRIEF = "Moonlight Xbox OG is a port of the Moonlight Game Streaming client to the original Xbox console."
+PROJECT_ICON = ../moonlight-logo.svg
+PROJECT_LOGO = ../moonlight-logo.svg
 PROJECT_NAME = Moonlight-XboxOG
 
 # project specific settings
