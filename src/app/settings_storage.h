@@ -24,6 +24,7 @@ namespace app {
     bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a saved user preference.
     int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
     int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
+    app::VideoDecoderSelection videoDecoder = app::VideoDecoderSelection::autoDetect;  ///< Preferred video decoder for new streams.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
     bool showPerformanceStats = false;  ///< True when stream telemetry should be shown after streaming ends.
     bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.

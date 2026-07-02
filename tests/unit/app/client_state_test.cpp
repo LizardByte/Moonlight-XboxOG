@@ -42,6 +42,7 @@ namespace {
     EXPECT_FALSE(state.hosts.dirty);
     EXPECT_EQ(state.settings.loggingLevel, logging::LogLevel::none);
     EXPECT_EQ(state.settings.streamFramerate, 30);
+    EXPECT_EQ(state.settings.videoDecoder, app::VideoDecoderSelection::autoDetect);
   }
 
   TEST(ClientStateTest, ReplacesHostsFromPersistenceWithoutMarkingThemDirty) {
@@ -1069,6 +1070,30 @@ namespace {
     EXPECT_EQ(update.navigation.activatedItemId, "cycle-stream-framerate");
     EXPECT_EQ(state.settings.streamFramerate, 30);
     EXPECT_EQ(state.shell.statusMessage, "Stream frame rate set to 30 FPS");
+  }
+
+  TEST(ClientStateTest, DisplaySettingsCanForceVideoDecoder) {
+    app::ClientState state = app::create_initial_state();
+
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::move_left);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.shell.activeScreen, app::ScreenId::settings);
+
+    app::handle_command(state, input::UiCommand::move_down);
+    app::handle_command(state, input::UiCommand::activate);
+    ASSERT_EQ(state.settings.selectedCategory, app::SettingsCategory::display);
+    ASSERT_EQ(state.settings.focusArea, app::SettingsFocusArea::options);
+
+    ASSERT_TRUE(state.detailMenu.select_item_by_id("cycle-video-decoder"));
+    const app::AppUpdate update = app::handle_command(state, input::UiCommand::activate);
+
+    EXPECT_EQ(update.navigation.activatedItemId, "cycle-video-decoder");
+    EXPECT_TRUE(update.persistence.settingsChanged);
+    EXPECT_EQ(state.settings.videoDecoder, app::VideoDecoderSelection::h264);
+    EXPECT_EQ(state.shell.statusMessage, "Video decoder set to H.264");
+    ASSERT_NE(state.detailMenu.selected_item(), nullptr);
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Video Decoder: H.264");
   }
 
   TEST(ClientStateTest, DisplaySettingsCanToggleXboxAudioAndEndStreamStats) {

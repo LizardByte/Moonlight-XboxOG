@@ -56,6 +56,14 @@ namespace {
   constexpr Uint32 STREAM_VIDEO_DECODE_YIELD_MILLISECONDS = 1U;
 
   /**
+   * @brief FFmpeg codec metadata selected from one negotiated Moonlight format.
+   */
+  struct VideoCodecSelection {
+    AVCodecID codecId = AV_CODEC_ID_NONE;  ///< FFmpeg codec identifier.
+    const char *displayName = "video";  ///< Human-readable codec name for logs.
+  };
+
+  /**
    * @brief Return the backend currently receiving video callbacks.
    *
    * @return Mutable callback backend slot.
@@ -176,6 +184,37 @@ namespace {
       av_log_set_level(AV_LOG_ERROR);
       av_log_set_callback(ffmpeg_log_callback);
     });
+  }
+
+  /**
+   * @brief Resolve the FFmpeg decoder to use for one negotiated video format.
+   *
+   * @param videoFormat Moonlight negotiated video format mask.
+   * @param selection Output codec selection populated on success.
+   * @return True when the video format is supported by this backend.
+   */
+  bool select_video_codec(int videoFormat, VideoCodecSelection *selection) {
+    if (selection == nullptr) {
+      return false;
+    }
+
+    if ((videoFormat & VIDEO_FORMAT_MASK_MPEG2) != 0) {
+      selection->codecId = AV_CODEC_ID_MPEG2VIDEO;
+      selection->displayName = "MPEG-2/H.262";
+      return true;
+    }
+    if ((videoFormat & VIDEO_FORMAT_H263P) != 0) {
+      selection->codecId = AV_CODEC_ID_H263P;
+      selection->displayName = "H.263+";
+      return true;
+    }
+    if ((videoFormat & VIDEO_FORMAT_MASK_H264) != 0) {
+      selection->codecId = AV_CODEC_ID_H264;
+      selection->displayName = "H.264";
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -378,6 +417,10 @@ namespace streaming {
     return video_.hasFrame.load();
   }
 
+  std::string FfmpegStreamBackend::active_video_decoder_name() const {
+    return video_.codecName;
+  }
+
   /**
    * @brief Return whether two SDL rectangles describe the same area.
    *
@@ -511,17 +554,19 @@ namespace streaming {
 
     cleanup_video_decoder();
 
-    if ((videoFormat & VIDEO_FORMAT_MASK_H264) == 0) {
-      logging::error("stream", "The FFmpeg backend currently supports only H.264 video streams");
+    VideoCodecSelection codecSelection;
+    if (!select_video_codec(videoFormat, &codecSelection)) {
+      logging::error("stream", "The FFmpeg backend supports H.264, MPEG-2/H.262, and H.263+ video streams");
       return -1;
     }
 
-    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodec *codec = avcodec_find_decoder(codecSelection.codecId);
     if (codec == nullptr) {
-      logging::error("stream", "FFmpeg did not provide an H.264 decoder");
+      logging::error("stream", std::string("FFmpeg did not provide a ") + codecSelection.displayName + " decoder");
       return -1;
     }
 
+    video_.codecName = codecSelection.displayName;
     video_.codecContext = avcodec_alloc_context3(codec);
     video_.decodedFrame = av_frame_alloc();
     video_.convertedFrame = av_frame_alloc();
@@ -540,11 +585,12 @@ namespace streaming {
     video_.codecContext->skip_loop_filter = AVDISCARD_ALL;
     video_.codecContext->skip_idct = AVDISCARD_NONREF;
     if (const int openResult = avcodec_open2(video_.codecContext, codec, nullptr); openResult < 0) {
-      logging::error("stream", std::string("avcodec_open2 failed for H.264: ") + describe_ffmpeg_error(openResult));
+      logging::error("stream", std::string("avcodec_open2 failed for ") + video_.codecName + ": " + describe_ffmpeg_error(openResult));
       cleanup_video_decoder();
       return openResult;
     }
 
+    logging::info("stream", std::string("Using FFmpeg ") + video_.codecName + " software decoding");
     return 0;
   }
 
@@ -617,6 +663,7 @@ namespace streaming {
     }
     video_.renderedFrameVersion = 0;
     video_.publishedFrameVersion.store(0);
+    video_.codecName = "video";
     video_.directFramebufferDestination = SDL_Rect {0, 0, 0, 0};
     video_.directFramebufferCleared = false;
     video_.decoderStopRequested.store(false);
@@ -842,7 +889,7 @@ namespace streaming {
         return receiveResult;
       }
       if (receiveResult < 0) {
-        logging::warn("stream", std::string("avcodec_receive_frame failed for H.264: ") + describe_ffmpeg_error(receiveResult));
+        logging::warn("stream", std::string("avcodec_receive_frame failed for ") + video_.codecName + ": " + describe_ffmpeg_error(receiveResult));
         return receiveResult;
       }
 
@@ -966,7 +1013,7 @@ namespace streaming {
     }
     av_packet_unref(video_.packet);
     if (sendResult < 0) {
-      logging::warn("stream", std::string("avcodec_send_packet failed for H.264: ") + describe_ffmpeg_error(sendResult));
+      logging::warn("stream", std::string("avcodec_send_packet failed for ") + video_.codecName + ": " + describe_ffmpeg_error(sendResult));
       return DR_NEED_IDR;
     }
 
