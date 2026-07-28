@@ -42,6 +42,7 @@ build/
 cmake-*/
 .local/
 docs/doxyconfig*
+*.egg-info/
 
 # test output
 test-output/

@@ -202,10 +202,7 @@ namespace {
     uint64_t resolvedHttpPort = 0;
     uint64_t httpsPort = 0;
     uint64_t appListContentHash = 0;
-    if (!try_parse_unsigned_integer(fields[0], std::numeric_limits<uint32_t>::max(), &runningGameId) ||
-        !try_parse_unsigned_integer(fields[1], std::numeric_limits<uint16_t>::max(), &resolvedHttpPort) ||
-        !try_parse_unsigned_integer(fields[2], std::numeric_limits<uint16_t>::max(), &httpsPort) ||
-        !try_parse_unsigned_integer(fields[3], std::numeric_limits<uint64_t>::max(), &appListContentHash)) {
+    if (!try_parse_unsigned_integer(fields[0], std::numeric_limits<uint32_t>::max(), &runningGameId) || !try_parse_unsigned_integer(fields[1], std::numeric_limits<uint16_t>::max(), &resolvedHttpPort) || !try_parse_unsigned_integer(fields[2], std::numeric_limits<uint16_t>::max(), &httpsPort) || !try_parse_unsigned_integer(fields[3], std::numeric_limits<uint64_t>::max(), &appListContentHash)) {
       return false;
     }
 
@@ -238,8 +235,7 @@ namespace {
     bool hidden = false;
     bool favorite = false;
     bool boxArtCached = false;
-    if (!percent_decode(fields[0], &name) || !try_parse_unsigned_integer(fields[1], static_cast<uint64_t>(std::numeric_limits<int>::max()), &id) || !try_parse_serialized_boolean(fields[2], &hdrSupported) ||
-        !try_parse_serialized_boolean(fields[3], &hidden) || !try_parse_serialized_boolean(fields[4], &favorite) || !percent_decode(fields[5], &boxArtCacheKey) || !try_parse_serialized_boolean(fields[6], &boxArtCached)) {
+    if (!percent_decode(fields[0], &name) || !try_parse_unsigned_integer(fields[1], static_cast<uint64_t>(std::numeric_limits<int>::max()), &id) || !try_parse_serialized_boolean(fields[2], &hdrSupported) || !try_parse_serialized_boolean(fields[3], &hidden) || !try_parse_serialized_boolean(fields[4], &favorite) || !percent_decode(fields[5], &boxArtCacheKey) || !try_parse_serialized_boolean(fields[6], &boxArtCached)) {
       return false;
     }
 
