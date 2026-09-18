@@ -59,7 +59,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sources.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/moonlight-dependencies.cmake")
 
 if(BUILD_DOCS)
-    add_subdirectory(third-party/doxyconfig docs)
+    include(third-party/dockle/cmake/Dockle.cmake)
+    dockle_add_docs(docs TARGETS api)
 endif()
 
 if(BUILD_TESTS)

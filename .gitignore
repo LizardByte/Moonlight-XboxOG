@@ -41,7 +41,8 @@
 build/
 cmake-*/
 .local/
-docs/doxyconfig*
+/.dockle/
+/_site/
 *.egg-info/
 
 # test output

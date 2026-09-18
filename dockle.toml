@@ -1,0 +1,25 @@
+[project]
+name = "Moonlight-XboxOG"
+version = "0.0.0"
+description = "Moonlight game streaming client for the original Xbox."
+repository = "https://github.com/LizardByte/Moonlight-XboxOG"
+logo = "moonlight-logo.svg"
+favicon = "moonlight-logo.svg"
+
+[build]
+output = "_site"
+work = ".dockle"
+strict = true
+clean = true
+
+[[targets]]
+name = "api"
+title = "Moonlight-XboxOG documentation"
+framework = "doxygen"
+source = "."
+
+[targets.doxygen]
+inputs = ["README.md", "src"]
+image_paths = ["docs/images"]
+predefined = ["NXDK"]
+main_page = "README.md"
