@@ -17,6 +17,7 @@ name = "api"
 title = "Moonlight-XboxOG documentation"
 framework = "doxygen"
 source = "."
+home = true
 
 [targets.doxygen]
 inputs = ["README.md", "src"]
