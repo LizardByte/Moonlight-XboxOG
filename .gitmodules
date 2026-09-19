@@ -1,8 +1,7 @@
-[submodule "third-party/doxyconfig"]
-	path = third-party/doxyconfig
-	url = https://github.com/LizardByte/doxyconfig.git
+[submodule "third-party/dockle"]
+	path = third-party/dockle
+	url = https://github.com/LizardByte/dockle.git
 	branch = master
-	shallow = true
 [submodule "third-party/ffmpeg"]
 	path = third-party/ffmpeg
 	url = https://github.com/FFmpeg/FFmpeg.git
