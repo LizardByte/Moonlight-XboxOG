@@ -95,7 +95,8 @@ target_compile_definitions(${CMAKE_PROJECT_NAME}
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 if(BUILD_DOCS)
-    add_subdirectory(third-party/doxyconfig docs)
+    include(third-party/dockle/cmake/Dockle.cmake)
+    dockle_add_docs(docs TARGETS api)
 endif()
 
 # convert the built EXE into the XBE format

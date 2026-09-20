@@ -252,8 +252,3 @@ scripts\setup-xemu.cmd --skip-support-files
   - [x] Host pairing
   - [x] Auto host discovery
   - [ ] Possibly, GPU overclocking, see https://github.com/GXTX/XboxOverclock
-
-<details style="display: none;">
-  <summary></summary>
-  [TOC]
-</details>
