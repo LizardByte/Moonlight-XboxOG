@@ -18,8 +18,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://app.lizardbyte.dev"
-Repository = "https://github.com/LizardByte/Moonlight-XboxOG"
-Issues = "https://github.com/LizardByte/Moonlight-XboxOG/issues"
+Repository = "https://github.com/SunshineStream/Moonlight-XboxOG"
+Issues = "https://github.com/SunshineStream/Moonlight-XboxOG/issues"
 
 [tool.uv.sources]
 lizardbyte-common = { path = "third-party/lizardbyte-common" }

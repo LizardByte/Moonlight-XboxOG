@@ -2,7 +2,7 @@
 name = "Moonlight-XboxOG"
 version = "0.0.0"
 description = "Moonlight game streaming client for the original Xbox."
-repository = "https://github.com/LizardByte/Moonlight-XboxOG"
+repository = "https://github.com/SunshineStream/Moonlight-XboxOG"
 logo = "moonlight-logo.svg"
 favicon = "moonlight-logo.svg"
 
