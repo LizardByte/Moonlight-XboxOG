@@ -360,6 +360,22 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
             PARENT_SCOPE)
 endfunction()
 
+# Keep known upstream dependency warnings nonfatal without changing other diagnostics.
+function(_moonlight_configure_common_warnings)
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(moonlight-common-c PRIVATE -Wno-error=cast-function-type)
+        return()
+    endif()
+
+    # Clang 23 diagnoses upstream's debug counters when NDEBUG removes their assertion reads.
+    # Probe the warning directly because nxdk wrappers can have an unknown CMake compiler ID.
+    include(CheckCCompilerFlag)
+    check_c_compiler_flag("-Werror=unused-but-set-global" MOONLIGHT_HAS_UNUSED_BUT_SET_GLOBAL)
+    if(MOONLIGHT_HAS_UNUSED_BUT_SET_GLOBAL)
+        target_compile_options(moonlight-common-c PRIVATE -Wno-error=unused-but-set-global)
+    endif()
+endfunction()
+
 # Prepare dependencies that are common to multiple Moonlight components
 macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
     include(GetOpenSSL REQUIRED)
@@ -402,9 +418,8 @@ macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
         endif()
     endif()
 
-    if(TARGET moonlight-common-c
-            AND CMAKE_C_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(moonlight-common-c PRIVATE -Wno-error=cast-function-type)
+    if(TARGET moonlight-common-c)
+        _moonlight_configure_common_warnings()
     endif()
 
     if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")

@@ -106,6 +106,8 @@ brew install "${dependencies[@]}"
 
 Configure the top-level project with the normal host toolchain. CMake uses the vendored `third-party/nxdk` checkout, bootstraps the required `nxdk` outputs, builds the host-native tests with the standard compiler/linker, and drives the Xbox build through an internal child configure that reuses the stock `nxdk` toolchain.
 
+For host and Xbox builds, CMake checks whether the compiler supports Clang's `unused-but-set-global` warning. When supported, this warning remains nonfatal for `moonlight-common-c`, whose debug counters are read only by assertions that are disabled in release builds. Other warnings retain the dependency's existing error policy.
+
 ```bash
 cmake -S . -B cmake-build-release -DBUILD_DOCS=OFF -DCMAKE_BUILD_TYPE=Release
 ```
