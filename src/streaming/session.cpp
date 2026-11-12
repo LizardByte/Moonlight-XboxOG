@@ -1263,6 +1263,13 @@ namespace {
     return 0;
   }
 
+  /**
+   * @brief Sample stream statistics using caller-owned storage for the RTP video counters.
+   *
+   * @param context Configuration of the active stream.
+   * @param connectionState Current connection state.
+   * @return Stream statistics with a copy of the current RTP video counters.
+   */
   streaming::StreamStatisticsSnapshot sample_stream_statistics(const StreamStartContext &context, const StreamConnectionState &connectionState) {
     streaming::StreamStatisticsSnapshot snapshot {
       context.streamConfiguration.width,
@@ -1287,11 +1294,11 @@ namespace {
 
     snapshot.videoQueueDepth = LiGetPendingVideoFrames();
     snapshot.audioQueueDurationMs = LiGetPendingAudioDuration();
-    if (const RTP_VIDEO_STATS *videoStats = LiGetRTPVideoStats(); videoStats != nullptr) {
-      snapshot.videoPacketsReceived = static_cast<int>(videoStats->packetCountVideo);
-      snapshot.videoPacketsRecovered = static_cast<int>(videoStats->packetCountFecRecovered);
-      snapshot.videoPacketsLost = static_cast<int>(videoStats->packetCountFecFailed);
-    }
+    RTP_VIDEO_STATS videoStats {};
+    LiGetRTPVideoStats(&videoStats);
+    snapshot.videoPacketsReceived = static_cast<int>(videoStats.packetCountVideo);
+    snapshot.videoPacketsRecovered = static_cast<int>(videoStats.packetCountFecRecovered);
+    snapshot.videoPacketsLost = static_cast<int>(videoStats.packetCountFecFailed);
     return snapshot;
   }
 

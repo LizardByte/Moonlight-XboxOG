@@ -51,6 +51,15 @@ set(CMAKE_C_FLAGS_RELEASE "-O2")
 
 MOONLIGHT_PREPARE_COMMON_DEPENDENCIES()
 
+# Use nanors' scalar backend on the Xbox CPU, which lacks SSSE3 and newer SIMD
+# instructions and cannot link the compiler runtime helpers used for x86 dispatch.
+set_property(SOURCE
+        "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c/nanors/deps/obl/oblas_lite.c"
+        DIRECTORY "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c"
+        APPEND PROPERTY COMPILE_OPTIONS
+        -include "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/nanors_compat.h"
+)
+
 add_executable(${CMAKE_PROJECT_NAME}
         ${MOONLIGHT_SOURCES}
 )
