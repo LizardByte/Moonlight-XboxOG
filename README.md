@@ -176,22 +176,23 @@ Coverage should come from this host-native test build instead of the cross-compi
 
 ### Dependency compatibility on Xbox
 
-The nxdk submodule tracks `ReenigneArcher/nxdk`'s `codex/moonlight-runtime` branch,
-which pins `ReenigneArcher/nxdk-pdclib`'s `codex/descriptor-stdio` branch. Both dependencies
-are pinned to specific commits, so recursive checkout includes the required runtime support
-without waiting for the upstream nxdk or PDCLib pull requests to merge.
+The SDK submodule tracks upstream XboxDev/nxdk, including its upstream PDCLib. Moonlight's
+Xbox adapters live in `src/_nxdk_compat` and are built by `cmake/nxdk-compat.cmake`.
+The local network target builds upstream lwIP with the streaming receive limits,
+socket options and mDNS enabled. Checked adjustments to generated build-directory
+copies preserve the nxdk thread priorities and safe packet drops on receive-pool
+exhaustion; the submodule sources stay unchanged. `nxNetInit` is compiled with the
+same settings so its network-interface layout matches lwIP.
 
-nxdk provides regular-file descriptors shared by POSIX I/O and stdio. Socket descriptors use
-a separate range and dispatch to lwIP after network initialization. `gettimeofday()` uses
-kernel timestamps with subsecond precision.
+The compatibility layer provides real wall-clock, sleep and reentrant string helpers.
+FFmpeg's unused POSIX descriptor/file helpers and OpenSSL's optional POSIX directory
+and metadata queries fail explicitly with `ENOSYS`. Moonlight's Win32 file APIs,
+standard stdio and custom OpenSSL socket BIO continue to handle saved data and pairing.
+FFmpeg configure probes still link actual Xbox libraries and the local timing helpers.
 
-The Xbox OpenSSL build disables POSIX descriptor I/O. Pairing uses a custom socket BIO that
-leaves socket ownership with the caller. Directory enumeration and path-based `stat()` use
-nxdk's working filesystem APIs directly. Stat queries return the native file identity,
-64-bit size, and access, write, and metadata-change timestamps; unrepresentable timestamps
-report `EOVERFLOW`. Relative paths resolve against nxdk's fixed `D:\` working directory.
-FFmpeg builds its original file helpers against nxdk's descriptor APIs using its generic
-platform path. Memory mapping and temporary-file creation remain disabled.
+OpenSSL disables POSIX descriptor I/O; its socket BIO leaves socket ownership with
+the caller. FFmpeg builds its original file helpers through its generic platform
+path, with memory mapping and temporary-file creation disabled.
 
 ### CLion on Windows
 

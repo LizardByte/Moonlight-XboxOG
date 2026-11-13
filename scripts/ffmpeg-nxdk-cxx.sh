@@ -3,6 +3,7 @@
 set -eu
 
 unset MSYS2_ARG_CONV_EXCL
+compat_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../src/_nxdk_compat" && pwd)
 
 link=1
 for arg in "$@"; do
@@ -32,6 +33,8 @@ exec clang \
   -nostdlib \
   -fno-builtin \
   -I"${NXDK_DIR}/lib/libcxx/include" \
+  -I"${compat_dir}/include" \
+  -include "${compat_dir}/ffmpeg_compat.h" \
   -I"${NXDK_DIR}/lib" \
   -I"${NXDK_DIR}/lib/xboxrt/libc_extensions" \
   -isystem "${NXDK_DIR}/lib/pdclib/include" \

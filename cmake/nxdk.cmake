@@ -230,8 +230,15 @@ endfunction()
 function(moonlight_prepare_nxdk nxdk_dir state_dir)
     file(MAKE_DIRECTORY "${state_dir}")
 
+    # A changed SDK/PDClib checkout must not reuse archives from a previous fork.
+    execute_process(COMMAND git -C "${nxdk_dir}" rev-parse HEAD
+            OUTPUT_VARIABLE nxdk_revision OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND git -C "${nxdk_dir}/lib/pdclib" rev-parse HEAD
+            OUTPUT_VARIABLE pdclib_revision OUTPUT_STRIP_TRAILING_WHITESPACE)
     set(signature_inputs
             "NXDK_DIR=${nxdk_dir}"
+            "NXDK_REVISION=${nxdk_revision}"
+            "PDCLIB_REVISION=${pdclib_revision}"
             "HOST_SYSTEM=${CMAKE_HOST_SYSTEM_NAME}"
             "NXDK_TOOLCHAIN=${nxdk_dir}/share/toolchain-nxdk.cmake"
             "NXDK_ENV_MODE=cmake-driver"

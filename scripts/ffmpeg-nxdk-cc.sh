@@ -3,6 +3,7 @@
 set -eu
 
 unset MSYS2_ARG_CONV_EXCL
+compat_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../src/_nxdk_compat" && pwd)
 
 link=1
 for arg in "$@"; do
@@ -22,7 +23,7 @@ if [ "$link" -eq 1 ]; then
     "${NXDK_DIR}/lib/xboxkrnl/libxboxkrnl.lib"
 fi
 
-# Use nxdk's POSIX libc interfaces; this target has no MSVCRT.
+# Use Moonlight's private adapters with stock nxdk; this target has no MSVCRT.
 exec clang \
   -target i386-pc-win32 \
   -march=pentium3 \
@@ -30,6 +31,8 @@ exec clang \
   -ffreestanding \
   -nostdlib \
   -fno-builtin \
+  -I"${compat_dir}/include" \
+  -include "${compat_dir}/ffmpeg_compat.h" \
   -I"${NXDK_DIR}/lib" \
   -I"${NXDK_DIR}/lib/xboxrt/libc_extensions" \
   -isystem "${NXDK_DIR}/lib/pdclib/include" \

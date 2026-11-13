@@ -19,8 +19,8 @@
 	shallow = true
 [submodule "third-party/nxdk"]
 	path = third-party/nxdk
-	url = https://github.com/ReenigneArcher/nxdk.git
-	branch = codex/moonlight-runtime
+	url = https://github.com/XboxDev/nxdk.git
+	branch = master
 	shallow = true
 [submodule "third-party/openssl"]
 	path = third-party/openssl
