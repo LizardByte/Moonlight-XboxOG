@@ -33,6 +33,7 @@
 
 // local includes
 #include "src/network/runtime_network.h"
+#include "src/network/socket_bio.h"
 #include "src/platform/error_utils.h"
 
 // third-party includes
@@ -1820,11 +1821,25 @@ namespace {
     }
 
 #ifdef NXDK
-    std::unique_ptr<BIO, BioDeleter> socketBio(BIO_new_fd(socketHandle, BIO_NOCLOSE));
-    if (socketBio == nullptr || BIO_up_ref(socketBio.get()) != 1) {
+    const network::SocketBioTransport transport {
+      &socketHandle,
+      [](void *context, char *buffer, int size) {
+        return static_cast<int>(lwip_recv(*static_cast<SOCKET *>(context), buffer, static_cast<std::size_t>(size), 0));
+      },
+      [](void *context, const char *buffer, int size) {
+        return static_cast<int>(lwip_send(*static_cast<SOCKET *>(context), buffer, static_cast<std::size_t>(size), 0));
+      },
+      [](void *) {
+        const int error = errno;
+        return error == EWOULDBLOCK || error == EAGAIN || error == EINTR || error == EINPROGRESS || error == EALREADY;
+      }
+    };
+    std::unique_ptr<BIO, BioDeleter> socketBio(network::make_socket_bio(transport));
+    if (socketBio == nullptr) {
       return append_openssl_error(errorMessage, "Failed to attach the host pairing socket to TLS");
     }
 
+    // SSL_set_bio consumes one reference when the read and write BIOs are identical.
     SSL_set_bio(ssl.get(), socketBio.get(), socketBio.get());
     socketBio.release();
 #else

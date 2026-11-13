@@ -174,6 +174,25 @@ ctest --test-dir cmake-build-host-tests --output-on-failure
 
 Coverage should come from this host-native test build instead of the cross-compiled Xbox build.
 
+### Dependency compatibility on Xbox
+
+The nxdk submodule tracks `ReenigneArcher/nxdk`'s `codex/moonlight-runtime` branch,
+which pins `ReenigneArcher/nxdk-pdclib`'s `codex/descriptor-stdio` branch. Both dependencies
+are pinned to specific commits, so recursive checkout includes the required runtime support
+without waiting for the upstream nxdk or PDCLib pull requests to merge.
+
+nxdk provides regular-file descriptors shared by POSIX I/O and stdio. Socket descriptors use
+a separate range and dispatch to lwIP after network initialization. `gettimeofday()` uses
+kernel timestamps with subsecond precision.
+
+The Xbox OpenSSL build disables POSIX descriptor I/O. Pairing uses a custom socket BIO that
+leaves socket ownership with the caller. Directory enumeration and path-based `stat()` use
+nxdk's working filesystem APIs directly. Stat queries return the native file identity,
+64-bit size, and access, write, and metadata-change timestamps; unrepresentable timestamps
+report `EOVERFLOW`. Relative paths resolve against nxdk's fixed `D:\` working directory.
+FFmpeg builds its original file helpers against nxdk's descriptor APIs using its generic
+platform path. Memory mapping and temporary-file creation remain disabled.
+
 ### CLion on Windows
 
 The Windows preset in `CMakePresets.json` uses `MinGW Makefiles` for the host-native CLion build, auto-detects the local MSYS2 installation through `cmake/host-mingw64-clang.cmake`, and delegates the Xbox child build through a dedicated CMake driver that enters the vendored `nxdk` environment only for the child configure and build steps.
