@@ -179,9 +179,10 @@ Coverage should come from this host-native test build instead of the cross-compi
 The SDK submodule tracks upstream XboxDev/nxdk, including its upstream PDCLib. Moonlight's
 Xbox adapters live in `src/_nxdk_compat` and are built by `cmake/nxdk-compat.cmake`.
 The local network target builds upstream lwIP with the streaming receive limits,
-socket options and mDNS enabled. Checked adjustments to generated build-directory
-copies preserve the nxdk thread priorities and safe packet drops on receive-pool
-exhaustion; the submodule sources stay unchanged. `nxNetInit` is compiled with the
+socket options and mDNS enabled. The `network/nxdk-network.patch` compatibility
+patch is applied with `git apply` to build-directory copies, preserving thread
+priorities and safe packet drops on receive-pool exhaustion. The submodule
+sources stay unchanged. `nxNetInit` is compiled with the
 same settings so its network-interface layout matches lwIP.
 
 The compatibility layer provides real wall-clock, sleep and reentrant string helpers.

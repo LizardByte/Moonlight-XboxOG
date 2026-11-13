@@ -1,0 +1,65 @@
+diff --git a/lib/net/nforceif/include/arch/sys_arch.h b/lib/net/nforceif/include/arch/sys_arch.h
+--- a/lib/net/nforceif/include/arch/sys_arch.h
++++ b/lib/net/nforceif/include/arch/sys_arch.h
+@@ -73,7 +73,7 @@
+ /* let sys.h use binary semaphores for mutexes */
+ #define LWIP_COMPAT_MUTEX 1
+ 
+-#define SYS_MBOX_SIZE 128
++#define SYS_MBOX_SIZE 255
+ 
+ typedef struct {
+     volatile int first, last;
+diff --git a/lib/net/nforceif/src/sys_arch.c b/lib/net/nforceif/src/sys_arch.c
+--- a/lib/net/nforceif/src/sys_arch.c
++++ b/lib/net/nforceif/src/sys_arch.c
+@@ -39,6 +39,7 @@
+ 
+ #include <assert.h>
+ #include <stdlib.h>
++#include <windows.h>
+ 
+ #include <xboxkrnl/xboxkrnl.h>
+ 
+@@ -68,9 +69,12 @@
+ sys_thread_new(const char *name, lwip_thread_fn function, void *arg, int stacksize, int prio)
+ {
+     LWIP_UNUSED_ARG(name);
+-    LWIP_UNUSED_ARG(prio);
+-
+-    return CreateThread(NULL, stacksize, (void *)function, arg, 0, NULL);
++
++    HANDLE thread = CreateThread(NULL, stacksize, (void *)function, arg, 0, NULL);
++    if (thread != NULL && prio != 0) {
++        SetThreadPriority(thread, prio);
++    }
++    return thread;
+ }
+ 
+ err_t
+diff --git a/lib/net/nvnetdrv/nvnetdrv_lwip.c b/lib/net/nvnetdrv/nvnetdrv_lwip.c
+--- a/lib/net/nvnetdrv/nvnetdrv_lwip.c
++++ b/lib/net/nvnetdrv/nvnetdrv_lwip.c
+@@ -70,7 +70,12 @@
+ void rx_callback (void *buffer, uint16_t length)
+ {
+     rx_pbuf_t *rx_pbuf = (rx_pbuf_t *)LWIP_MEMPOOL_ALLOC(RX_POOL);
+-    LWIP_ASSERT("RX_POOL full\n", rx_pbuf != NULL);
++    if (rx_pbuf == NULL) {
++        LINK_STATS_INC(link.memerr);
++        LINK_STATS_INC(link.drop);
++        nvnetdrv_rx_release(buffer);
++        return;
++    }
+     rx_pbuf->p.custom_free_function = rx_pbuf_free_callback;
+     rx_pbuf->buff = buffer;
+     struct pbuf *p = pbuf_alloced_custom(PBUF_RAW,
+@@ -81,6 +86,8 @@
+                                          NVNET_RX_BUFF_LEN - ETH_PAD_SIZE);
+ 
+     if (g_pnetif->input(p, g_pnetif) != ERR_OK) {
++        LINK_STATS_INC(link.memerr);
++        LINK_STATS_INC(link.drop);
+         pbuf_free(p);
+     }
+ }

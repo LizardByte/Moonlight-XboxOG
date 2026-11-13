@@ -1,48 +1,47 @@
 # Build Moonlight's adapters against unmodified upstream nxdk sources.
 include_guard(GLOBAL)
 
-# Apply a checked port adjustment to a generated copy, never to the submodule.
-function(_moonlight_replace_port_text variable before after)
-    string(FIND "${${variable}}" "${before}" position)
-    if(position EQUAL -1)
-        message(FATAL_ERROR "nxdk port changed; review Moonlight's network adapter: ${before}")
+# Apply the network patch to disposable copies, then publish only changed files.
+function(_moonlight_patch_nxdk_network port patch_file)
+    find_package(Git REQUIRED)
+    set(work "${port}/patch-work")
+    set(port_files
+            lib/net/nforceif/include/arch/sys_arch.h
+            lib/net/nforceif/src/sys_arch.c
+            lib/net/nvnetdrv/nvnetdrv_lwip.c)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${patch_file}")
+    foreach(source IN LISTS port_files)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NXDK_DIR}/${source}")
+        configure_file("${NXDK_DIR}/${source}" "${work}/${source}" COPYONLY)
+    endforeach()
+
+    # An explicit work tree confines git apply to these copies, including when
+    # the build directory is inside the Moonlight checkout. Normalize CRLF on
+    # input and write LF so patching is independent of the user's Git settings.
+    execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -c core.autocrlf=input "--work-tree=${work}"
+                apply --whitespace=error "${patch_file}"
+            WORKING_DIRECTORY "${work}"
+            RESULT_VARIABLE patch_result
+            OUTPUT_VARIABLE patch_output
+            ERROR_VARIABLE patch_error)
+    if(NOT patch_result EQUAL 0)
+        message(FATAL_ERROR
+                "Failed to apply Moonlight's nxdk network patch; review it against the selected SDK.\n"
+                "${patch_output}${patch_error}")
     endif()
-    string(REPLACE "${before}" "${after}" result "${${variable}}")
-    set(${variable} "${result}" PARENT_SCOPE)
+    foreach(source IN LISTS port_files)
+        configure_file("${work}/${source}" "${port}/${source}" COPYONLY)
+    endforeach()
 endfunction()
 
 function(moonlight_prepare_nxdk_compat)
     set(compat "${CMAKE_SOURCE_DIR}/src/_nxdk_compat")
     set(port "${CMAKE_CURRENT_BINARY_DIR}/nxdk-compat")
-    file(MAKE_DIRECTORY "${port}/arch")
+    _moonlight_patch_nxdk_network("${port}" "${compat}/network/nxdk-network.patch")
 
     # opt.h includes this before defining defaults. Keep nxdk's base settings.
     configure_file("${compat}/network/lwipopts.h.in" "${port}/lwipopts.h" @ONLY)
-    set(sys_header "${NXDK_DIR}/lib/net/nforceif/include/arch/sys_arch.h")
-    set(sys_source "${NXDK_DIR}/lib/net/nforceif/src/sys_arch.c")
-    set(rx_source "${NXDK_DIR}/lib/net/nvnetdrv/nvnetdrv_lwip.c")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            "${sys_header}" "${sys_source}" "${rx_source}")
-    file(READ "${sys_header}" text)
-    _moonlight_replace_port_text(text "#define SYS_MBOX_SIZE 128" "#define SYS_MBOX_SIZE 255")
-    file(CONFIGURE OUTPUT "${port}/arch/sys_arch.h" CONTENT "${text}" @ONLY)
-
-    file(READ "${sys_source}" text)
-    _moonlight_replace_port_text(text "#include <stdlib.h>" "#include <stdlib.h>\n#include <windows.h>")
-    _moonlight_replace_port_text(text "    LWIP_UNUSED_ARG(prio);" "")
-    _moonlight_replace_port_text(text
-            "    return CreateThread(NULL, stacksize, (void *)function, arg, 0, NULL);"
-            "    HANDLE thread = CreateThread(NULL, stacksize, (void *)function, arg, 0, NULL);\n    if (thread != NULL && prio != 0) {\n        SetThreadPriority(thread, prio);\n    }\n    return thread;")
-    file(CONFIGURE OUTPUT "${port}/sys_arch.c" CONTENT "${text}" @ONLY)
-
-    file(READ "${rx_source}" text)
-    _moonlight_replace_port_text(text
-            "    LWIP_ASSERT(\"RX_POOL full\\n\", rx_pbuf != NULL);"
-            "    if (rx_pbuf == NULL) {\n        LINK_STATS_INC(link.memerr);\n        LINK_STATS_INC(link.drop);\n        nvnetdrv_rx_release(buffer);\n        return;\n    }")
-    _moonlight_replace_port_text(text
-            "    if (g_pnetif->input(p, g_pnetif) != ERR_OK) {"
-            "    if (g_pnetif->input(p, g_pnetif) != ERR_OK) {\n        LINK_STATS_INC(link.memerr);\n        LINK_STATS_INC(link.drop);")
-    file(CONFIGURE OUTPUT "${port}/nvnetdrv_lwip.c" CONTENT "${text}" @ONLY)
 
     set(LWIP_DIR "${NXDK_DIR}/lib/net/lwip")
     set(LWIP_EXCLUDE_SLIPIF TRUE)
@@ -51,10 +50,11 @@ function(moonlight_prepare_nxdk_compat)
             ${lwipcore_SRCS} ${lwipcore4_SRCS} ${lwipcore6_SRCS}
             ${lwipapi_SRCS} ${lwipnetif_SRCS} ${lwipmdns_SRCS}
             "${NXDK_DIR}/lib/net/nvnetdrv/nvnetdrv.c"
-            "${port}/nvnetdrv_lwip.c" "${port}/sys_arch.c")
+            "${port}/lib/net/nvnetdrv/nvnetdrv_lwip.c"
+            "${port}/lib/net/nforceif/src/sys_arch.c")
     target_compile_definitions(moonlight_nxdk_net PRIVATE RX_BUFF_CNT=PBUF_POOL_SIZE)
     target_include_directories(moonlight_nxdk_net BEFORE PUBLIC
-            "${port}" "${compat}/include")
+            "${port}/lib/net/nforceif/include" "${port}" "${compat}/include")
     target_include_directories(moonlight_nxdk_net SYSTEM PUBLIC
             "${NXDK_DIR}/lib/net/lwip/src/include"
             "${NXDK_DIR}/lib/net/nforceif/include"
