@@ -68,7 +68,9 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     file(READ "${nxdk_dir}/.moonlight-source.signature" nxdk_revision)
     file(SHA256 "${ffmpeg_cc_wrapper}" ffmpeg_cc_wrapper_hash)
     file(SHA256 "${ffmpeg_cxx_wrapper}" ffmpeg_cxx_wrapper_hash)
-    file(GLOB_RECURSE compat_inputs CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.h" "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.c")
+    file(GLOB_RECURSE compat_inputs CONFIGURE_DEPENDS
+            "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.h"
+            "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.c")
     set(compat_hashes)
     foreach(input IN LISTS compat_inputs)
         file(SHA256 "${input}" input_hash)

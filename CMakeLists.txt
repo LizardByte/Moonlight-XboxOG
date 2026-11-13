@@ -72,11 +72,11 @@ if(BUILD_XBOX)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
 
     moonlight_resolve_nxdk_dir(source_nxdk_dir)
-    set(nxdk_build_dir "${MOONLIGHT_NXDK_BUILD_DIR}")
-    moonlight_stage_nxdk("${source_nxdk_dir}" "${nxdk_build_dir}")
-    moonlight_prepare_nxdk("${nxdk_build_dir}" "${nxdk_build_dir}/.moonlight-bootstrap")
+    set(_nxdk_build_dir "${MOONLIGHT_NXDK_BUILD_DIR}")
+    moonlight_stage_nxdk("${source_nxdk_dir}" "${_nxdk_build_dir}")
+    moonlight_prepare_nxdk("${_nxdk_build_dir}" "${_nxdk_build_dir}/.moonlight-bootstrap")
     moonlight_add_xbox_build(
-            NXDK_DIR "${nxdk_build_dir}"
+            NXDK_DIR "${_nxdk_build_dir}"
             SOURCE_NXDK_DIR "${source_nxdk_dir}"
             BINARY_DIR "${CMAKE_BINARY_DIR}/xbox"
     )

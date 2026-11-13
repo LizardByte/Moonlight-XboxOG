@@ -3,7 +3,7 @@
 set -eu
 
 unset MSYS2_ARG_CONV_EXCL
-compat_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../src/_nxdk_compat" && pwd)
+compat_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/../src/_nxdk_compat" && pwd)
 
 link=1
 for arg in "$@"; do
