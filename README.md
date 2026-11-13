@@ -104,7 +104,7 @@ brew install "${dependencies[@]}"
 
 ### Configure
 
-Configure the top-level project with the normal host toolchain. CMake uses the vendored `third-party/nxdk` checkout, bootstraps the required `nxdk` outputs, builds the host-native tests with the standard compiler/linker, and drives the Xbox build through an internal child configure that reuses the stock `nxdk` toolchain.
+Configure the top-level project with the normal host toolchain. CMake uses the vendored `third-party/nxdk` checkout, copies its tracked sources and nested submodules into the build directory, bootstraps the required `nxdk` outputs there, builds the host-native tests with the standard compiler/linker, and drives the Xbox build through an internal child configure that reuses the stock `nxdk` toolchain.
 
 For host and Xbox builds, CMake checks whether the compiler supports Clang's `unused-but-set-global` warning. When supported, this warning remains nonfatal for `moonlight-common-c`, whose debug counters are read only by assertions that are disabled in release builds. Other warnings retain the dependency's existing error policy.
 
@@ -178,12 +178,19 @@ Coverage should come from this host-native test build instead of the cross-compi
 
 The SDK submodule tracks upstream XboxDev/nxdk, including its upstream PDCLib. Moonlight's
 Xbox adapters live in `src/_nxdk_compat` and are built by `cmake/nxdk-compat.cmake`.
+All SDK libraries, host tools and generated lwIP files are built under the build
+directory, including for direct Xbox presets. `cmake/nxdk-toolchain.cmake` prepares
+that copy before compiler checks and then loads the stock nxdk toolchain. SDK
+revision changes and local edits to tracked SDK files refresh the copy; unrelated
+untracked files and existing build products are excluded. `MOONLIGHT_NXDK_DIR`
+selects the source checkout; `MOONLIGHT_NXDK_BUILD_DIR` selects the build copy.
+
 The local network target builds upstream lwIP with the streaming receive limits,
 socket options and mDNS enabled. The `network/nxdk-network.patch` compatibility
 patch is applied with `git apply` to build-directory copies, preserving thread
 priorities and safe packet drops on receive-pool exhaustion. The submodule
-sources stay unchanged. `nxNetInit` is compiled with the
-same settings so its network-interface layout matches lwIP.
+sources stay unchanged. `nxNetInit` is compiled with the same settings so its
+network-interface layout matches lwIP.
 
 The compatibility layer provides real wall-clock, sleep and reentrant string helpers.
 FFmpeg's unused POSIX descriptor/file helpers and OpenSSL's optional POSIX directory

@@ -35,6 +35,7 @@ function(_moonlight_patch_nxdk_network port patch_file)
     endforeach()
 endfunction()
 
+# Build Moonlight's private network port and the runtime used by dependencies.
 function(moonlight_prepare_nxdk_compat)
     set(compat "${CMAKE_SOURCE_DIR}/src/_nxdk_compat")
     set(port "${CMAKE_CURRENT_BINARY_DIR}/nxdk-compat")
@@ -43,8 +44,8 @@ function(moonlight_prepare_nxdk_compat)
     # opt.h includes this before defining defaults. Keep nxdk's base settings.
     configure_file("${compat}/network/lwipopts.h.in" "${port}/lwipopts.h" @ONLY)
 
-    set(LWIP_DIR "${NXDK_DIR}/lib/net/lwip")
-    set(LWIP_EXCLUDE_SLIPIF TRUE)
+    set(LWIP_DIR "${NXDK_DIR}/lib/net/lwip")  # cmake-lint: disable=C0103
+    set(LWIP_EXCLUDE_SLIPIF TRUE)  # cmake-lint: disable=C0103
     include("${LWIP_DIR}/src/Filelists.cmake")
     add_library(moonlight_nxdk_net STATIC
             ${lwipcore_SRCS} ${lwipcore4_SRCS} ${lwipcore6_SRCS}

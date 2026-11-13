@@ -65,8 +65,7 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     set(ffmpeg_cxx_wrapper "${ARGV4}")
 
     _moonlight_get_ffmpeg_revision(ffmpeg_revision "${ffmpeg_source_dir}")
-    _moonlight_get_ffmpeg_revision(nxdk_revision "${nxdk_dir}")
-    _moonlight_get_ffmpeg_revision(pdclib_revision "${nxdk_dir}/lib/pdclib")
+    file(READ "${nxdk_dir}/.moonlight-source.signature" nxdk_revision)
     file(SHA256 "${ffmpeg_cc_wrapper}" ffmpeg_cc_wrapper_hash)
     file(SHA256 "${ffmpeg_cxx_wrapper}" ffmpeg_cxx_wrapper_hash)
     file(GLOB_RECURSE compat_inputs CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.h" "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.c")
@@ -81,7 +80,6 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
             "FFMPEG_REVISION=${ffmpeg_revision}"
             "NXDK_DIR=${nxdk_dir}"
             "NXDK_REVISION=${nxdk_revision}"
-            "PDCLIB_REVISION=${pdclib_revision}"
             "COMPAT_SHA256=${compat_hashes}"
             "FFMPEG_PROFILE=h264-opus-xbox"
             "FFMPEG_TARGET_OS=none"

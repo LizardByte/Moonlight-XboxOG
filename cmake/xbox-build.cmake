@@ -13,12 +13,11 @@ set(XBOX_XBE_DIR "${CMAKE_CURRENT_BINARY_DIR}/xbe")
 set(XBOX_ISO_NAME "${CMAKE_PROJECT_NAME}.iso")
 set(XBOX_ISO "${CMAKE_CURRENT_BINARY_DIR}/${XBOX_ISO_NAME}")
 
-moonlight_resolve_nxdk_dir(NXDK_DIR)
-set(ENV{NXDK_DIR} "${NXDK_DIR}")
-
-if(NOT MOONLIGHT_SKIP_NXDK_PREP)
-    moonlight_prepare_nxdk("${NXDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/nxdk-bootstrap")
+if(NOT EXISTS "${NXDK_DIR}/.moonlight-nxdk-copy")
+    message(FATAL_ERROR "Use cmake/nxdk-toolchain.cmake to build with an isolated nxdk copy")
 endif()
+set(ENV{NXDK_DIR} "${NXDK_DIR}")
+moonlight_prepare_nxdk("${NXDK_DIR}" "${NXDK_DIR}/.moonlight-bootstrap")
 
 find_package(NXDK REQUIRED)
 include("${CMAKE_SOURCE_DIR}/cmake/nxdk-compat.cmake")

@@ -23,7 +23,6 @@ if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
     option(BUILD_DOCS "Build documentation" OFF)
-    option(MOONLIGHT_SKIP_NXDK_PREP "Skip nxdk bootstrap during the internal Xbox child configure" OFF)
 
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/xbox-build.cmake")
     return()
@@ -72,10 +71,13 @@ endif()
 if(BUILD_XBOX)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/nxdk.cmake")
 
-    moonlight_resolve_nxdk_dir(MOONLIGHT_NXDK_DIR)
-    moonlight_prepare_nxdk("${MOONLIGHT_NXDK_DIR}" "${CMAKE_BINARY_DIR}/nxdk-bootstrap")
+    moonlight_resolve_nxdk_dir(source_nxdk_dir)
+    set(nxdk_build_dir "${MOONLIGHT_NXDK_BUILD_DIR}")
+    moonlight_stage_nxdk("${source_nxdk_dir}" "${nxdk_build_dir}")
+    moonlight_prepare_nxdk("${nxdk_build_dir}" "${nxdk_build_dir}/.moonlight-bootstrap")
     moonlight_add_xbox_build(
-            NXDK_DIR "${MOONLIGHT_NXDK_DIR}"
+            NXDK_DIR "${nxdk_build_dir}"
+            SOURCE_NXDK_DIR "${source_nxdk_dir}"
             BINARY_DIR "${CMAKE_BINARY_DIR}/xbox"
     )
 endif()

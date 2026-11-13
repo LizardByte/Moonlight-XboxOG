@@ -4,9 +4,12 @@ include_guard(GLOBAL)
 
 include(CMakeParseArguments)
 include("${CMAKE_CURRENT_LIST_DIR}/msys2.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/nxdk-source.cmake")
 
 set(MOONLIGHT_NXDK_DIR "${CMAKE_SOURCE_DIR}/third-party/nxdk" CACHE PATH "Path to the vendored nxdk checkout")
 cmake_path(ABSOLUTE_PATH MOONLIGHT_NXDK_DIR BASE_DIRECTORY "${CMAKE_SOURCE_DIR}" NORMALIZE)
+set(MOONLIGHT_NXDK_BUILD_DIR "${CMAKE_BINARY_DIR}/nxdk" CACHE PATH "Build-directory copy of nxdk")
+cmake_path(ABSOLUTE_PATH MOONLIGHT_NXDK_BUILD_DIR BASE_DIRECTORY "${CMAKE_BINARY_DIR}" NORMALIZE)
 
 # Resolve and validate the nxdk directory, returning its absolute path.
 function(moonlight_resolve_nxdk_dir out_var)
@@ -155,7 +158,8 @@ function(_moonlight_run_nxdk_make nxdk_dir description)
         _moonlight_get_xbox_make_program(make_program)
     endif()
 
-    moonlight_run_nxdk_command("${description}" "${nxdk_dir}" "${nxdk_dir}" "${make_program}" ${ARGN})
+    # Relative input paths keep the Windows archiver command below its argv limit.
+    moonlight_run_nxdk_command("${description}" "${nxdk_dir}" "${nxdk_dir}" "${make_program}" NXDK_DIR=. ${ARGN})
 endfunction()
 
 # Report whether any listed output path is missing.
@@ -230,15 +234,10 @@ endfunction()
 function(moonlight_prepare_nxdk nxdk_dir state_dir)
     file(MAKE_DIRECTORY "${state_dir}")
 
-    # A changed SDK/PDClib checkout must not reuse archives from a previous fork.
-    execute_process(COMMAND git -C "${nxdk_dir}" rev-parse HEAD
-            OUTPUT_VARIABLE nxdk_revision OUTPUT_STRIP_TRAILING_WHITESPACE)
-    execute_process(COMMAND git -C "${nxdk_dir}/lib/pdclib" rev-parse HEAD
-            OUTPUT_VARIABLE pdclib_revision OUTPUT_STRIP_TRAILING_WHITESPACE)
+    file(READ "${nxdk_dir}/.moonlight-source.signature" nxdk_revision)
     set(signature_inputs
             "NXDK_DIR=${nxdk_dir}"
             "NXDK_REVISION=${nxdk_revision}"
-            "PDCLIB_REVISION=${pdclib_revision}"
             "HOST_SYSTEM=${CMAKE_HOST_SYSTEM_NAME}"
             "NXDK_TOOLCHAIN=${nxdk_dir}/share/toolchain-nxdk.cmake"
             "NXDK_ENV_MODE=cmake-driver"
@@ -247,10 +246,14 @@ function(moonlight_prepare_nxdk nxdk_dir state_dir)
     string(SHA256 signature "${signature_text}")
 
     set(signature_file "${state_dir}/bootstrap.signature")
-    set(cxbe_path "${nxdk_dir}/tools/cxbe/cxbe")
+    set(tool_suffix "")
+    if(CMAKE_HOST_WIN32)
+        set(tool_suffix ".exe")
+    endif()
+    set(cxbe_path "${nxdk_dir}/tools/cxbe/cxbe${tool_suffix}")
     set(extract_xiso_source_dir "${nxdk_dir}/tools/extract-xiso")
     set(extract_xiso_build_dir "${extract_xiso_source_dir}/build")
-    set(extract_xiso_path "${extract_xiso_build_dir}/extract-xiso")
+    set(extract_xiso_path "${extract_xiso_build_dir}/extract-xiso${tool_suffix}")
     set(required_libraries
             "${nxdk_dir}/lib/libnxdk.lib"
             "${nxdk_dir}/lib/libc++.lib"
@@ -290,7 +293,7 @@ function(moonlight_prepare_nxdk nxdk_dir state_dir)
 
     if(need_prepare_libraries)
         message(STATUS "Preparing nxdk libraries at ${nxdk_dir}")
-        _moonlight_run_nxdk_make("${nxdk_dir}" "nxdk bootstrap" NXDK_ONLY=y)
+        _moonlight_run_nxdk_make("${nxdk_dir}" "nxdk bootstrap" NXDK_ONLY=y -j4)
     else()
         message(STATUS "Using existing nxdk library outputs from ${nxdk_dir}")
     endif()
@@ -313,7 +316,7 @@ endfunction()
 # Configure the internal Xbox child build and expose it as the moonlight_xbox target.
 function(moonlight_add_xbox_build)
     set(options)
-    set(oneValueArgs BINARY_DIR NXDK_DIR)
+    set(oneValueArgs BINARY_DIR NXDK_DIR SOURCE_NXDK_DIR)
     cmake_parse_arguments(MOONLIGHT_XBOX "${options}" "${oneValueArgs}" "" ${ARGN})
 
     if(NOT MOONLIGHT_XBOX_BINARY_DIR)
@@ -326,7 +329,7 @@ function(moonlight_add_xbox_build)
 
     _moonlight_get_xbox_make_program(xbox_make_program)
 
-    set(toolchain_file "${MOONLIGHT_XBOX_NXDK_DIR}/share/toolchain-nxdk.cmake")
+    set(toolchain_file "${CMAKE_SOURCE_DIR}/cmake/nxdk-toolchain.cmake")
     set(driver_script "${CMAKE_SOURCE_DIR}/cmake/run-child-build.cmake")
     set(configure_command
             "${CMAKE_COMMAND}"
@@ -334,6 +337,7 @@ function(moonlight_add_xbox_build)
             -DMOONLIGHT_CMAKE_COMMAND:FILEPATH=${CMAKE_COMMAND}
             -DMOONLIGHT_DESCRIPTION:STRING=Configure Xbox child build
             -DMOONLIGHT_NXDK_DIR:PATH=${MOONLIGHT_XBOX_NXDK_DIR}
+            -DMOONLIGHT_NXDK_SOURCE_DIR:PATH=${MOONLIGHT_XBOX_SOURCE_NXDK_DIR}
             -DMOONLIGHT_SOURCE_DIR:PATH=${CMAKE_SOURCE_DIR}
             -DMOONLIGHT_BINARY_DIR:PATH=${MOONLIGHT_XBOX_BINARY_DIR}
             -DMOONLIGHT_WORKING_DIRECTORY:PATH=${CMAKE_SOURCE_DIR}

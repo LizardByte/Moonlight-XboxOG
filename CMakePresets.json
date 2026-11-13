@@ -40,12 +40,11 @@
       "displayName": "Xbox Release (mingw64)",
       "description": "Direct nxdk Xbox configure for IDE/code-model support on Xbox-only sources",
       "generator": "Unix Makefiles",
-      "toolchainFile": "${sourceDir}/third-party/nxdk/share/toolchain-nxdk.cmake",
+      "toolchainFile": "${sourceDir}/cmake/nxdk-toolchain.cmake",
       "binaryDir": "${sourceDir}/cmake-build-xbox-release",
       "environment": {
         "CHERE_INVOKING": "1",
-        "MSYSTEM": "MINGW64",
-        "NXDK_DIR": "${sourceDir}/third-party/nxdk"
+        "MSYSTEM": "MINGW64"
       },
       "cacheVariables": {
         "BUILD_DOCS": "OFF",
@@ -55,8 +54,7 @@
         "CMAKE_MAKE_PROGRAM": "C:/msys64/usr/bin/make.exe",
         "CMAKE_TRY_COMPILE_TARGET_TYPE": "STATIC_LIBRARY",
         "MOONLIGHT_BUILD_KIND": "XBOX",
-        "MOONLIGHT_SKIP_NXDK_PREP": "ON",
-        "NXDK_DIR": "${sourceDir}/third-party/nxdk"
+        "MOONLIGHT_NXDK_DIR": "${sourceDir}/third-party/nxdk"
       }
     },
     {
