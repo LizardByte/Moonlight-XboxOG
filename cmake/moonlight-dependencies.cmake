@@ -1,6 +1,6 @@
 include_guard(GLOBAL)
 
-# Normalize FFmpeg configure probes that incorrectly succeed against the nxdk toolchain.
+# Disable nxdk's incomplete MSVC aligned-allocation family and unimplemented math entry points.
 function(_moonlight_patch_ffmpeg_config_header ffmpeg_config_header)
     if(NOT EXISTS "${ffmpeg_config_header}")
         return()
@@ -18,15 +18,7 @@ function(_moonlight_patch_ffmpeg_config_header ffmpeg_config_header)
             HAVE_LOG2
             HAVE_LOG2F
             HAVE_LRINT
-            HAVE_LRINTF
-            HAVE_MEMALIGN
-            HAVE_MMAP
-            HAVE_POSIX_MEMALIGN
-            HAVE_RINT
-            HAVE_RINTF
-            HAVE_SCHED_GETAFFINITY
-            HAVE_STRERROR_R
-            HAVE_SYSCTL)
+            HAVE_LRINTF)
         string(REGEX REPLACE
                 "#define ${ffmpeg_disabled_probe} [0-9]+"
                 "#define ${ffmpeg_disabled_probe} 0"
@@ -71,23 +63,34 @@ endfunction()
 function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     set(ffmpeg_cc_wrapper "${ARGV3}")
     set(ffmpeg_cxx_wrapper "${ARGV4}")
-    set(ffmpeg_compat_header "${ARGV5}")
 
     _moonlight_get_ffmpeg_revision(ffmpeg_revision "${ffmpeg_source_dir}")
     file(SHA256 "${ffmpeg_cc_wrapper}" ffmpeg_cc_wrapper_hash)
     file(SHA256 "${ffmpeg_cxx_wrapper}" ffmpeg_cxx_wrapper_hash)
-    file(SHA256 "${ffmpeg_compat_header}" ffmpeg_compat_header_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/types.h" ffmpeg_nxdk_types_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/time.h" ffmpeg_nxdk_time_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/fcntl.h" ffmpeg_nxdk_fcntl_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/unistd.h" ffmpeg_nxdk_unistd_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/stat.h" ffmpeg_nxdk_stat_hash)
+    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/stdio_ext_.h" ffmpeg_nxdk_stdio_hash)
+    file(SHA256 "${nxdk_dir}/lib/pdclib/platform/xbox/include/pdclib/_PDCLIB_config.h" ffmpeg_nxdk_pdclib_hash)
     file(SHA256 "${CMAKE_SOURCE_DIR}/cmake/moonlight-dependencies.cmake" ffmpeg_dependency_manifest_hash)
 
     set(signature_inputs
             "FFMPEG_REVISION=${ffmpeg_revision}"
             "NXDK_DIR=${nxdk_dir}"
+            "NXDK_TYPES_SHA256=${ffmpeg_nxdk_types_hash}"
+            "NXDK_TIME_SHA256=${ffmpeg_nxdk_time_hash}"
+            "NXDK_FCNTL_SHA256=${ffmpeg_nxdk_fcntl_hash}"
+            "NXDK_UNISTD_SHA256=${ffmpeg_nxdk_unistd_hash}"
+            "NXDK_STAT_SHA256=${ffmpeg_nxdk_stat_hash}"
+            "NXDK_STDIO_SHA256=${ffmpeg_nxdk_stdio_hash}"
+            "NXDK_PDCLIB_SHA256=${ffmpeg_nxdk_pdclib_hash}"
             "FFMPEG_PROFILE=h264-opus-xbox"
             "FFMPEG_TARGET_OS=none"
             "FFMPEG_ARCH=x86"
             "FFMPEG_CC_WRAPPER_SHA256=${ffmpeg_cc_wrapper_hash}"
             "FFMPEG_CXX_WRAPPER_SHA256=${ffmpeg_cxx_wrapper_hash}"
-            "FFMPEG_COMPAT_HEADER_SHA256=${ffmpeg_compat_header_hash}"
             "FFMPEG_DEPENDENCY_MANIFEST_SHA256=${ffmpeg_dependency_manifest_hash}")
     list(JOIN signature_inputs "\n" signature_text)
     string(SHA256 signature "${signature_text}")
@@ -304,12 +307,10 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
     set(ffmpeg_source_dir "${CMAKE_SOURCE_DIR}/third-party/ffmpeg")
     set(ffmpeg_cc_wrapper "${CMAKE_SOURCE_DIR}/scripts/ffmpeg-nxdk-cc.sh")
     set(ffmpeg_cxx_wrapper "${CMAKE_SOURCE_DIR}/scripts/ffmpeg-nxdk-cxx.sh")
-    set(ffmpeg_compat_header "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/ffmpeg_compat.h")
     _moonlight_validate_xbox_ffmpeg_inputs(
             "${ffmpeg_source_dir}"
             "${ffmpeg_cc_wrapper}"
-            "${ffmpeg_cxx_wrapper}"
-            "${ffmpeg_compat_header}")
+            "${ffmpeg_cxx_wrapper}")
 
     set(ffmpeg_state_dir "${CMAKE_BINARY_DIR}/third-party/ffmpeg")
     set(ffmpeg_build_dir "${ffmpeg_state_dir}/build")
@@ -328,8 +329,7 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
             "${nxdk_dir}"
             "${ffmpeg_source_dir}"
             "${ffmpeg_cc_wrapper}"
-            "${ffmpeg_cxx_wrapper}"
-            "${ffmpeg_compat_header}")
+            "${ffmpeg_cxx_wrapper}")
     _moonlight_should_rebuild_ffmpeg(
             need_rebuild
             "${signature_file}"

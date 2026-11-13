@@ -107,6 +107,7 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
     list(APPEND OPENSSL_CONFIGURE_OPTIONS
             no-sock
             no-dgram
+            no-posix-io
             --with-rand-seed=none)
 
     set(OPENSSL_CPPFLAGS_LIST
@@ -116,8 +117,6 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             -DOPENSSL_NO_SYSLOG
             -Dstrcasecmp=_stricmp
             -Dstrncasecmp=_strnicmp
-            -D_stat=stat
-            -D_fstat=fstat
             -D_exit=_Exit
             -include
             "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/openssl_compat.h"
@@ -146,11 +145,13 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             ${OPENSSL_ENV}
             ${OPENSSL_MAKE_EXECUTABLE}
             ${OPENSSL_MAKE_ARGS}
+            "LIBS=libcrypto.a libssl.a"
             build_libs)
     set(OPENSSL_INSTALL_COMMAND
             ${OPENSSL_ENV}
             ${OPENSSL_MAKE_EXECUTABLE}
             ${OPENSSL_MAKE_ARGS}
+            "LIBS=libcrypto.a libssl.a"
             install_dev)
 else()
     if(MOONLIGHT_OPENSSL_WINDOWS_HOST)
@@ -291,6 +292,22 @@ ExternalProject_Add(${MOONLIGHT_OPENSSL_EXTERNAL_TARGET}
         UPDATE_COMMAND ""
         PATCH_COMMAND ""
 )
+
+if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
+    # The cross build disables OpenSSL's dependency generation. Reconfiguration
+    # or adapter changes must invalidate old objects compiled against other APIs.
+    ExternalProject_Add_Step(${MOONLIGHT_OPENSSL_EXTERNAL_TARGET} refresh_compatibility
+            COMMAND ${OPENSSL_ENV} ${OPENSSL_MAKE_EXECUTABLE} clean
+            WORKING_DIRECTORY "${OPENSSL_BUILD_DIR}"
+            DEPENDEES configure
+            DEPENDERS build
+            DEPENDS
+                "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/openssl_compat.h"
+                "${NXDK_DIR}/lib/xboxrt/libc_extensions/dirent.h"
+                "${NXDK_DIR}/lib/xboxrt/libc_extensions/sys/stat.h"
+            COMMENT "Invalidate OpenSSL objects after nxdk compatibility changes"
+            LOG ON)
+endif()
 
 set(OpenSSL_FOUND TRUE)  # cmake-lint: disable=C0103
 set(OPENSSL_INCLUDE_DIR "${OPENSSL_INSTALL_DIR}/include")

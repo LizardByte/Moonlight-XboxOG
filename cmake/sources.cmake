@@ -11,8 +11,7 @@ file(GLOB_RECURSE MOONLIGHT_SOURCES CONFIGURE_DEPENDS
 
 list(REMOVE_ITEM MOONLIGHT_SOURCES
         "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/fenv_compat.cpp"
-        "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/poll_compat.cpp"
-        "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/stat_compat.cpp")
+        "${MOONLIGHT_SOURCE_ROOT}/src/_nxdk_compat/poll_compat.cpp")
 
 set(MOONLIGHT_TEST_EXCLUDED_SOURCES
         "${MOONLIGHT_SOURCE_ROOT}/src/main.cpp"
