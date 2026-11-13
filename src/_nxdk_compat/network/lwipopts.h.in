@@ -1,0 +1,31 @@
+/**
+ * @file src/_nxdk_compat/network/lwipopts.h.in
+ * @brief Configure upstream nxdk's network stack for Moonlight UDP traffic.
+ */
+#pragma once
+#include "@NXDK_DIR@/lib/net/nforceif/include/lwipopts.h"
+
+/** @brief Reserve per-interface storage for the mDNS responder. */
+#define LWIP_NUM_NETIF_CLIENT_DATA 1
+/** @brief Enable host discovery. */
+#define LWIP_MDNS_RESPONDER 1
+/** @brief Enable mDNS queries. */
+#define LWIP_MDNS_SEARCH 1
+#undef LWIP_IGMP
+/** @brief Join multicast groups for host discovery. */
+#define LWIP_IGMP 1
+/** @brief Buffer short UDP bursts. */
+#define MEMP_NUM_PBUF 128
+/** @brief Size both packet and native receive pools consistently. */
+#define PBUF_POOL_SIZE 128
+/** @brief Run the TCP/IP worker above normal priority. */
+#define TCPIP_THREAD_PRIO 2
+/** @brief Run auxiliary network workers above normal priority. */
+#define DEFAULT_THREAD_PRIO 1
+/** @brief Support bounded socket receives. */
+#define LWIP_SO_RCVTIMEO 1
+/** @brief Allow Moonlight to tune socket receive queues. */
+#define LWIP_SO_RCVBUF 1
+/** @brief Share Moonlight's timeval declaration with socket consumers. */
+#define LWIP_TIMEVAL_PRIVATE 0
+#include <sys/time.h>

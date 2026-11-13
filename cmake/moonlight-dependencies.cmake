@@ -65,27 +65,24 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     set(ffmpeg_cxx_wrapper "${ARGV4}")
 
     _moonlight_get_ffmpeg_revision(ffmpeg_revision "${ffmpeg_source_dir}")
+    file(READ "${nxdk_dir}/.moonlight-source.signature" nxdk_revision)
     file(SHA256 "${ffmpeg_cc_wrapper}" ffmpeg_cc_wrapper_hash)
     file(SHA256 "${ffmpeg_cxx_wrapper}" ffmpeg_cxx_wrapper_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/types.h" ffmpeg_nxdk_types_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/time.h" ffmpeg_nxdk_time_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/fcntl.h" ffmpeg_nxdk_fcntl_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/unistd.h" ffmpeg_nxdk_unistd_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/sys/stat.h" ffmpeg_nxdk_stat_hash)
-    file(SHA256 "${nxdk_dir}/lib/xboxrt/libc_extensions/stdio_ext_.h" ffmpeg_nxdk_stdio_hash)
-    file(SHA256 "${nxdk_dir}/lib/pdclib/platform/xbox/include/pdclib/_PDCLIB_config.h" ffmpeg_nxdk_pdclib_hash)
+    file(GLOB_RECURSE compat_inputs CONFIGURE_DEPENDS
+            "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.h"
+            "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.c")
+    set(compat_hashes)
+    foreach(input IN LISTS compat_inputs)
+        file(SHA256 "${input}" input_hash)
+        list(APPEND compat_hashes "${input}=${input_hash}")
+    endforeach()
     file(SHA256 "${CMAKE_SOURCE_DIR}/cmake/moonlight-dependencies.cmake" ffmpeg_dependency_manifest_hash)
 
     set(signature_inputs
             "FFMPEG_REVISION=${ffmpeg_revision}"
             "NXDK_DIR=${nxdk_dir}"
-            "NXDK_TYPES_SHA256=${ffmpeg_nxdk_types_hash}"
-            "NXDK_TIME_SHA256=${ffmpeg_nxdk_time_hash}"
-            "NXDK_FCNTL_SHA256=${ffmpeg_nxdk_fcntl_hash}"
-            "NXDK_UNISTD_SHA256=${ffmpeg_nxdk_unistd_hash}"
-            "NXDK_STAT_SHA256=${ffmpeg_nxdk_stat_hash}"
-            "NXDK_STDIO_SHA256=${ffmpeg_nxdk_stdio_hash}"
-            "NXDK_PDCLIB_SHA256=${ffmpeg_nxdk_pdclib_hash}"
+            "NXDK_REVISION=${nxdk_revision}"
+            "COMPAT_SHA256=${compat_hashes}"
             "FFMPEG_PROFILE=h264-opus-xbox"
             "FFMPEG_TARGET_OS=none"
             "FFMPEG_ARCH=x86"
@@ -165,6 +162,7 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
             sh
             "${ffmpeg_source_shell_path}/configure"
             "--prefix=${ffmpeg_install_shell_path}"
+            "--extra-ldflags=${MOONLIGHT_NXDK_COMPAT_LIBRARY}"
             --enable-cross-compile
             --arch=x86
             --cpu=i686
@@ -430,15 +428,9 @@ macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
         set(MOONLIGHT_NXDK_NET_INCLUDE_DIR "${NXDK_DIR}/lib/net")
         set(MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR "${NXDK_DIR}/lib/xboxrt/libc_extensions")
         set(MOONLIGHT_NXDK_LWIP_POSIX_COMPAT_DIR "${NXDK_DIR}/lib/net/lwip/src/include/compat/posix")
-        set(MOONLIGHT_NXDK_LWIP_MDNS_SOURCES
-                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns.c"
-                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns_domain.c"
-                "${NXDK_DIR}/lib/net/lwip/src/apps/mdns/mdns_out.c"
-        )
-
         if(TARGET enet)
             target_compile_definitions(enet PRIVATE NXDK)
-            target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net)
+            target_link_libraries(enet PUBLIC NXDK::NXDK NXDK::Net moonlight_nxdk_compat)
             target_include_directories(enet PRIVATE
                     "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
                     "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"
@@ -448,6 +440,7 @@ macro(MOONLIGHT_PREPARE_COMMON_DEPENDENCIES)
 
         if(TARGET moonlight-common-c)
             target_compile_definitions(moonlight-common-c PRIVATE NXDK)
+            target_link_libraries(moonlight-common-c PUBLIC moonlight_nxdk_compat NXDK::Net)
             target_include_directories(moonlight-common-c PRIVATE
                     "${MOONLIGHT_NXDK_NET_INCLUDE_DIR}"
                     "${MOONLIGHT_NXDK_LIBC_EXTENSIONS_DIR}"

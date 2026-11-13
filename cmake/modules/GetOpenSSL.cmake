@@ -120,6 +120,7 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             -D_exit=_Exit
             -include
             "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/openssl_compat.h"
+            "-I${CMAKE_SOURCE_DIR}/src/_nxdk_compat/include"
             "-I${NXDK_DIR}/lib"
             "-I${NXDK_DIR}/lib/net"
             "-I${NXDK_DIR}/lib/xboxrt/libc_extensions"
@@ -303,8 +304,8 @@ if(MOONLIGHT_OPENSSL_PLATFORM STREQUAL "XBOX")
             DEPENDERS build
             DEPENDS
                 "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/openssl_compat.h"
-                "${NXDK_DIR}/lib/xboxrt/libc_extensions/dirent.h"
-                "${NXDK_DIR}/lib/xboxrt/libc_extensions/sys/stat.h"
+                "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/include/dirent.h"
+                "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/include/sys/stat.h"
             COMMENT "Invalidate OpenSSL objects after nxdk compatibility changes"
             LOG ON)
 endif()

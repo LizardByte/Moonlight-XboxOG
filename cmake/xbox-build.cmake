@@ -13,14 +13,16 @@ set(XBOX_XBE_DIR "${CMAKE_CURRENT_BINARY_DIR}/xbe")
 set(XBOX_ISO_NAME "${CMAKE_PROJECT_NAME}.iso")
 set(XBOX_ISO "${CMAKE_CURRENT_BINARY_DIR}/${XBOX_ISO_NAME}")
 
-moonlight_resolve_nxdk_dir(NXDK_DIR)
-set(ENV{NXDK_DIR} "${NXDK_DIR}")
-
-if(NOT MOONLIGHT_SKIP_NXDK_PREP)
-    moonlight_prepare_nxdk("${NXDK_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/nxdk-bootstrap")
+if(NOT EXISTS "${NXDK_DIR}/.moonlight-nxdk-copy")
+    message(FATAL_ERROR "Use cmake/nxdk-toolchain.cmake to build with an isolated nxdk copy")
 endif()
+set(ENV{NXDK_DIR} "${NXDK_DIR}")
+moonlight_prepare_nxdk("${NXDK_DIR}" "${NXDK_DIR}/.moonlight-bootstrap")
 
 find_package(NXDK REQUIRED)
+include("${CMAKE_SOURCE_DIR}/cmake/nxdk-compat.cmake")
+moonlight_prepare_nxdk_compat()
+
 find_package(NXDK_SDL2 REQUIRED)
 find_package(NXDK_SDL2_Image REQUIRED)
 find_package(NXDK_SDL2_TTF REQUIRED)
@@ -66,7 +68,7 @@ add_executable(${CMAKE_PROJECT_NAME}
 target_sources(${CMAKE_PROJECT_NAME}
         PRIVATE
         "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/fenv_compat.cpp"
-        ${MOONLIGHT_NXDK_LWIP_MDNS_SOURCES}
+        $<TARGET_OBJECTS:moonlight_nxdk_net_init>
 )
 target_include_directories(${CMAKE_PROJECT_NAME}
         SYSTEM PRIVATE
@@ -84,6 +86,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         NXDK::NXDK
         NXDK::NXDK_CXX
         NXDK::Net
+        moonlight_nxdk_compat
         NXDK::SDL2
         NXDK::SDL2_Image
         NXDK::SDL2_TTF
