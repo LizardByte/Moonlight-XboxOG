@@ -6,9 +6,22 @@
  * descriptors, mapped files and temporary files are outside this decoder build.
  */
 #pragma once
+#include "ffmpeg_memory.h"
+
 #include <errno.h>
+#include <malloc.h>
 #include <stdio.h>
 #include <sys/types.h>
+
+/** @brief Supply the compiler memory fence required by FFmpeg's Win32 thread probe. */
+#define MemoryBarrier() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+
+/** @brief Route FFmpeg aligned allocation to a complete private implementation. */
+#define _aligned_malloc moonlight_ffmpeg_aligned_malloc
+/** @brief Preserve aligned buffers when FFmpeg reallocates them. */
+#define _aligned_realloc moonlight_ffmpeg_aligned_realloc
+/** @brief Match the private aligned allocator when releasing FFmpeg buffers. */
+#define _aligned_free moonlight_ffmpeg_aligned_free
 
 /**
  * @brief Reject an optional FFmpeg open request.

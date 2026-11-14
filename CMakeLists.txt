@@ -9,6 +9,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile commands for IDE
 
 set(MOONLIGHT_BUILD_KIND "HOST" CACHE STRING "Internal Moonlight build mode")
 set_property(CACHE MOONLIGHT_BUILD_KIND PROPERTY STRINGS HOST XBOX)
+option(MOONLIGHT_BUILD_VIDEO_EXPERIMENTS "Build standalone GPU presentation and MPEG-2 sampling experiments" OFF)
+option(MOONLIGHT_ENABLE_GPU_PRESENTATION "Enable experimental NV2A overlay presentation before software fallback" ON)
 option(MOONLIGHT_INPUT_DIAGNOSTICS "Display digital controller state while diagnosing stream input" OFF)
 
 if(MOONLIGHT_BUILD_KIND STREQUAL "XBOX")

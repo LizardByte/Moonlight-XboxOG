@@ -558,8 +558,8 @@ namespace {
           },
           {
             "toggle-show-performance-stats",
-            std::string("Show End Stream Stats: ") + (state.settings.showPerformanceStats ? "On" : "Off"),
-            "Toggle the performance summary shown after streaming ends.",
+            std::string("Performance Stats: ") + (state.settings.showPerformanceStats ? "On" : "Off"),
+            "Show performance statistics during playback and after the stream ends.",
             true,
           },
         };
@@ -2016,7 +2016,7 @@ namespace app {
       state.settings.showPerformanceStats = !state.settings.showPerformanceStats;
       state.settings.dirty = true;
       update->persistence.settingsChanged = true;
-      state.shell.statusMessage = std::string("End stream performance stats ") + (state.settings.showPerformanceStats ? "enabled" : "disabled");
+      state.shell.statusMessage = std::string("Performance stats ") + (state.settings.showPerformanceStats ? "enabled" : "disabled");
       rebuild_menu(state, "toggle-show-performance-stats");
       return;
     }
