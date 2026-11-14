@@ -22,6 +22,15 @@
 ![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
+## Streaming controls
+
+To quit a stream, press **Back/Select + Black + White (LB + RB)** together on any connected controller.
+The client displays **Stopping stream...** before returning to the menu. If the end-of-stream statistics
+summary is enabled, release the buttons and press a button to dismiss it.
+
+The opt-in CMake option `MOONLIGHT_INPUT_DIAGNOSTICS` displays controller state and event counters
+for troubleshooting; it is disabled by default.
+
 ## 🛠️ Build
 
 ### Prerequisites
