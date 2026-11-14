@@ -104,6 +104,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME}
         NXDK
         TOML_EXCEPTIONS=0
         TOML_ENABLE_WINDOWS_COMPAT=0)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE MOONLIGHT_INPUT_DIAGNOSTICS=$<BOOL:${MOONLIGHT_INPUT_DIAGNOSTICS}>)
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
 
 if(BUILD_DOCS)

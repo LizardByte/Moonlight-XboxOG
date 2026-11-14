@@ -4403,6 +4403,8 @@ namespace {
   /**
    * @brief Initialize the SDL renderer, fonts, caches, and controller used by the shell.
    *
+   * Preserve an existing connected controller reference across render-resource initialization.
+   *
    * @param window SDL window hosting the interactive shell.
    * @param videoMode Active output mode used to size fonts.
    * @param resources Shell resources to populate.
@@ -4417,6 +4419,7 @@ namespace {
     if (TTF_Init() != 0) {
       failure->category = "ttf";
       failure->message = std::string("TTF_Init failed: ") + TTF_GetError();
+      close_shell_resources(resources);
       return false;
     }
     resources->ttfInitialized = true;
@@ -4450,7 +4453,10 @@ namespace {
       return false;
     }
 
-    resources->controller = open_primary_controller();
+    if (resources->controller == nullptr || SDL_GameControllerGetAttached(resources->controller) == SDL_FALSE) {
+      close_controller(resources->controller);
+      resources->controller = open_primary_controller();
+    }
     resources->encoderSettings = XVideoGetEncoderSettings();
     return true;
   }
@@ -4585,11 +4591,19 @@ namespace {
     }
 
     finalize_shell_tasks(runtime);
+    // Keep the menu's working controller open while render resources change. The Xbox
+    // SDL backend owns a pending USB read that must not be torn down at this boundary.
+    std::unique_ptr<SDL_GameController, decltype(&SDL_GameControllerClose)> retainedController(std::exchange(resources->controller, nullptr), SDL_GameControllerClose);
     close_shell_resources(resources);
 
     std::string sessionMessage;
-    const bool streamStarted = streaming::run_stream_session(window, activeVideoMode, state.settings, *streamHost, *streamApp, clientIdentity, &sessionMessage);
+    SDL_GameController *returnController = nullptr;
+    const bool streamStarted = streaming::run_stream_session(window, activeVideoMode, state.settings, *streamHost, *streamApp, clientIdentity, retainedController.get(), &returnController, &sessionMessage);
     state.shell.statusMessage = sessionMessage;
+    if (returnController != nullptr) {
+      retainedController.reset(returnController);
+    }
+    resources->controller = retainedController.release();
 
     if (ShellInitializationFailure initializationFailure {}; !initialize_shell_resources(window, activeVideoMode, resources, &initializationFailure)) {
       report_shell_failure(initializationFailure.category, initializationFailure.message);

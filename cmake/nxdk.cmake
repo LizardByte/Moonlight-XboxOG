@@ -344,6 +344,7 @@ function(moonlight_add_xbox_build)
             -DMOONLIGHT_MAKE_PROGRAM:FILEPATH=${xbox_make_program}
             -DMOONLIGHT_TOOLCHAIN_FILE:FILEPATH=${toolchain_file}
             -DMOONLIGHT_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
+            -DMOONLIGHT_INPUT_DIAGNOSTICS:BOOL=${MOONLIGHT_INPUT_DIAGNOSTICS}
             -P "${driver_script}"
     )
     set(build_command

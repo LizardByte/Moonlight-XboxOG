@@ -4,6 +4,7 @@
  */
 #include "src/streaming/session.h"
 
+#include "src/input/stream_exit.h"
 #include "src/logging/logger.h"
 #include "src/os.h"
 #include "src/startup/memory_stats.h"
@@ -24,8 +25,13 @@
 #include <SDL_ttf.h>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <windows.h>  // NOSONAR(cpp:S3806) nxdk requires lowercase header names
+
+#if defined(NXDK) && MOONLIGHT_INPUT_DIAGNOSTICS
+  #include <hal/debug.h>
+#endif
 
 #ifdef NXDK
 /**
@@ -55,7 +61,6 @@ namespace {
   constexpr Uint8 ACCENT_RED = 0x00;
   constexpr Uint8 ACCENT_GREEN = 0xF3;
   constexpr Uint8 ACCENT_BLUE = 0xD4;
-  constexpr Uint32 STREAM_EXIT_COMBO_HOLD_MILLISECONDS = 900U;
   constexpr Uint32 STREAM_FRAME_DELAY_MILLISECONDS = 16U;
   constexpr Uint32 STREAM_PRESENT_POLL_MILLISECONDS = 2U;
   constexpr Uint32 STREAM_INPUT_POLL_MILLISECONDS = 4U;
@@ -86,24 +91,34 @@ namespace {
   };
 
   /**
-   * @brief Thread-safe owner for the active stream controller handle.
+   * @brief Check whether a sampled controller has a button or trigger pressed.
+   *
+   * @param snapshot Sampled controller input.
+   * @return True when the sample can dismiss the stream summary.
+   */
+  bool controller_snapshot_has_button_press(const ControllerSnapshot &snapshot) {
+    return snapshot.buttonFlags != 0 || snapshot.leftTrigger != 0 || snapshot.rightTrigger != 0;
+  }
+
+  /**
+   * @brief Own the controller on the event thread and publish snapshots to the input sender.
    */
   class StreamControllerHandle {
   public:
     /**
-     * @brief Replace the current controller handle without closing the old one.
+     * @brief Adopt the primary controller reference and open other devices for local quit detection.
      *
-     * @param controller New controller handle to store.
+     * @param controller Owned primary controller reference used for forwarded gameplay input.
      */
     void reset(SDL_GameController *controller);
 
     /**
-     * @brief Close and clear the current controller handle.
+     * @brief Close all owned controller references and clear the published state.
      */
     void close();
 
     /**
-     * @brief Open a controller when no controller is currently active.
+     * @brief Open a newly connected controller for gameplay or additional local quit detection.
      *
      * @param deviceIndex SDL joystick device index reported by the add event.
      */
@@ -117,14 +132,43 @@ namespace {
     void close_if_removed(int joystickInstanceId);
 
     /**
-     * @brief Return the raw handle for same-thread startup polling.
+     * @brief Sample SDL controller state on the event thread after pumping events.
      *
-     * @return Current controller handle, or nullptr when no controller is open.
+     * @return True when any connected controller has the complete digital quit chord pressed.
      */
-    [[nodiscard]] SDL_GameController *startup_poll_handle() const;
+    bool poll();
 
     /**
-     * @brief Read a synchronized controller input snapshot.
+     * @brief Check all sampled controllers when waiting for summary dismissal.
+     *
+     * @return True when any controller has a digital button or trigger pressed.
+     */
+    [[nodiscard]] bool any_button_pressed() const;
+
+    /**
+     * @brief Transfer the controller used to dismiss the summary back to the shell without closing it.
+     *
+     * @return Owned reference to a pressed controller, another connected controller, or nullptr.
+     */
+    [[nodiscard]] SDL_GameController *take_controller_for_shell();
+
+    /**
+     * @brief Apply a queued digital button transition to its originating controller's exit chord.
+     *
+     * @param event Button press or release delivered by SDL.
+     * @return True if the transition completes the digital exit chord.
+     */
+    bool process_button_event(const SDL_ControllerButtonEvent &event);
+
+    /**
+     * @brief Describe mapped and raw digital button state for an opt-in diagnostic build.
+     *
+     * @return Lines showing connectivity, active device, button state and sampling progress.
+     */
+    [[nodiscard]] std::vector<std::string> diagnostic_lines() const;
+
+    /**
+     * @brief Read the last published snapshot without accessing SDL from the sender thread.
      *
      * @param controllerPresent Optional output set to true when a controller was read.
      * @return Current controller input state, or a zeroed snapshot when unavailable.
@@ -132,8 +176,23 @@ namespace {
     [[nodiscard]] ControllerSnapshot read_snapshot(bool *controllerPresent) const;
 
   private:
-    mutable std::mutex mutex_;  ///< Guards controller lifetime and input reads across the stream loop.
-    SDL_GameController *controller_ = nullptr;  ///< Currently opened SDL controller handle.
+    /**
+     * @brief Additional controller monitored independently for local quit and summary dismissal.
+     */
+    struct QuitController {
+      SDL_GameController *handle = nullptr;  ///< Owned SDL reference, closed with the stream UI.
+      input::StreamExitChord chord;  ///< Per-device digital event state; never combined with another pad.
+      ControllerSnapshot snapshot {};  ///< Most recent state sampled on the event thread.
+    };
+
+    mutable std::mutex mutex_;  ///< Guards the published snapshot shared with the input sender.
+    SDL_GameController *controller_ = nullptr;  ///< SDL handle accessed only on the event thread.
+    ControllerSnapshot snapshot_ {};  ///< Last input state sampled by the event thread.
+    bool controllerPresent_ = false;  ///< Connection state of the published input sample.
+    input::StreamExitChord exitChord_;  ///< Digital button state in SDL event order, accessed by the event thread.
+    std::vector<QuitController> quitControllers_;  ///< Other connected controllers allowed to stop the local session.
+    std::uint32_t sampleCount_ = 0;  ///< Number of snapshots published on the event thread.
+    std::uint32_t buttonEventCount_ = 0;  ///< Number of button transitions delivered to the event thread.
   };
 
   struct StreamUiResources {
@@ -651,7 +710,24 @@ namespace {
     }
   }
 
-  SDL_GameController *open_primary_controller() {
+  /**
+   * @brief Acquire the menu's controller without closing its USB input pipe, or select an available controller.
+   *
+   * @param preferredController Controller still retained by the shell, or nullptr.
+   * @return Separately owned controller reference, or nullptr when no device could be opened.
+   */
+  SDL_GameController *open_primary_controller(SDL_GameController *preferredController) {
+    if (preferredController != nullptr && SDL_GameControllerGetAttached(preferredController) != SDL_FALSE) {
+      const SDL_JoystickID preferredId = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(preferredController));
+      for (int joystickIndex = 0; joystickIndex < SDL_NumJoysticks(); ++joystickIndex) {
+        if (SDL_JoystickGetDeviceInstanceID(joystickIndex) == preferredId) {
+          if (SDL_GameController *controller = SDL_GameControllerOpen(joystickIndex); controller != nullptr) {
+            logging::info("input", "Retained the menu controller for streaming; USB input remains open");
+            return controller;
+          }
+        }
+      }
+    }
     for (int joystickIndex = 0; joystickIndex < SDL_NumJoysticks(); ++joystickIndex) {
       if (!SDL_IsGameController(joystickIndex)) {
         continue;
@@ -659,6 +735,9 @@ namespace {
 
       SDL_GameController *controller = SDL_GameControllerOpen(joystickIndex);
       if (controller != nullptr) {
+        char *mapping = SDL_GameControllerMapping(controller);
+        logging::info("input", "Opened stream controller at device " + std::to_string(joystickIndex) + " of " + std::to_string(SDL_NumJoysticks()) + " | mapping=" + (mapping != nullptr ? std::string(mapping) : std::string("unavailable")));
+        SDL_free(mapping);
         return controller;
       }
     }
@@ -666,13 +745,25 @@ namespace {
     return nullptr;
   }
 
-  bool initialize_stream_ui_resources(SDL_Window *window, const VIDEO_MODE &videoMode, StreamUiResources *resources, std::string *errorMessage) {
+  /**
+   * @brief Keep Xbox controller input active when a video-mode transition leaves SDL without keyboard focus.
+   *
+   * Xbox has one display window and no keyboard-focus event source to recover
+   * focus. Local quit and gameplay input must not depend on SDL's desktop filter.
+   */
+  void enable_stream_controller_events() {
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+  }
+
+  bool initialize_stream_ui_resources(SDL_Window *window, const VIDEO_MODE &videoMode, SDL_GameController *preferredController, StreamUiResources *resources, std::string *errorMessage) {
     if (window == nullptr || resources == nullptr) {
       if (errorMessage != nullptr) {
         *errorMessage = "Streaming requires a valid SDL window";
       }
       return false;
     }
+
+    enable_stream_controller_events();
 
     if (TTF_Init() != 0) {
       if (errorMessage != nullptr) {
@@ -702,7 +793,7 @@ namespace {
       return false;
     }
 
-    resources->controller.reset(open_primary_controller());
+    resources->controller.reset(open_primary_controller(preferredController));
     return true;
   }
 
@@ -1005,7 +1096,7 @@ namespace {
       return terminationError == ML_ERROR_GRACEFUL_TERMINATION ? "The host ended the stream gracefully." : "The host ended the stream (error " + std::to_string(terminationError) + ")";
     }
     if (connectionState.connectionStarted.load()) {
-      return "Streaming transport is active. Hold Back + Start to stop.";
+      return std::string("Streaming transport is active. ") + input::STREAM_EXIT_HINT;
     }
     return std::string("Connecting: ") + LiGetStageName(connectionState.currentStage.load());
   }
@@ -1032,9 +1123,22 @@ namespace {
     return controllerEvent;
   }
 
-  void pump_stream_events(StreamUiResources *resources) {
+  /**
+   * @brief Request a local stop once, independently of the input sender and its network state.
+   *
+   * @param connectionState Session state receiving the local quit request.
+   */
+  void request_stream_stop(StreamConnectionState *connectionState) {
+    if (connectionState != nullptr && !connectionState->stopRequested.exchange(true)) {
+      logging::info("input", "Local stream quit requested by Back + Black + White (LB + RB)");
+    }
+  }
+
+  void pump_stream_events(StreamUiResources *resources, StreamConnectionState *connectionState) {
+    SDL_PumpEvents();
     SDL_Event event {};
-    while (SDL_PollEvent(&event) != 0) {
+    // Pump once: polling again for every queued event can starve input sampling on noisy devices.
+    while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 0) {
       if (resources == nullptr) {
         continue;
       }
@@ -1045,6 +1149,17 @@ namespace {
       } else if (event.type == SDL_CONTROLLERDEVICEREMOVED) {
         const SDL_ControllerDeviceEvent controllerEvent = copy_controller_device_event(event);
         close_controller_if_removed(resources, controllerEvent.which);
+      } else if (event.type == SDL_CONTROLLERBUTTONDOWN || event.type == SDL_CONTROLLERBUTTONUP) {
+        SDL_ControllerButtonEvent buttonEvent {};
+        std::memcpy(&buttonEvent, &event, sizeof(buttonEvent));
+        if (resources->controller.process_button_event(buttonEvent)) {
+          request_stream_stop(connectionState);
+        }
+      }
+    }
+    if (resources != nullptr) {
+      if (resources->controller.poll()) {
+        request_stream_stop(connectionState);
       }
     }
   }
@@ -1113,50 +1228,175 @@ namespace {
   }
 
   void StreamControllerHandle::reset(SDL_GameController *controller) {
-    std::scoped_lock lock(mutex_);
     controller_ = controller;
+    for (int deviceIndex = 0; deviceIndex < SDL_NumJoysticks(); ++deviceIndex) {
+      open_if_needed(deviceIndex);
+    }
+    poll();
   }
 
   void StreamControllerHandle::close() {
-    std::scoped_lock lock(mutex_);
     close_controller(controller_);
     controller_ = nullptr;
+    for (const auto &controller : quitControllers_) {
+      close_controller(controller.handle);
+    }
+    quitControllers_.clear();
+    poll();
   }
 
   void StreamControllerHandle::open_if_needed(int deviceIndex) {
-    std::scoped_lock lock(mutex_);
-    if (controller_ == nullptr) {
-      controller_ = SDL_GameControllerOpen(deviceIndex);
+    if (!SDL_IsGameController(deviceIndex)) {
+      return;
+    }
+    const SDL_JoystickID instance = SDL_JoystickGetDeviceInstanceID(deviceIndex);
+    const auto matches = [instance](SDL_GameController *handle) {
+      return handle != nullptr && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(handle)) == instance;
+    };
+    if (matches(controller_) || std::any_of(quitControllers_.begin(), quitControllers_.end(), [&](const QuitController &controller) {
+          return matches(controller.handle);
+        })) {
+      return;
+    }
+    if (SDL_GameController *controller = SDL_GameControllerOpen(deviceIndex); controller != nullptr) {
+      if (controller_ == nullptr) {
+        controller_ = controller;
+      } else {
+        quitControllers_.push_back({controller, {}, {}});
+      }
+      logging::info("input", "Opened stream input device " + std::to_string(instance) + " for local quit detection");
+      poll();
     }
   }
 
   void StreamControllerHandle::close_if_removed(int joystickInstanceId) {
-    std::scoped_lock lock(mutex_);
-    if (controller_ == nullptr) {
-      return;
-    }
-
-    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller_);
+    SDL_Joystick *joystick = controller_ != nullptr ? SDL_GameControllerGetJoystick(controller_) : nullptr;
     if (joystick != nullptr && SDL_JoystickInstanceID(joystick) == joystickInstanceId) {
       close_controller(controller_);
       controller_ = nullptr;
     }
+    for (auto controller = quitControllers_.begin(); controller != quitControllers_.end();) {
+      if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller->handle)) == joystickInstanceId) {
+        close_controller(controller->handle);
+        controller = quitControllers_.erase(controller);
+      } else {
+        ++controller;
+      }
+    }
+    if (controller_ == nullptr && !quitControllers_.empty()) {
+      controller_ = quitControllers_.front().handle;
+      quitControllers_.erase(quitControllers_.begin());
+    }
+    poll();
   }
 
-  SDL_GameController *StreamControllerHandle::startup_poll_handle() const {
-    return controller_;
+  bool StreamControllerHandle::poll() {
+    const bool controllerPresent = controller_ != nullptr && SDL_GameControllerGetAttached(controller_) != SDL_FALSE;
+    const ControllerSnapshot snapshot = controllerPresent ? read_controller_snapshot(controller_) : ControllerSnapshot {};
+    bool quitRequested = exitChord_.update(snapshot.buttonFlags, controllerPresent);
+    for (auto &controller : quitControllers_) {
+      const bool present = SDL_GameControllerGetAttached(controller.handle) != SDL_FALSE;
+      controller.snapshot = present ? read_controller_snapshot(controller.handle) : ControllerSnapshot {};
+      quitRequested = controller.chord.update(controller.snapshot.buttonFlags, present) || quitRequested;
+    }
+    ++sampleCount_;
+    std::scoped_lock lock(mutex_);
+    snapshot_ = snapshot;
+    controllerPresent_ = controllerPresent;
+    return quitRequested;
+  }
+
+  bool StreamControllerHandle::any_button_pressed() const {
+    bool present = false;
+    const ControllerSnapshot snapshot = read_snapshot(&present);
+    return (present && controller_snapshot_has_button_press(snapshot)) || std::any_of(quitControllers_.begin(), quitControllers_.end(), [](const QuitController &controller) {
+             return controller_snapshot_has_button_press(controller.snapshot);
+           });
+  }
+
+  SDL_GameController *StreamControllerHandle::take_controller_for_shell() {
+    poll();
+    bool present = false;
+    const ControllerSnapshot snapshot = read_snapshot(&present);
+    if (present && controller_snapshot_has_button_press(snapshot)) {
+      return std::exchange(controller_, nullptr);
+    }
+    const auto takeAdditional = [this](std::vector<QuitController>::iterator controller) {
+      SDL_GameController *handle = controller->handle;
+      quitControllers_.erase(controller);
+      return handle;
+    };
+    const auto pressed = std::find_if(quitControllers_.begin(), quitControllers_.end(), [](const QuitController &controller) {
+      return SDL_GameControllerGetAttached(controller.handle) != SDL_FALSE && controller_snapshot_has_button_press(controller.snapshot);
+    });
+    if (pressed != quitControllers_.end()) {
+      return takeAdditional(pressed);
+    }
+    if (present) {
+      return std::exchange(controller_, nullptr);
+    }
+    const auto connected = std::find_if(quitControllers_.begin(), quitControllers_.end(), [](const QuitController &controller) {
+      return SDL_GameControllerGetAttached(controller.handle) != SDL_FALSE;
+    });
+    return connected != quitControllers_.end() ? takeAdditional(connected) : nullptr;
+  }
+
+  bool StreamControllerHandle::process_button_event(const SDL_ControllerButtonEvent &event) {
+    ++buttonEventCount_;
+    std::uint32_t flag = 0;
+    switch (event.button) {
+      case SDL_CONTROLLER_BUTTON_BACK:
+        flag = BACK_FLAG;
+        break;
+      case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+        flag = LB_FLAG;
+        break;
+      case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+        flag = RB_FLAG;
+        break;
+      default:
+        return false;
+    }
+    if (controller_ != nullptr && SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller_)) == event.which) {
+      return exitChord_.update_button(flag, event.state == SDL_PRESSED);
+    }
+    for (auto &controller : quitControllers_) {
+      if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller.handle)) == event.which) {
+        return controller.chord.update_button(flag, event.state == SDL_PRESSED);
+      }
+    }
+    return false;
+  }
+
+  std::vector<std::string> StreamControllerHandle::diagnostic_lines() const {
+    bool present = false;
+    const ControllerSnapshot snapshot = read_snapshot(&present);
+    SDL_Joystick *joystick = controller_ != nullptr ? SDL_GameControllerGetJoystick(controller_) : nullptr;
+    const auto button = [&](std::uint32_t flag) {
+      return (snapshot.buttonFlags & flag) != 0 ? "1" : "0";
+    };
+    const auto raw = [&](int index) {
+      return joystick != nullptr && SDL_JoystickGetButton(joystick, index) != 0 ? "1" : "0";
+    };
+    std::vector<std::string> lines {
+      "DIGITAL QUIT: Back + White/LB + Black/RB on any pad",
+      std::string("Mapped Back=") + button(BACK_FLAG) + " LB=" + button(LB_FLAG) + " RB=" + button(RB_FLAG) + " | raw=" + raw(6) + "/" + raw(4) + "/" + raw(5),
+      std::string(present ? "Connected" : "DISCONNECTED") + " | id=" + std::to_string(joystick != nullptr ? SDL_JoystickInstanceID(joystick) : -1) + " | samples=" + std::to_string(sampleCount_) + " events=" + std::to_string(buttonEventCount_),
+      std::string("SDL focus=") + (SDL_GetKeyboardFocus() != nullptr ? "yes" : "none") + " | background input=" + (SDL_GetHintBoolean(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, SDL_FALSE) ? "yes" : "no") + " | devices=" + std::to_string(SDL_NumJoysticks()),
+    };
+    for (const auto &controller : quitControllers_) {
+      const auto flags = controller.snapshot.buttonFlags;
+      lines.push_back("Quit pad id=" + std::to_string(SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller.handle))) + " Back=" + std::to_string((flags & BACK_FLAG) != 0) + " LB=" + std::to_string((flags & LB_FLAG) != 0) + " RB=" + std::to_string((flags & RB_FLAG) != 0));
+    }
+    return lines;
   }
 
   ControllerSnapshot StreamControllerHandle::read_snapshot(bool *controllerPresent) const {
     std::scoped_lock lock(mutex_);
-    if (controller_ == nullptr) {
-      return {};
-    }
-
     if (controllerPresent != nullptr) {
-      *controllerPresent = true;
+      *controllerPresent = controllerPresent_;
     }
-    return read_controller_snapshot(controller_);
+    return snapshot_;
   }
 
   bool controller_snapshots_match(const ControllerSnapshot &left, const ControllerSnapshot &right) {
@@ -1164,48 +1404,9 @@ namespace {
            left.rightStickX == right.rightStickX && left.rightStickY == right.rightStickY;
   }
 
-  void update_stream_exit_combo(SDL_GameController *controller, Uint32 *comboActivatedTick, StreamConnectionState *connectionState) {
-    if (comboActivatedTick == nullptr || connectionState == nullptr || controller == nullptr) {
-      return;
-    }
-
-    const bool backPressed = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK) != 0;
-    if (const bool startPressed = SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START) != 0; !backPressed || !startPressed) {
-      *comboActivatedTick = 0U;
-      return;
-    }
-
-    const Uint32 now = SDL_GetTicks();
-    if (*comboActivatedTick == 0U) {
-      *comboActivatedTick = now;
-      return;
-    }
-    if (now - *comboActivatedTick >= STREAM_EXIT_COMBO_HOLD_MILLISECONDS) {
-      connectionState->stopRequested.store(true);
-    }
-  }
-
-  void update_stream_exit_combo_from_snapshot(const ControllerSnapshot &snapshot, bool controllerPresent, Uint32 *comboActivatedTick, StreamConnectionState *connectionState) {
-    if (comboActivatedTick == nullptr || connectionState == nullptr || !controllerPresent) {
-      if (comboActivatedTick != nullptr) {
-        *comboActivatedTick = 0U;
-      }
-      return;
-    }
-
-    const bool backPressed = (snapshot.buttonFlags & BACK_FLAG) != 0;
-    if (const bool startPressed = (snapshot.buttonFlags & PLAY_FLAG) != 0; !backPressed || !startPressed) {
-      *comboActivatedTick = 0U;
-      return;
-    }
-
-    const Uint32 now = SDL_GetTicks();
-    if (*comboActivatedTick == 0U) {
-      *comboActivatedTick = now;
-      return;
-    }
-    if (now - *comboActivatedTick >= STREAM_EXIT_COMBO_HOLD_MILLISECONDS) {
-      connectionState->stopRequested.store(true);
+  void update_stream_exit_combo_from_snapshot(const ControllerSnapshot &snapshot, bool controllerPresent, StreamConnectionState *connectionState) {
+    if (input::is_stream_exit_requested(snapshot.buttonFlags, controllerPresent)) {
+      request_stream_stop(connectionState);
     }
   }
 
@@ -1250,12 +1451,10 @@ namespace {
 
     bool controllerArrivalSent = false;
     ControllerSnapshot lastControllerSnapshot {};
-    Uint32 exitComboActivatedTick = 0U;
 
     while (!inputThreadState->stopRequested.load() && !inputThreadState->connectionState->connectionTerminated.load() && !inputThreadState->connectionState->stopRequested.load()) {
       bool controllerPresent = false;
       const ControllerSnapshot snapshot = read_controller_snapshot(inputThreadState->resources, &controllerPresent);
-      update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &exitComboActivatedTick, inputThreadState->connectionState);
       send_controller_snapshot_if_needed(snapshot, controllerPresent, &controllerArrivalSent, &lastControllerSnapshot);
       SDL_Delay(STREAM_INPUT_POLL_MILLISECONDS);
     }
@@ -1321,6 +1520,24 @@ namespace {
     logging::debug("stream", std::string("Requested IDR frame after ") + std::to_string(idleMilliseconds) + " ms without decoded video");
   }
 
+  /**
+   * @brief Draw opt-in input diagnostics on the final Xbox framebuffer after video presentation.
+   *
+   * @param resources Event-thread controller owner supplying the diagnostic state.
+   */
+  void render_stream_input_diagnostics(const StreamUiResources *resources) {
+#if defined(NXDK) && MOONLIGHT_INPUT_DIAGNOSTICS
+    if (resources != nullptr) {
+      debugResetCursor();
+      for (const auto &line : resources->controller.diagnostic_lines()) {
+        debugPrint("%s\n", line.c_str());
+      }
+    }
+#else
+    (void) resources;
+#endif
+  }
+
   bool render_stream_frame(
     const app::HostRecord &host,
     const app::HostAppRecord &app,
@@ -1340,6 +1557,7 @@ namespace {
     const bool hasDecodedVideo = mediaBackend != nullptr && mediaBackend->has_decoded_video();
 #ifdef NXDK
     if (hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, true)) {
+      render_stream_input_diagnostics(resources);
       return true;
     }
 #endif
@@ -1353,6 +1571,7 @@ namespace {
     const bool renderedVideo = hasDecodedVideo && mediaBackend->render_latest_video_frame(resources->renderer, screenWidth, screenHeight, false);
     if (renderedVideo) {
       SDL_RenderPresent(resources->renderer);
+      render_stream_input_diagnostics(resources);
       return true;
     }
 
@@ -1366,7 +1585,7 @@ namespace {
       std::string("App: ") + app.name + (context.rtspSessionUrl.empty() ? std::string {} : std::string(" | Session URL received")),
       build_stage_status_line(connectionState),
       mediaBackend != nullptr ? mediaBackend->build_overlay_status_line() : std::string("FFmpeg decode backend unavailable"),
-      "Hold Back + Start for about one second to stop streaming.",
+      input::STREAM_EXIT_HINT,
     };
     if (!renderedVideo) {
       lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | H.264 | Stereo");
@@ -1377,6 +1596,7 @@ namespace {
     render_text_lines(resources->renderer, resources->bodyFont, lines, screenWidth, &cursorY);
 
     SDL_RenderPresent(resources->renderer);
+    render_stream_input_diagnostics(resources);
     return true;
   }
 
@@ -1433,10 +1653,6 @@ namespace {
     return event.type == SDL_QUIT || event.type == SDL_KEYDOWN || event.type == SDL_MOUSEBUTTONDOWN;
   }
 
-  bool controller_snapshot_has_button_press(const ControllerSnapshot &snapshot) {
-    return snapshot.buttonFlags != 0 || snapshot.leftTrigger > 0 || snapshot.rightTrigger > 0;
-  }
-
   void show_stream_end_statistics(
     const app::HostRecord &host,
     const app::HostAppRecord &app,
@@ -1449,9 +1665,8 @@ namespace {
       return;
     }
 
-    bool initialControllerPresent = false;
-    const ControllerSnapshot initialSnapshot = read_controller_snapshot(resources, &initialControllerPresent);
-    bool controllerReadyForPress = !initialControllerPresent || !controller_snapshot_has_button_press(initialSnapshot);
+    resources->controller.poll();
+    bool controllerReadyForPress = !resources->controller.any_button_pressed();
 
     for (;;) {
       SDL_Event event {};
@@ -1460,8 +1675,8 @@ namespace {
           return;
         }
       }
-      bool controllerPresent = false;
-      if (const ControllerSnapshot snapshot = read_controller_snapshot(resources, &controllerPresent); !controllerPresent || !controller_snapshot_has_button_press(snapshot)) {
+      resources->controller.poll();
+      if (!resources->controller.any_button_pressed()) {
         controllerReadyForPress = true;
       } else if (controllerReadyForPress) {
         return;
@@ -1470,15 +1685,35 @@ namespace {
     }
   }
 
+  /**
+   * @brief Acknowledge a local quit before waiting for the input sender and transport teardown.
+   *
+   * @param resources Stream renderer and font resources owned by the event thread.
+   */
+  void render_stream_stopping_frame(StreamUiResources *resources) {
+    if (resources == nullptr || resources->renderer == nullptr || resources->titleFont == nullptr) {
+      return;
+    }
+    int screenWidth = 0;
+    SDL_GetRendererOutputSize(resources->renderer, &screenWidth, nullptr);
+    SDL_SetRenderDrawColor(resources->renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
+    SDL_RenderClear(resources->renderer);
+    render_text_line(resources->renderer, resources->titleFont, "Stopping stream...", {{ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, 28, std::max(1, screenWidth - 56), nullptr});
+    SDL_RenderPresent(resources->renderer);
+  }
+
   bool run_stream_start_attempt(const StreamStartAttemptContext &attempt) {
     if (SDL_Thread *startThread = SDL_CreateThread(run_stream_start_thread, "start-stream", &attempt.startContext); startThread != nullptr) {
-      Uint32 exitComboActivatedTick = 0U;
       while (!attempt.connectionState.startCompleted.load() && !attempt.connectionState.stopRequested.load()) {
-        pump_stream_events(&attempt.resources);
-        update_stream_exit_combo(attempt.resources.controller.startup_poll_handle(), &exitComboActivatedTick, &attempt.connectionState);
-        render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, &attempt.resources);
+        pump_stream_events(&attempt.resources, &attempt.connectionState);
+        bool controllerPresent = false;
+        const ControllerSnapshot snapshot = read_controller_snapshot(&attempt.resources, &controllerPresent);
+        update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &attempt.connectionState);
         if (attempt.connectionState.stopRequested.load()) {
+          render_stream_stopping_frame(&attempt.resources);
           LiInterruptConnection();
+        } else {
+          render_stream_frame(attempt.host, attempt.app, attempt.startContext, attempt.connectionState, &attempt.resources.mediaBackend, &attempt.resources);
         }
         SDL_Delay(STREAM_FRAME_DELAY_MILLISECONDS);
       }
@@ -1525,8 +1760,6 @@ namespace {
   void poll_fallback_controller_if_needed(
     const SDL_Thread *inputThread,
     const StreamUiResources *resources,
-    StreamConnectionState *connectionState,
-    Uint32 *exitComboActivatedTick,
     bool *controllerArrivalSent,
     ControllerSnapshot *lastControllerSnapshot
   ) {
@@ -1536,7 +1769,6 @@ namespace {
 
     bool controllerPresent = false;
     const ControllerSnapshot snapshot = read_controller_snapshot(resources, &controllerPresent);
-    update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, exitComboActivatedTick, connectionState);
     send_controller_snapshot_if_needed(snapshot, controllerPresent, controllerArrivalSent, lastControllerSnapshot);
   }
 
@@ -1580,11 +1812,17 @@ namespace {
 
     bool fallbackControllerArrivalSent = false;
     ControllerSnapshot fallbackLastControllerSnapshot {};
-    Uint32 fallbackExitComboActivatedTick = 0U;
     Uint32 lastIdleVideoIdrRequestTick = 0U;
     while (!loopContext.connectionState.connectionTerminated.load() && !loopContext.connectionState.stopRequested.load()) {
-      pump_stream_events(&loopContext.resources);
-      poll_fallback_controller_if_needed(inputThread, &loopContext.resources, &loopContext.connectionState, &fallbackExitComboActivatedTick, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
+      pump_stream_events(&loopContext.resources, &loopContext.connectionState);
+      bool controllerPresent = false;
+      const ControllerSnapshot snapshot = read_controller_snapshot(&loopContext.resources, &controllerPresent);
+      update_stream_exit_combo_from_snapshot(snapshot, controllerPresent, &loopContext.connectionState);
+      if (loopContext.connectionState.stopRequested.load()) {
+        render_stream_stopping_frame(&loopContext.resources);
+        break;
+      }
+      poll_fallback_controller_if_needed(inputThread, &loopContext.resources, &fallbackControllerArrivalSent, &fallbackLastControllerSnapshot);
       render_active_stream_frame_if_needed(loopContext, &lastIdleVideoIdrRequestTick);
     }
 
@@ -1635,15 +1873,20 @@ namespace streaming {
     const app::HostRecord &host,
     const app::HostAppRecord &app,
     const network::PairingIdentity &clientIdentity,
+    SDL_GameController *preferredController,
+    SDL_GameController **returnController,
     std::string *statusMessage
   ) {
+    if (returnController != nullptr) {
+      *returnController = nullptr;
+    }
     const ResolvedStreamParameters streamParameters = resolve_stream_parameters(videoMode, settings);
     const VIDEO_MODE streamPresentationVideoMode = select_stream_presentation_video_mode(videoMode, streamParameters.videoMode);
     ScopedStreamVideoMode scopedStreamVideoMode(window, videoMode, streamPresentationVideoMode);
     const VIDEO_MODE &activeStreamVideoMode = scopedStreamVideoMode.active_video_mode();
 
     StreamUiResources resources {};
-    if (std::string initializationError; !initialize_stream_ui_resources(window, activeStreamVideoMode, &resources, &initializationError)) {
+    if (std::string initializationError; !initialize_stream_ui_resources(window, activeStreamVideoMode, preferredController, &resources, &initializationError)) {
       assign_status_message(statusMessage, initializationError);
       logging::error("stream", initializationError);
       return false;
@@ -1750,6 +1993,9 @@ namespace streaming {
     startup::log_memory_statistics();
     if (settings.showPerformanceStats) {
       show_stream_end_statistics(host, app, startContext, finalStatistics, finalMessage, &resources);
+    }
+    if (returnController != nullptr) {
+      *returnController = resources.controller.take_controller_for_shell();
     }
     close_stream_ui_resources(&resources);
     assign_status_message(statusMessage, finalMessage);
