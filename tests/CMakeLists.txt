@@ -108,6 +108,9 @@ target_include_directories(test_pvideo_presenter PRIVATE
         "${CMAKE_SOURCE_DIR}/tests/support/pvideo"
         "${CMAKE_SOURCE_DIR}")
 target_link_libraries(test_pvideo_presenter PRIVATE gtest_main lizardbyte::test_support)
+target_compile_options(test_pvideo_presenter PRIVATE ${TEST_COVERAGE_COMPILE_OPTIONS})
+target_link_options(test_pvideo_presenter PRIVATE ${TEST_COVERAGE_LINK_OPTIONS})
+
 gtest_discover_tests(test_pvideo_presenter
         DISCOVERY_MODE PRE_TEST
         PROPERTIES ${TEST_RUNTIME_PROPERTIES})

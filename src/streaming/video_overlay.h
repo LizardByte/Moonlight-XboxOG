@@ -50,6 +50,9 @@ namespace streaming {
     bool draw_yuy2(std::uint8_t *pixels, std::size_t capacity, int pitch, int frameWidth, int frameHeight, const VideoRectangle &destination);
     /**
      * @brief Composite the same panel into the final software framebuffer.
+     *
+     * Validate storage before writing and calculate byte offsets in size_t.
+     *
      * @param pixels Destination storage.
      * @param capacity Available bytes.
      * @param pitch Row stride in bytes.

@@ -83,8 +83,11 @@ namespace streaming {
     prepare_rgb(bpp);
     const int copyWidth = std::min(width_, destination.width - MARGIN);
     const int copyHeight = std::min(height_, destination.height - MARGIN);
+    const std::size_t columnBytes = (static_cast<std::size_t>(destination.x) + MARGIN) * bytes;
+    const std::size_t copyBytes = static_cast<std::size_t>(copyWidth) * bytes;
     for (int row = 0; row < copyHeight; ++row) {
-      std::memcpy(pixels + static_cast<std::size_t>(destination.y + MARGIN + row) * pitch + (destination.x + MARGIN) * bytes, rgb_.data() + static_cast<std::size_t>(row) * width_ * bytes, copyWidth * bytes);
+      const std::size_t framebufferRow = static_cast<std::size_t>(destination.y) + MARGIN + row;
+      std::memcpy(pixels + framebufferRow * pitch + columnBytes, rgb_.data() + static_cast<std::size_t>(row) * width_ * bytes, copyBytes);
     }
     return true;
   }

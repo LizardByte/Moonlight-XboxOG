@@ -3,11 +3,11 @@
  * @brief Verifies equivalent GPU/software panel pixels and destination bounds.
  */
 // test includes
-// test includes
 #include <lizardbyte/common/testing.h>
 
 // standard includes
 #include <array>
+#include <cstdint>
 #include <cstring>
 
 // local includes
@@ -49,6 +49,30 @@ TEST(VideoOverlayTest, DrawsGrayscaleInAllFramebufferFormats) {
     EXPECT_EQ(black, bpp == 32 ? 0xff000000U : (bpp == 15 ? 0x8000U : 0U));
     EXPECT_EQ(white, bpp == 32 ? 0xffffffffU : 0xffffU);
     EXPECT_EQ(output[0], 0xcc);
+  }
+}
+
+/**
+ * @brief Offset panels preserve every pixel and padding byte outside the drawing rectangle.
+ */
+TEST(VideoOverlayTest, DrawsOffsetPanelWithPaddedFramebufferRows) {
+  streaming::VideoOverlay overlay;
+  overlay.set_bitmap(3, 2, {0, 255, 128, 255, 128, 0});
+  const std::array<int, 3> bitDepths {15, 16, 32};
+  const std::array<std::array<std::uint32_t, 3>, 3> colors {{{0x8000U, 0xffffU, 0xc210U}, {0x0000U, 0xffffU, 0x8410U}, {0xff000000U, 0xffffffffU, 0xff808080U}}};
+  for (std::size_t format = 0; format < bitDepths.size(); ++format) {
+    const int bpp = bitDepths[format];
+    const std::size_t bytes = bpp == 32 ? 4 : 2;
+    const std::size_t pitch = 32 * bytes + 7;
+    std::vector<std::uint8_t> output(pitch * 24, 0xcc);
+    auto expected = output;
+    const std::array<std::size_t, 6> offsets {12 * pitch + 11 * bytes, 12 * pitch + 12 * bytes, 12 * pitch + 13 * bytes, 13 * pitch + 11 * bytes, 13 * pitch + 12 * bytes, 13 * pitch + 13 * bytes};
+    const std::array<std::size_t, 6> samples {0, 1, 2, 1, 2, 0};
+    for (std::size_t pixel = 0; pixel < offsets.size(); ++pixel) {
+      std::memcpy(expected.data() + offsets[pixel], &colors[format][samples[pixel]], bytes);
+    }
+    ASSERT_TRUE(overlay.draw_rgb(output.data(), output.size(), static_cast<int>(pitch), 32, 24, bpp, {3, 4, 15, 14}));
+    EXPECT_EQ(output, expected);
   }
 }
 

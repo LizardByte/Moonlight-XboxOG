@@ -209,7 +209,8 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
             --enable-asm
             --disable-inline-asm
             --enable-x86asm
-            "--x86asmexe=sh ${ffmpeg_scripts_shell_path}/ffmpeg-nxdk-nasm.sh"
+            # FFmpeg probes executable names individually; this must not be a shell command.
+            "--x86asmexe=${ffmpeg_scripts_shell_path}/ffmpeg-nxdk-nasm.sh"
             --disable-sse2
             --disable-amd3dnow
             --disable-amd3dnowext
