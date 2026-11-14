@@ -18,6 +18,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
+#include <libavutil/cpu.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/imgutils.h>
@@ -41,6 +42,7 @@ extern "C" {
  * @return Microseconds from the platform timer used by moonlight-common-c.
  */
 extern "C" std::uint64_t PltGetMicroseconds(void);
+static_assert(streaming::AlignedMediaBuffer::PADDING >= AV_INPUT_BUFFER_PADDING_SIZE, "Media buffers must retain FFmpeg's SIMD read padding");
 
 namespace {
 
@@ -334,6 +336,27 @@ namespace {
 
 namespace streaming {
 
+  VideoAccelerationReport FfmpegStreamBackend::acceleration_report() const {
+    return acceleration_;
+  }
+
+  VideoStatisticsCounters FfmpegStreamBackend::performance_counters() const {
+    return statistics_.counters();
+  }
+
+  std::string FfmpegStreamBackend::presentation_path() const {
+    return presenter_.active() ? "GPU" : (acceleration_.softwareFrames > 0 ? "Software" : "Waiting");
+  }
+
+  void FfmpegStreamBackend::set_statistics_bitmap(int width, int height, std::vector<std::uint8_t> grayscale) {
+    statisticsOverlay_.set_bitmap(width, height, std::move(grayscale));
+    statisticsBitmapChanged_ = statisticsTextureChanged_ = true;
+    if (statisticsTexture_ != nullptr) {
+      SDL_DestroyTexture(statisticsTexture_);
+      statisticsTexture_ = nullptr;
+    }
+  }
+
   FfmpegStreamBackend::~FfmpegStreamBackend() {
     shutdown();
   }
@@ -376,6 +399,10 @@ namespace streaming {
 
   bool FfmpegStreamBackend::has_decoded_video() const {
     return video_.hasFrame.load();
+  }
+
+  std::string FfmpegStreamBackend::active_video_decoder_name() const {
+    return video_.codecName;
   }
 
   /**
@@ -451,6 +478,19 @@ namespace streaming {
   }
 
   bool FfmpegStreamBackend::render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer) {
+    const auto before = acceleration_.gpuFrames + acceleration_.softwareFrames;
+    const auto started = PltGetMicroseconds();
+    const bool result = render_video_frame(renderer, screenWidth, screenHeight, allowDirectFramebuffer);
+    if (result) {
+      statisticsBitmapChanged_ = false;
+      if (acceleration_.gpuFrames + acceleration_.softwareFrames > before) {
+        statistics_.presented(PltGetMicroseconds() - started);
+      }
+    }
+    return result;
+  }
+
+  bool FfmpegStreamBackend::render_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer) {
     if (renderer == nullptr || !video_.hasFrame.load()) {
       return false;
     }
@@ -459,6 +499,9 @@ namespace streaming {
     if (const std::uint64_t publishedFrameVersion = video_.publishedFrameVersion.load(); publishedFrameVersion != video_.renderedFrameVersion) {
       std::scoped_lock lock(video_.frame_mutex());
       if (video_.latestFrameVersion != video_.renderedFrameVersion && video_.latestFrame.width > 0 && video_.latestFrame.height > 0) {
+        if (video_.latestFrameVersion > video_.renderedFrameVersion + 1) {
+          statistics_.dropped(video_.latestFrameVersion - video_.renderedFrameVersion - 1);
+        }
         std::swap(video_.renderFrame, video_.latestFrame);
         video_.renderedFrameVersion = video_.latestFrameVersion;
         textureNeedsUpload = true;
@@ -470,7 +513,44 @@ namespace streaming {
     }
 
 #ifdef NXDK
+    if (allowDirectFramebuffer && !overlayFailed_) {
+      if (!textureNeedsUpload && !statisticsBitmapChanged_ && presenter_.active()) {
+        return true;
+      }
+      const LatestVideoFrame &frame = video_.renderFrame;
+      const Yuv420FrameView view {
+        frame.width,
+        frame.height,
+        {frame.yPlane.data(), frame.uPlane.data(), frame.vPlane.data()},
+        {frame.yPlane.size(), frame.uPlane.size(), frame.vPlane.size()},
+        {frame.yPitch, frame.uPitch, frame.vPitch},
+        frame.matrix,
+        frame.fullRange,
+        frame.interlaced,
+      };
+      const SDL_Rect destination = build_letterboxed_destination(screenWidth, screenHeight, frame.width, frame.height);
+      if (!presenter_.active()) {
+        const VIDEO_MODE mode = XVideoGetMode();
+        if (auto *framebuffer = XVideoGetFB(); framebuffer != nullptr && mode.width > 0 && mode.height > 0 && (mode.bpp == 16 || mode.bpp == 32)) {
+          std::memset(framebuffer, 0, static_cast<std::size_t>(mode.width) * static_cast<std::size_t>(mode.height) * static_cast<std::size_t>(mode.bpp / 8));
+          XVideoFlushFB();
+        }
+      }
+      std::string reason;
+      if (presenter_.present(view, {destination.x, destination.y, destination.w, destination.h}, &reason, {}, &statisticsOverlay_)) {
+        if (textureNeedsUpload) {
+          ++acceleration_.gpuFrames;
+        }
+        return true;
+      }
+      overlayFailed_ = true;
+      acceleration_.record_fallback(reason);
+      logging::warn("stream", "GPU presentation fallback: " + reason);
+    }
     if (allowDirectFramebuffer && render_latest_video_frame_to_framebuffer(screenWidth, screenHeight)) {
+      if (textureNeedsUpload) {
+        ++acceleration_.softwareFrames;
+      }
       return true;
     }
 #else
@@ -500,7 +580,38 @@ namespace streaming {
     }
 
     const SDL_Rect destination = build_letterboxed_destination(screenWidth, screenHeight, video_.renderFrame.width, video_.renderFrame.height);
-    return SDL_RenderCopy(renderer, video_.texture, nullptr, &destination) == 0;
+    const bool presented = SDL_RenderCopy(renderer, video_.texture, nullptr, &destination) == 0;
+    if (presented) {
+      render_sdl_statistics(renderer, destination);
+    }
+    if (presented && textureNeedsUpload) {
+      ++acceleration_.softwareFrames;
+    }
+    return presented;
+  }
+
+  void FfmpegStreamBackend::render_sdl_statistics(SDL_Renderer *renderer, const SDL_Rect &destination) {
+    const int width = statisticsOverlay_.width();
+    const int height = statisticsOverlay_.height();
+    if (width == 0 || height == 0) {
+      return;
+    }
+    if (statisticsTexture_ == nullptr) {
+      statisticsTexture_ = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+      statisticsTextureChanged_ = true;
+    }
+    if (statisticsTexture_ == nullptr) {
+      return;
+    }
+    if (statisticsTextureChanged_) {
+      const auto &pixels = statisticsOverlay_.argb_pixels();
+      if (SDL_UpdateTexture(statisticsTexture_, nullptr, pixels.data(), width * 4) != 0) {
+        return;
+      }
+      statisticsTextureChanged_ = false;
+    }
+    const SDL_Rect panel {destination.x + VideoOverlay::MARGIN, destination.y + VideoOverlay::MARGIN, width, height};
+    SDL_RenderCopy(renderer, statisticsTexture_, nullptr, &panel);
   }
 
   int FfmpegStreamBackend::setup_video_decoder(int videoFormat, int width, int height, int redrawRate, int drFlags) {
@@ -510,6 +621,16 @@ namespace streaming {
     (void) drFlags;
 
     cleanup_video_decoder();
+    acceleration_ = {};
+    statistics_.reset();
+    overlayFailed_ = false;
+#if defined(NXDK) && !MOONLIGHT_ENABLE_GPU_PRESENTATION
+    overlayFailed_ = true;
+    acceleration_.record_fallback("GPU presentation disabled in this build");
+#endif
+    const int cpuFlags = av_get_cpu_flags();
+    acceleration_.cpuFeatures = (cpuFlags & AV_CPU_FLAG_SSE) != 0 ? "MMX/SSE" : ((cpuFlags & AV_CPU_FLAG_MMX) != 0 ? "MMX" : "Scalar");
+    acceleration_.threaded = std::string(avcodec_configuration()).find("--enable-w32threads") != std::string::npos;
 
     if ((videoFormat & VIDEO_FORMAT_MASK_H264) == 0) {
       logging::error("stream", "The FFmpeg backend currently supports only H.264 video streams");
@@ -522,6 +643,7 @@ namespace streaming {
       return -1;
     }
 
+    video_.codecName = "H.264";
     video_.codecContext = avcodec_alloc_context3(codec);
     video_.decodedFrame = av_frame_alloc();
     video_.convertedFrame = av_frame_alloc();
@@ -532,6 +654,8 @@ namespace streaming {
       return -1;
     }
 
+    // One decoder worker avoids frame-threading latency on the single-core CPU.
+    // FFmpeg's w32threads support still provides its internal synchronization.
     video_.codecContext->thread_count = 1;
     video_.codecContext->thread_type = 0;
     video_.codecContext->flags |= AV_CODEC_FLAG_LOW_DELAY | AV_CODEC_FLAG_OUTPUT_CORRUPT;
@@ -540,11 +664,12 @@ namespace streaming {
     video_.codecContext->skip_loop_filter = AVDISCARD_ALL;
     video_.codecContext->skip_idct = AVDISCARD_NONREF;
     if (const int openResult = avcodec_open2(video_.codecContext, codec, nullptr); openResult < 0) {
-      logging::error("stream", std::string("avcodec_open2 failed for H.264: ") + describe_ffmpeg_error(openResult));
+      logging::error("stream", std::string("avcodec_open2 failed for ") + video_.codecName + ": " + describe_ffmpeg_error(openResult));
       cleanup_video_decoder();
       return openResult;
     }
 
+    logging::info("stream", std::string("Using FFmpeg ") + video_.codecName + " software decoding");
     return 0;
   }
 
@@ -575,8 +700,21 @@ namespace streaming {
     video_.decoderThread = nullptr;
   }
 
+  void FfmpegStreamBackend::stop_video_presentation() {
+    if (!presenter_.reset()) {
+      acceleration_.record_fallback("GPU overlay teardown timed out; acceleration disabled");
+      logging::warn("stream", "GPU overlay teardown timed out; buffers retained to avoid DMA into freed storage");
+    }
+  }
+
   void FfmpegStreamBackend::cleanup_video_decoder() {
     stop_video_decoder();
+    stop_video_presentation();
+    if (statisticsTexture_ != nullptr) {
+      SDL_DestroyTexture(statisticsTexture_);
+      statisticsTexture_ = nullptr;
+    }
+    statisticsOverlay_.set_bitmap(0, 0, {});
 
     if (video_.texture != nullptr) {
       SDL_DestroyTexture(video_.texture);
@@ -617,6 +755,7 @@ namespace streaming {
     }
     video_.renderedFrameVersion = 0;
     video_.publishedFrameVersion.store(0);
+    video_.codecName = "video";
     video_.directFramebufferDestination = SDL_Rect {0, 0, 0, 0};
     video_.directFramebufferCleared = false;
     video_.decoderStopRequested.store(false);
@@ -646,12 +785,18 @@ namespace streaming {
       if (!LiWaitForNextVideoFrame(&frameHandle, &decodeUnit)) {
         break;
       }
+      record_received_unit(decodeUnit);
 
       int decodeStatus = DR_OK;
       if (!video_.decoderStopRequested.load() && decodeUnit != nullptr) {
         decodeStatus = prepare_video_decode_unit(&frameHandle, &decodeUnit);
         if (decodeStatus == DR_OK) {
+          const auto started = PltGetMicroseconds();
           decodeStatus = decode_video_decode_unit(decodeUnit);
+          statistics_.decode_time(PltGetMicroseconds() - started, video_.lastDecodeQueueUs.load());
+        }
+        if (decodeStatus != DR_OK) {
+          statistics_.dropped(1);
         }
       }
       LiCompleteVideoFrame(frameHandle, decodeStatus);
@@ -661,6 +806,12 @@ namespace streaming {
     }
 
     return 0;
+  }
+
+  void FfmpegStreamBackend::record_received_unit(PDECODE_UNIT unit) {
+    if (unit != nullptr && unit->fullLength > 0) {
+      statistics_.received(static_cast<std::uint32_t>(unit->frameNumber), static_cast<std::uint64_t>(unit->fullLength), unit->frameHostProcessingLatency);
+    }
   }
 
   int FfmpegStreamBackend::drop_queued_video_decode_units(VIDEO_FRAME_HANDLE *frameHandle, PDECODE_UNIT *decodeUnit) {
@@ -678,6 +829,7 @@ namespace streaming {
       if (!LiPollNextVideoFrame(&nextHandle, &nextDecodeUnit)) {
         break;
       }
+      record_received_unit(nextDecodeUnit);
 
       LiCompleteVideoFrame(newestHandle, STREAM_VIDEO_DROPPED_FRAME_STATUS);
       newestHandle = nextHandle;
@@ -691,6 +843,7 @@ namespace streaming {
 
     *frameHandle = newestHandle;
     *decodeUnit = newestDecodeUnit;
+    statistics_.dropped(static_cast<std::uint64_t>(droppedFrames));
 
     if (const std::uint64_t droppedDecodeUnitCount = video_.droppedDecodeUnitCount.fetch_add(static_cast<std::uint64_t>(droppedFrames)) + static_cast<std::uint64_t>(droppedFrames); droppedDecodeUnitCount <= static_cast<std::uint64_t>(droppedFrames) || (droppedDecodeUnitCount % STREAM_VIDEO_DROP_LOG_INTERVAL) < static_cast<std::uint64_t>(droppedFrames)) {
       logging::warn(
@@ -728,6 +881,21 @@ namespace streaming {
     nextFrame.yPitch = frameToPresent->linesize[0];
     nextFrame.uPitch = frameToPresent->linesize[1];
     nextFrame.vPitch = frameToPresent->linesize[2];
+    nextFrame.fullRange = frameToPresent->color_range == AVCOL_RANGE_JPEG;
+    nextFrame.interlaced = (frameToPresent->flags & AV_FRAME_FLAG_INTERLACED) != 0;
+    switch (frameToPresent->colorspace) {
+      case AVCOL_SPC_BT709:
+        nextFrame.matrix = VideoColorMatrix::bt709;
+        break;
+      case AVCOL_SPC_UNSPECIFIED:
+      case AVCOL_SPC_BT470BG:
+      case AVCOL_SPC_SMPTE170M:
+        nextFrame.matrix = VideoColorMatrix::bt601;
+        break;
+      default:
+        nextFrame.matrix = VideoColorMatrix::unsupported;
+        break;
+    }
 
     const int chromaHeight = (frameToPresent->height + 1) / 2;
     const std::size_t yPlaneSize = static_cast<std::size_t>(frameToPresent->linesize[0]) * static_cast<std::size_t>(frameToPresent->height);
@@ -751,6 +919,7 @@ namespace streaming {
     video_.lastDecodedFrameUs.store(PltGetMicroseconds());
     video_.hasFrame.store(true);
     video_.decodedFrameCount.fetch_add(1);
+    statistics_.decoded();
     return true;
   }
 
@@ -826,6 +995,7 @@ namespace streaming {
       return false;
     }
 
+    statisticsOverlay_.draw_rgb(framebuffer, static_cast<std::size_t>(framebufferPitch) * videoMode.height, framebufferPitch, videoMode.width, videoMode.height, videoMode.bpp, {destination.x, destination.y, destination.w, destination.h});
     XVideoFlushFB();
     return true;
 #else
@@ -842,7 +1012,7 @@ namespace streaming {
         return receiveResult;
       }
       if (receiveResult < 0) {
-        logging::warn("stream", std::string("avcodec_receive_frame failed for H.264: ") + describe_ffmpeg_error(receiveResult));
+        logging::warn("stream", std::string("avcodec_receive_frame failed for ") + video_.codecName + ": " + describe_ffmpeg_error(receiveResult));
         return receiveResult;
       }
 
@@ -867,7 +1037,7 @@ namespace streaming {
           return AVERROR(EINVAL);
         }
 
-        const int bufferSize = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, video_.decodedFrame->width, video_.decodedFrame->height, 1);
+        const int bufferSize = av_image_get_buffer_size(AV_PIX_FMT_YUV420P, video_.decodedFrame->width, video_.decodedFrame->height, 32);
         if (bufferSize <= 0) {
           logging::warn("stream", "av_image_get_buffer_size failed for converted video frame");
           av_frame_unref(video_.decodedFrame);
@@ -879,7 +1049,10 @@ namespace streaming {
         video_.convertedFrame->format = AV_PIX_FMT_YUV420P;
         video_.convertedFrame->width = video_.decodedFrame->width;
         video_.convertedFrame->height = video_.decodedFrame->height;
-        if (const int fillResult = av_image_fill_arrays(video_.convertedFrame->data, video_.convertedFrame->linesize, video_.convertedBuffer.data(), AV_PIX_FMT_YUV420P, video_.decodedFrame->width, video_.decodedFrame->height, 1); fillResult < 0) {
+        video_.convertedFrame->color_range = video_.decodedFrame->color_range;
+        video_.convertedFrame->colorspace = video_.decodedFrame->colorspace;
+        video_.convertedFrame->flags = video_.decodedFrame->flags;
+        if (const int fillResult = av_image_fill_arrays(video_.convertedFrame->data, video_.convertedFrame->linesize, video_.convertedBuffer.data(), AV_PIX_FMT_YUV420P, video_.decodedFrame->width, video_.decodedFrame->height, 32); fillResult < 0) {
           logging::warn("stream", std::string("av_image_fill_arrays failed for converted frame: ") + describe_ffmpeg_error(fillResult));
           av_frame_unref(video_.decodedFrame);
           return fillResult;
@@ -966,7 +1139,7 @@ namespace streaming {
     }
     av_packet_unref(video_.packet);
     if (sendResult < 0) {
-      logging::warn("stream", std::string("avcodec_send_packet failed for H.264: ") + describe_ffmpeg_error(sendResult));
+      logging::warn("stream", std::string("avcodec_send_packet failed for ") + video_.codecName + ": " + describe_ffmpeg_error(sendResult));
       return DR_NEED_IDR;
     }
 

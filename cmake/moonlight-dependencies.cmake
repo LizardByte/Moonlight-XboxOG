@@ -1,6 +1,6 @@
 include_guard(GLOBAL)
 
-# Disable nxdk's incomplete MSVC aligned-allocation family and unimplemented math entry points.
+# Disable nxdk's unimplemented math entry points; aligned allocation uses private adapters.
 function(_moonlight_patch_ffmpeg_config_header ffmpeg_config_header)
     if(NOT EXISTS "${ffmpeg_config_header}")
         return()
@@ -10,7 +10,6 @@ function(_moonlight_patch_ffmpeg_config_header ffmpeg_config_header)
 
     foreach(ffmpeg_disabled_probe
             IN ITEMS
-            HAVE_ALIGNED_MALLOC
             HAVE_EXP2
             HAVE_EXP2F
             HAVE_LLRINT
@@ -27,6 +26,31 @@ function(_moonlight_patch_ffmpeg_config_header ffmpeg_config_header)
     endforeach()
 
     file(WRITE "${ffmpeg_config_header}" "${ffmpeg_config_text}")
+endfunction()
+
+# Adapt the upstream thread wrapper only in the build directory. The source
+# include path follows the build path, so FFmpeg finds this private header first.
+# nxdk condition variables own kernel events that require explicit destruction;
+# desktop Windows thread-naming APIs are unavailable on the Xbox runtime.
+function(_moonlight_prepare_ffmpeg_thread_header ffmpeg_source_dir ffmpeg_build_dir)
+    set(thread_header "${ffmpeg_source_dir}/compat/w32pthreads.h")
+    file(READ "${thread_header}" thread_text)
+    string(REPLACE "\r\n" "\n" thread_text "${thread_text}")
+    set(destroy_original "static inline int pthread_cond_destroy(pthread_cond_t *cond)\n{\n")
+    string(FIND "${thread_text}" "${destroy_original}" destroy_position)
+    string(FIND "${thread_text}" "#if !HAVE_UWP\n" naming_position)
+    if(destroy_position EQUAL -1 OR naming_position EQUAL -1)
+        message(FATAL_ERROR "FFmpeg's Windows thread wrapper changed; review the nxdk adaptations")
+    endif()
+    string(REPLACE "${destroy_original}"
+            "${destroy_original}    UninitializeConditionVariable(cond);\n"
+            thread_text "${thread_text}")
+    string(REPLACE "/* native condition variables do not destroy */"
+            "/* nxdk condition variables own kernel events. */" thread_text "${thread_text}")
+    string(REPLACE "#if !HAVE_UWP\n" "#if !HAVE_UWP && !defined(NXDK)\n"
+            thread_text "${thread_text}")
+    file(MAKE_DIRECTORY "${ffmpeg_build_dir}/compat")
+    file(WRITE "${ffmpeg_build_dir}/compat/w32pthreads.h" "${thread_text}")
 endfunction()
 
 # Validate FFmpeg source and support files before attempting a configure.
@@ -68,6 +92,7 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
     file(READ "${nxdk_dir}/.moonlight-source.signature" nxdk_revision)
     file(SHA256 "${ffmpeg_cc_wrapper}" ffmpeg_cc_wrapper_hash)
     file(SHA256 "${ffmpeg_cxx_wrapper}" ffmpeg_cxx_wrapper_hash)
+    file(SHA256 "${CMAKE_SOURCE_DIR}/scripts/ffmpeg-nxdk-nasm.sh" ffmpeg_nasm_wrapper_hash)
     file(GLOB_RECURSE compat_inputs CONFIGURE_DEPENDS
             "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.h"
             "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/*.c")
@@ -88,6 +113,7 @@ function(_moonlight_compute_ffmpeg_signature out_var nxdk_dir ffmpeg_source_dir)
             "FFMPEG_ARCH=x86"
             "FFMPEG_CC_WRAPPER_SHA256=${ffmpeg_cc_wrapper_hash}"
             "FFMPEG_CXX_WRAPPER_SHA256=${ffmpeg_cxx_wrapper_hash}"
+            "FFMPEG_NASM_WRAPPER_SHA256=${ffmpeg_nasm_wrapper_hash}"
             "FFMPEG_DEPENDENCY_MANIFEST_SHA256=${ffmpeg_dependency_manifest_hash}")
     list(JOIN signature_inputs "\n" signature_text)
     string(SHA256 signature "${signature_text}")
@@ -157,15 +183,20 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
     set(ffmpeg_install_shell_path "${ARGV2}")
     set(ffmpeg_cc_shell_path "sh ${ARGV3}")
     set(ffmpeg_cxx_shell_path "sh ${ARGV4}")
+    get_filename_component(ffmpeg_scripts_shell_path "${ARGV3}" DIRECTORY)
 
+    # Pentium III supports the NASM MMX/SSE kernels, but not SSE2 or AMD 3DNow.
+    # Win32 stack realignment leaves too few registers for FFmpeg's inline CABAC
+    # assembly; standalone NASM routines remain enabled.
     set(ffmpeg_configure_args
             sh
             "${ffmpeg_source_shell_path}/configure"
             "--prefix=${ffmpeg_install_shell_path}"
             "--extra-ldflags=${MOONLIGHT_NXDK_COMPAT_LIBRARY}"
+            --extra-cflags=-mstackrealign
             --enable-cross-compile
             --arch=x86
-            --cpu=i686
+            --cpu=pentium3
             --target-os=none
             "--cc=${ffmpeg_cc_shell_path}"
             "--cxx=${ffmpeg_cxx_shell_path}"
@@ -175,9 +206,13 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
             --enable-static
             --disable-shared
             --disable-autodetect
-            --disable-asm
+            --enable-asm
             --disable-inline-asm
-            --disable-x86asm
+            --enable-x86asm
+            "--x86asmexe=sh ${ffmpeg_scripts_shell_path}/ffmpeg-nxdk-nasm.sh"
+            --disable-sse2
+            --disable-amd3dnow
+            --disable-amd3dnowext
             --disable-debug
             --disable-doc
             --disable-programs
@@ -194,7 +229,7 @@ function(_moonlight_get_ffmpeg_configure_args out_var)
             --disable-symver
             --disable-runtime-cpudetect
             --disable-pthreads
-            --disable-w32threads
+            --enable-w32threads
             --disable-os2threads
             --disable-hwaccels
             --enable-avcodec
@@ -240,6 +275,7 @@ function(_moonlight_rebuild_xbox_ffmpeg nxdk_dir ffmpeg_source_dir ffmpeg_build_
 
     file(REMOVE_RECURSE "${ffmpeg_build_dir}" "${ffmpeg_install_dir}")
     file(MAKE_DIRECTORY "${ffmpeg_build_dir}")
+    _moonlight_prepare_ffmpeg_thread_header("${ffmpeg_source_dir}" "${ffmpeg_build_dir}")
 
     _moonlight_get_ffmpeg_shell_paths(
             ffmpeg_shell_paths
@@ -308,7 +344,8 @@ function(moonlight_prepare_xbox_ffmpeg nxdk_dir)
     _moonlight_validate_xbox_ffmpeg_inputs(
             "${ffmpeg_source_dir}"
             "${ffmpeg_cc_wrapper}"
-            "${ffmpeg_cxx_wrapper}")
+            "${ffmpeg_cxx_wrapper}"
+            "${CMAKE_SOURCE_DIR}/scripts/ffmpeg-nxdk-nasm.sh")
 
     set(ffmpeg_state_dir "${CMAKE_BINARY_DIR}/third-party/ffmpeg")
     set(ffmpeg_build_dir "${ffmpeg_state_dir}/build")

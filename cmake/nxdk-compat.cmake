@@ -75,10 +75,13 @@ function(moonlight_prepare_nxdk_compat)
     moonlight_run_nxdk_command("Compatibility probe object" "${NXDK_DIR}" "${port}"
             "${NXDK_DIR}/bin/nxdk-cc" "-I${compat}/include"
             -c "${compat}/runtime.c" -o runtime.obj)
+    moonlight_run_nxdk_command("FFmpeg allocation probe object" "${NXDK_DIR}" "${port}"
+            "${NXDK_DIR}/bin/nxdk-cc"
+            -c "${compat}/ffmpeg_memory.c" -o ffmpeg_memory.obj)
     moonlight_run_nxdk_command("Compatibility probe archive" "${NXDK_DIR}" "${port}"
-            llvm-ar rcs compat.lib runtime.obj)
+            llvm-ar rcs compat.lib runtime.obj ffmpeg_memory.obj)
     set(MOONLIGHT_NXDK_COMPAT_LIBRARY "${port}/compat.lib" PARENT_SCOPE)
-    add_library(moonlight_nxdk_compat STATIC "${compat}/runtime.c")
+    add_library(moonlight_nxdk_compat STATIC "${compat}/runtime.c" "${compat}/ffmpeg_memory.c")
     target_include_directories(moonlight_nxdk_compat PUBLIC "${compat}/include")
     target_compile_options(moonlight_nxdk_compat INTERFACE
             -include "${compat}/include/moonlight_posix.h")

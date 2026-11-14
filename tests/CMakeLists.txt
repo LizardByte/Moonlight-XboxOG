@@ -43,9 +43,11 @@ endif()
 file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
         ${CMAKE_SOURCE_DIR}/tests/*.h
         ${CMAKE_SOURCE_DIR}/tests/*.cpp)
+list(FILTER TEST_SOURCES EXCLUDE REGEX "/tests/gpu/")
 
 add_executable(${PROJECT_NAME}
         ${TEST_SOURCES}
+        "${CMAKE_SOURCE_DIR}/src/_nxdk_compat/ffmpeg_memory.c"
         ${MOONLIGHT_HOST_TESTABLE_SOURCES})
 
 set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
@@ -91,5 +93,21 @@ if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)
 endif()
 
 gtest_discover_tests(${PROJECT_NAME}
+        DISCOVERY_MODE PRE_TEST
+        PROPERTIES ${TEST_RUNTIME_PROPERTIES})
+
+# Compile the production MMIO presenter against deterministic Xbox API shims.
+# Keep NXDK and the fake Windows headers isolated from ordinary host tests.
+add_executable(test_pvideo_presenter
+        "${CMAKE_SOURCE_DIR}/tests/gpu/pvideo_presenter_test.cpp"
+        "${CMAKE_SOURCE_DIR}/src/streaming/pvideo_presenter.cpp"
+        "${CMAKE_SOURCE_DIR}/src/streaming/video_acceleration.cpp"
+        "${CMAKE_SOURCE_DIR}/src/streaming/video_overlay.cpp")
+target_compile_definitions(test_pvideo_presenter PRIVATE NXDK)
+target_include_directories(test_pvideo_presenter PRIVATE
+        "${CMAKE_SOURCE_DIR}/tests/support/pvideo"
+        "${CMAKE_SOURCE_DIR}")
+target_link_libraries(test_pvideo_presenter PRIVATE gtest_main lizardbyte::test_support)
+gtest_discover_tests(test_pvideo_presenter
         DISCOVERY_MODE PRE_TEST
         PROPERTIES ${TEST_RUNTIME_PROPERTIES})

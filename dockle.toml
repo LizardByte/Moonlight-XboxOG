@@ -20,7 +20,7 @@ source = "."
 home = true
 
 [targets.doxygen]
-inputs = ["README.md", "src"]
+inputs = ["README.md", "src", "experiments/README.md"]
 image_paths = ["docs/images"]
 predefined = ["NXDK"]
 extra_stylesheets = [

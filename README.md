@@ -22,14 +22,26 @@
 ![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
-## Streaming controls
+## Streaming controls and statistics
 
 To quit a stream, press **Back/Select + Black + White (LB + RB)** together on any connected controller.
-The client displays **Stopping stream...** before returning to the menu. If the end-of-stream statistics
-summary is enabled, release the buttons and press a button to dismiss it.
+The client displays **Stopping stream...**, then a stream summary. Release the buttons, then press a
+button to return to the menu.
 
-The opt-in CMake option `MOONLIGHT_INPUT_DIAGNOSTICS` displays controller state and event counters
-for troubleshooting; it is disabled by default.
+Enable **Settings → Display → Performance Stats** for a live panel during playback and additional
+performance details in the summary. The panel works with GPU and software presentation, refreshes
+once per second, and shows `N/A` for unavailable measurements. It includes measured incoming,
+decoded and rendered FPS, video bitrate, timing, frame drops, buffering and the presentation path.
+The stream header shows the requested FPS; the three FPS counters show measured rates.
+Network latency is round-trip time. Present measures CPU frame preparation and submission,
+including any scanout wait.
+
+Video decoding runs on the CPU. Optional experimental GPU presentation accelerates color conversion
+and scaling, with software fallback for unsupported frames or presentation failures. GPU
+presentation is enabled by default; the build options below control its use.
+
+Every stream summary reports GPU and software frame counts. **SOFTWARE FALLBACK USED** includes
+the reason software presentation was selected, even when Performance Stats is disabled.
 
 ## 🛠️ Build
 
@@ -61,6 +73,7 @@ nxdk_dependencies=(
   "mingw-w64-x86_64-lld"
   "mingw-w64-x86_64-llvm"
   "mingw-w64-x86_64-make"
+  "mingw-w64-x86_64-nasm"
 )
 moonlight_dependencies=(
   "mingw-w64-x86_64-doxygen"
@@ -83,6 +96,7 @@ nxdk_dependencies=(
   "git"
   "lld"
   "llvm"
+  "nasm"
 )
 moonlight_dependencies=(
   "doxygen"
@@ -101,6 +115,7 @@ nxdk_dependencies=(
   "coreutils"
   "lld"
   "llvm"
+  "nasm"
 )
 moonlight_dependencies=(
   "doxygen"
@@ -120,6 +135,17 @@ For host and Xbox builds, CMake checks whether the compiler supports Clang's `un
 ```bash
 cmake -S . -B cmake-build-release -DBUILD_DOCS=OFF -DCMAKE_BUILD_TYPE=Release
 ```
+
+Video build settings:
+
+| CMake option                        | Default | Purpose                                                                                                                         |
+| ----------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `MOONLIGHT_ENABLE_GPU_PRESENTATION` | `ON`    | Enable experimental NV2A color conversion and scaling with software fallback.                                                   |
+| `MOONLIGHT_BUILD_VIDEO_EXPERIMENTS` | `OFF`   | Build the standalone probes described in [Video experiments](experiments/README.md).                                            |
+| `MOONLIGHT_INPUT_DIAGNOSTICS`       | `OFF`   | Show controller state and event counters for troubleshooting. Requires GPU presentation to be disabled so the strip is visible. |
+
+Pass options when configuring, for example `-DMOONLIGHT_ENABLE_GPU_PRESENTATION=OFF` for software-only
+presentation. Existing build directories retain their cached settings until explicitly reconfigured.
 
 ### Build
 

@@ -23,12 +23,13 @@ namespace {
       12,
       3,
       false,
+      "H.264",
     };
 
     const std::vector<std::string> lines = streaming::build_stats_overlay_lines(snapshot);
 
     ASSERT_EQ(lines.size(), 5U);
-    EXPECT_EQ(lines[0], "Stream: 1280x720 @ 60 FPS");
+    EXPECT_EQ(lines[0], "Stream: 1280x720 @ 60 FPS | Decoder: H.264");
     EXPECT_EQ(lines[1], "Latency: RTT 18 ms | Host 6 ms | Decode 4 ms");
     EXPECT_EQ(lines[2], "Queues: Video 2 frames | Audio 15 ms");
     EXPECT_EQ(lines[3], "Video packets: 1024 rx | 12 recovered | 3 lost");

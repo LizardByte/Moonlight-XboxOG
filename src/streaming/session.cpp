@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <SDL.h>
 #include <SDL_ttf.h>
@@ -199,6 +200,9 @@ namespace {
     SDL_Renderer *renderer = nullptr;
     TTF_Font *titleFont = nullptr;
     TTF_Font *bodyFont = nullptr;
+    TTF_Font *statisticsFont = nullptr;  ///< Font used only when rebuilding the live panel.
+    bool statisticsEnabled = false;  ///< Performance Stats controls the live panel and end metrics.
+    streaming::VideoStatisticsSampler statisticsSampler;  ///< One-second telemetry intervals.
     StreamControllerHandle controller;
     streaming::FfmpegStreamBackend mediaBackend {};
     bool ttfInitialized = false;
@@ -692,6 +696,10 @@ namespace {
     {
       resources->controller.close();
     }
+    if (resources->statisticsFont != nullptr) {
+      TTF_CloseFont(resources->statisticsFont);
+      resources->statisticsFont = nullptr;
+    }
     if (resources->bodyFont != nullptr) {
       TTF_CloseFont(resources->bodyFont);
       resources->bodyFont = nullptr;
@@ -794,6 +802,13 @@ namespace {
     }
 
     resources->controller.reset(open_primary_controller(preferredController));
+    if (resources->statisticsEnabled) {
+      resources->statisticsFont = TTF_OpenFont(fontPath.c_str(), std::max(12, videoMode.height / 45));
+      if (resources->statisticsFont == nullptr) {
+        resources->statisticsEnabled = false;
+        logging::warn("stream", std::string("Unable to load the performance overlay font: ") + TTF_GetError());
+      }
+    }
     return true;
   }
 
@@ -1463,13 +1478,18 @@ namespace {
   }
 
   /**
-   * @brief Sample stream statistics using caller-owned storage for the RTP video counters.
+   * @brief Capture transport and decoder statistics using caller-owned RTP video counters.
    *
-   * @param context Configuration of the active stream.
-   * @param connectionState Current connection state.
-   * @return Stream statistics with a copy of the current RTP video counters.
+   * @param context Active stream configuration and host connection details.
+   * @param connectionState Mutable connection state tracked by the session loop.
+   * @param mediaBackend FFmpeg backend that owns the active decoder.
+   * @return Snapshot ready for rendering in diagnostics or end-of-stream summary.
    */
-  streaming::StreamStatisticsSnapshot sample_stream_statistics(const StreamStartContext &context, const StreamConnectionState &connectionState) {
+  streaming::StreamStatisticsSnapshot sample_stream_statistics(
+    const StreamStartContext &context,
+    const StreamConnectionState &connectionState,
+    const streaming::FfmpegStreamBackend &mediaBackend
+  ) {
     streaming::StreamStatisticsSnapshot snapshot {
       context.streamConfiguration.width,
       context.streamConfiguration.height,
@@ -1483,12 +1503,13 @@ namespace {
       -1,
       -1,
       connectionState.poorConnection.load(),
+      mediaBackend.active_video_decoder_name(),
     };
 
     uint32_t estimatedRtt = 0;
     if (uint32_t estimatedRttVariance = 0; LiGetEstimatedRttInfo(&estimatedRtt, &estimatedRttVariance)) {
-      (void) estimatedRttVariance;
       snapshot.roundTripTimeMs = static_cast<int>(estimatedRtt);
+      snapshot.roundTripVarianceMs = static_cast<int>(estimatedRttVariance);
     }
 
     snapshot.videoQueueDepth = LiGetPendingVideoFrames();
@@ -1498,7 +1519,67 @@ namespace {
     snapshot.videoPacketsReceived = static_cast<int>(videoStats.packetCountVideo);
     snapshot.videoPacketsRecovered = static_cast<int>(videoStats.packetCountFecRecovered);
     snapshot.videoPacketsLost = static_cast<int>(videoStats.packetCountFecFailed);
+    snapshot.presentationPath = mediaBackend.presentation_path();
+    snapshot.decoderFeatures = mediaBackend.acceleration_report().cpuFeatures;
     return snapshot;
+  }
+
+  /**
+   * @brief Sample telemetry and rasterize one shared panel at most once per second.
+   * @param context Active stream configuration.
+   * @param connectionState Current connection quality.
+   * @param resources Renderer, cached font, telemetry sampler and video backend.
+   * @return True when the video must be refreshed to display a new panel.
+   */
+  bool update_stream_statistics_overlay(const StreamStartContext &context, const StreamConnectionState &connectionState, StreamUiResources *resources) {
+    if (resources == nullptr || !resources->statisticsEnabled || resources->statisticsFont == nullptr || !resources->mediaBackend.has_decoded_video()) {
+      return false;
+    }
+    const auto now = PltGetMicroseconds();
+    if (!resources->statisticsSampler.due(now)) {
+      return false;
+    }
+    auto snapshot = sample_stream_statistics(context, connectionState, resources->mediaBackend);
+    resources->statisticsSampler.sample(now, resources->mediaBackend.performance_counters());
+    resources->statisticsSampler.apply(&snapshot);
+    const auto lines = streaming::build_live_stats_overlay_lines(snapshot);
+    int screenWidth = 0;
+    int screenHeight = 0;
+    SDL_GetRendererOutputSize(resources->renderer, &screenWidth, &screenHeight);
+    constexpr int padding = 6;
+    const int lineHeight = TTF_FontLineSkip(resources->statisticsFont) + 2;
+    int width = 0;
+    for (const auto &line : lines) {
+      int lineWidth = 0;
+      TTF_SizeUTF8(resources->statisticsFont, line.c_str(), &lineWidth, nullptr);
+      width = std::max(width, lineWidth);
+    }
+    width = std::min(width + padding * 2, screenWidth - streaming::VideoOverlay::MARGIN * 2);
+    const int height = std::min(static_cast<int>(lines.size()) * lineHeight + padding * 2, screenHeight - streaming::VideoOverlay::MARGIN * 2);
+    std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> panel(SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_ARGB8888), SDL_FreeSurface);
+    if (!panel) {
+      logging::warn("stream", std::string("Unable to allocate the performance overlay: ") + SDL_GetError());
+      resources->statisticsEnabled = false;
+      return false;
+    }
+    SDL_FillRect(panel.get(), nullptr, SDL_MapRGB(panel->format, 16, 16, 16));
+    int top = padding;
+    for (const auto &line : lines) {
+      std::unique_ptr<SDL_Surface, decltype(&SDL_FreeSurface)> text(TTF_RenderUTF8_Blended(resources->statisticsFont, line.c_str(), {255, 255, 255, 255}), SDL_FreeSurface);
+      if (text) {
+        SDL_Rect position {padding, top, text->w, text->h};
+        SDL_BlitSurface(text.get(), nullptr, panel.get(), &position);
+      }
+      top += lineHeight;
+    }
+    std::vector<std::uint8_t> grayscale(static_cast<std::size_t>(width) * height);
+    for (int row = 0; row < height; ++row) {
+      for (int column = 0; column < width; ++column) {
+        grayscale[static_cast<std::size_t>(row) * width + column] = static_cast<const std::uint8_t *>(panel->pixels)[static_cast<std::size_t>(row) * panel->pitch + column * 4];
+      }
+    }
+    resources->mediaBackend.set_statistics_bitmap(width, height, std::move(grayscale));
+    return true;
   }
 
   void request_idle_video_refresh_if_needed(const streaming::FfmpegStreamBackend *mediaBackend, Uint32 *lastRequestTicks) {
@@ -1549,6 +1630,7 @@ namespace {
     if (resources == nullptr || resources->renderer == nullptr || resources->titleFont == nullptr || resources->bodyFont == nullptr) {
       return false;
     }
+    update_stream_statistics_overlay(context, connectionState, resources);
 
     int screenWidth = 0;
     int screenHeight = 0;
@@ -1588,7 +1670,7 @@ namespace {
       input::STREAM_EXIT_HINT,
     };
     if (!renderedVideo) {
-      lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | H.264 | Stereo");
+      lines.emplace(lines.begin() + 2, std::string("Mode: ") + std::to_string(context.streamConfiguration.width) + "x" + std::to_string(context.streamConfiguration.height) + " @ " + std::to_string(context.streamConfiguration.fps) + " FPS | " + (mediaBackend != nullptr ? mediaBackend->active_video_decoder_name() : std::string("video")) + " | Stereo");
       lines.emplace(lines.begin() + 4, std::string("Launch mode: ") + (context.serverInformation.rtspSessionUrl != nullptr ? "Session URL supplied by host" : "Default RTSP discovery"));
       lines.emplace(lines.begin() + 5, "Waiting for the first decoded video frame and audio output.");
     }
@@ -1620,16 +1702,19 @@ namespace {
 
     int cursorY = 28;
     int titleHeight = 0;
-    render_text_line(resources->renderer, resources->titleFont, "Stream Summary", {{ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF}, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight});
+    const bool fallbackUsed = !statisticsSnapshot.accelerationSummary.empty() && statisticsSnapshot.accelerationSummary.front() == "SOFTWARE FALLBACK USED";
+    const SDL_Color summaryColor = fallbackUsed ? SDL_Color {0xFF, 0xB4, 0x46, 0xFF} : SDL_Color {ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, 0xFF};
+    render_text_line(resources->renderer, resources->titleFont, fallbackUsed ? "SOFTWARE FALLBACK USED" : "Stream Summary", {summaryColor, 28, cursorY, std::max(1, screenWidth - 56), &titleHeight});
     cursorY += titleHeight + 8;
 
-    std::vector<std::string> lines = {
-      finalMessage,
-      std::string("Host: ") + host.displayName + " (" + context.address + ")",
-      std::string("App: ") + app.name,
-    };
-    for (const std::string &line : streaming::build_stats_overlay_lines(statisticsSnapshot)) {
-      lines.push_back(line);
+    std::vector<std::string> lines = statisticsSnapshot.accelerationSummary;
+    lines.push_back(finalMessage);
+    lines.push_back(std::string("Host: ") + host.displayName + " (" + context.address + ")");
+    lines.push_back(std::string("App: ") + app.name);
+    if (statisticsSnapshot.showPerformanceMetrics) {
+      for (const std::string &line : streaming::build_stats_overlay_lines(statisticsSnapshot)) {
+        lines.push_back(line);
+      }
     }
     lines.emplace_back("Press any button to return.");
 
@@ -1694,6 +1779,7 @@ namespace {
     if (resources == nullptr || resources->renderer == nullptr || resources->titleFont == nullptr) {
       return;
     }
+    resources->mediaBackend.stop_video_presentation();
     int screenWidth = 0;
     SDL_GetRendererOutputSize(resources->renderer, &screenWidth, nullptr);
     SDL_SetRenderDrawColor(resources->renderer, BACKGROUND_RED, BACKGROUND_GREEN, BACKGROUND_BLUE, 0xFF);
@@ -1774,7 +1860,8 @@ namespace {
 
   void render_active_stream_frame_if_needed(const ActiveStreamLoopContext &loopContext, Uint32 *lastIdleVideoIdrRequestTick) {
     const bool hasDecodedVideo = loopContext.resources.mediaBackend.has_decoded_video();
-    if (const bool shouldRenderFrame = !hasDecodedVideo || loopContext.resources.mediaBackend.has_unrendered_video_frame(); shouldRenderFrame) {
+    const bool statisticsChanged = update_stream_statistics_overlay(loopContext.startContext, loopContext.connectionState, &loopContext.resources);
+    if (const bool shouldRenderFrame = !hasDecodedVideo || statisticsChanged || loopContext.resources.mediaBackend.has_unrendered_video_frame(); shouldRenderFrame) {
       render_stream_frame(
         loopContext.host,
         loopContext.app,
@@ -1886,6 +1973,7 @@ namespace streaming {
     const VIDEO_MODE &activeStreamVideoMode = scopedStreamVideoMode.active_video_mode();
 
     StreamUiResources resources {};
+    resources.statisticsEnabled = settings.showPerformanceStats;
     if (std::string initializationError; !initialize_stream_ui_resources(window, activeStreamVideoMode, preferredController, &resources, &initializationError)) {
       assign_status_message(statusMessage, initializationError);
       logging::error("stream", initializationError);
@@ -1943,7 +2031,7 @@ namespace streaming {
     );
     logging::info(
       "stream",
-      std::string("Requested stream configuration | resolution=") + std::to_string(startContext.streamConfiguration.width) + "x" + std::to_string(startContext.streamConfiguration.height) + " | fps=" + std::to_string(startContext.streamConfiguration.fps) + " | bitrate=" + std::to_string(startContext.streamConfiguration.bitrate) + " kbps | packetSize=" + std::to_string(startContext.streamConfiguration.packetSize) + " | networkProfile=" + describe_streaming_remotely_mode(startContext.streamConfiguration.streamingRemotely) + " | clientRefreshX100=" + std::to_string(startContext.streamConfiguration.clientRefreshRateX100)
+      std::string("Requested stream configuration | resolution=") + std::to_string(startContext.streamConfiguration.width) + "x" + std::to_string(startContext.streamConfiguration.height) + " | fps=" + std::to_string(startContext.streamConfiguration.fps) + " | bitrate=" + std::to_string(startContext.streamConfiguration.bitrate) + " kbps" + " | packetSize=" + std::to_string(startContext.streamConfiguration.packetSize) + " | networkProfile=" + describe_streaming_remotely_mode(startContext.streamConfiguration.streamingRemotely) + " | clientRefreshX100=" + std::to_string(startContext.streamConfiguration.clientRefreshRateX100)
     );
     resources.mediaBackend.set_audio_playback_enabled(settings.playAudioOnXbox);
     logging::info("stream", std::string("Xbox audio playback ") + (settings.playAudioOnXbox ? "enabled" : "disabled for lower decode latency"));
@@ -1984,16 +2072,32 @@ namespace streaming {
     logging::info("stream", std::string(launchResult.resumedSession ? "Resumed stream for " : "Launched stream for ") + app.name + " on " + host.displayName);
     run_active_stream_loop({settings, host, app, startContext, connectionState, resources});
 
-    const streaming::StreamStatisticsSnapshot finalStatistics = sample_stream_statistics(startContext, connectionState);
-    LiStopConnection();
-    active_connection_state() = nullptr;
-
-    const std::string finalMessage = describe_session_end(connectionState, app.name);
-    logging::info("stream", finalMessage);
-    startup::log_memory_statistics();
-    if (settings.showPerformanceStats) {
-      show_stream_end_statistics(host, app, startContext, finalStatistics, finalMessage, &resources);
+    streaming::StreamStatisticsSnapshot finalStatistics = sample_stream_statistics(startContext, connectionState, resources.mediaBackend);
+    resources.statisticsSampler.apply(&finalStatistics);
+    if (finalStatistics.decodeTimeMs >= 0) {
+      finalStatistics.decoderLatencyMs = static_cast<int>(finalStatistics.decodeTimeMs + 0.5);
     }
+    if (finalStatistics.hostProcessingMs >= 0) {
+      finalStatistics.hostLatencyMs = static_cast<int>(finalStatistics.hostProcessingMs + 0.5);
+    }
+    logging::info("stream", "Stopping stream transport");
+    LiStopConnection();
+    logging::info("stream", "Stopped stream transport");
+    active_connection_state() = nullptr;
+    const streaming::VideoAccelerationReport acceleration = resources.mediaBackend.acceleration_report();
+    finalStatistics.accelerationSummary = acceleration.summary_lines();
+    finalStatistics.showPerformanceMetrics = settings.showPerformanceStats;
+
+    std::string finalMessage = describe_session_end(connectionState, app.name);
+    if (!acceleration.fallbackReason.empty()) {
+      finalMessage += " | SOFTWARE FALLBACK USED";
+    }
+    logging::info("stream", finalMessage);
+    for (const auto &line : finalStatistics.accelerationSummary) {
+      logging::info("stream", line);
+    }
+    startup::log_memory_statistics();
+    show_stream_end_statistics(host, app, startContext, finalStatistics, finalMessage, &resources);
     if (returnController != nullptr) {
       *returnController = resources.controller.take_controller_for_shell();
     }

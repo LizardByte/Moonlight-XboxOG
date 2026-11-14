@@ -1071,7 +1071,7 @@ namespace {
     EXPECT_EQ(state.shell.statusMessage, "Stream frame rate set to 30 FPS");
   }
 
-  TEST(ClientStateTest, DisplaySettingsCanToggleXboxAudioAndEndStreamStats) {
+  TEST(ClientStateTest, DisplaySettingsCanToggleXboxAudioAndPerformanceStats) {
     app::ClientState state = app::create_initial_state();
     ASSERT_TRUE(state.settings.playAudioOnXbox);
     ASSERT_FALSE(state.settings.showPerformanceStats);
@@ -1092,9 +1092,9 @@ namespace {
     EXPECT_EQ(update.navigation.activatedItemId, "toggle-show-performance-stats");
     EXPECT_TRUE(update.persistence.settingsChanged);
     EXPECT_TRUE(state.settings.showPerformanceStats);
-    EXPECT_EQ(state.shell.statusMessage, "End stream performance stats enabled");
+    EXPECT_EQ(state.shell.statusMessage, "Performance stats enabled");
     ASSERT_NE(state.detailMenu.selected_item(), nullptr);
-    EXPECT_EQ(state.detailMenu.selected_item()->label, "Show End Stream Stats: On");
+    EXPECT_EQ(state.detailMenu.selected_item()->label, "Performance Stats: On");
   }
 
   TEST(ClientStateTest, ConfirmationModalCanBeCancelledWithoutRequestingPersistenceChanges) {

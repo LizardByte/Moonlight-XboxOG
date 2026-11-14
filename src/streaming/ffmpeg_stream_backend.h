@@ -15,6 +15,9 @@
 #include <SDL.h>
 
 // local includes
+#include "src/streaming/aligned_media_buffer.h"
+#include "src/streaming/pvideo_presenter.h"
+#include "src/streaming/stats_overlay.h"
 #include "third-party/moonlight-common-c/src/Limelight.h"
 
 struct AVCodecContext;
@@ -34,7 +37,7 @@ namespace streaming {
    * @brief Owns the FFmpeg decode and SDL presentation state for one stream.
    *
    * The backend exposes Moonlight-compatible callback tables for video and audio,
-   * decodes H.264 video and Opus stereo audio with FFmpeg, presents the most
+   * decodes negotiated video and Opus stereo audio with FFmpeg, presents the most
    * recent decoded frame through SDL, and queues decoded PCM samples to SDL audio.
    */
   class FfmpegStreamBackend {
@@ -73,6 +76,32 @@ namespace streaming {
     void shutdown();
 
     /**
+     * @brief Return retained presentation and decoder acceleration diagnostics.
+     * @return Snapshot to capture on the render thread before session cleanup.
+     */
+    VideoAccelerationReport acceleration_report() const;
+
+    /**
+     * @brief Read cumulative performance telemetry.
+     *
+     * @return Concurrent video counter snapshot.
+     */
+    VideoStatisticsCounters performance_counters() const;
+    /**
+     * @brief Describe the active presentation path.
+     *
+     * @return GPU, Software or Waiting.
+     */
+    std::string presentation_path() const;
+    /**
+     * @brief Replace the shared GPU/software statistics bitmap on the render thread.
+     * @param width Bitmap width.
+     * @param height Bitmap height.
+     * @param grayscale Packed grayscale pixels with an opaque background.
+     */
+    void set_statistics_bitmap(int width, int height, std::vector<std::uint8_t> grayscale);
+
+    /**
      * @brief Render the latest decoded video frame to the supplied renderer.
      *
      * @param renderer SDL renderer used by the stream session.
@@ -84,11 +113,23 @@ namespace streaming {
     bool render_latest_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer = true);
 
     /**
+     * @brief Restore CPU framebuffer output before drawing shutdown or summary UI on the render thread.
+     */
+    void stop_video_presentation();
+
+    /**
      * @brief Report whether at least one decoded video frame is available.
      *
      * @return True when a decoded frame is ready for presentation.
      */
     bool has_decoded_video() const;
+
+    /**
+     * @brief Return the human-readable active video decoder name.
+     *
+     * @return Selected video decoder name, or a generic label before setup.
+     */
+    std::string active_video_decoder_name() const;
 
     /**
      * @brief Report whether a newly decoded video frame has not been presented yet.
@@ -113,7 +154,7 @@ namespace streaming {
     std::string build_overlay_status_line() const;
 
     /**
-     * @brief Initialize the FFmpeg H.264 decoder for Moonlight video callbacks.
+     * @brief Initialize the FFmpeg decoder for Moonlight video callbacks.
      *
      * @param videoFormat Negotiated Moonlight video format.
      * @param width Negotiated stream width.
@@ -180,6 +221,27 @@ namespace streaming {
     void decode_and_play_audio_sample(const char *sampleData, int sampleLength);
 
   private:
+    /**
+     * @brief Present a frame while the public wrapper records submission time.
+     * @param renderer SDL video renderer.
+     * @param screenWidth Output width.
+     * @param screenHeight Output height.
+     * @param allowDirectFramebuffer Permit Xbox GPU or direct framebuffer presentation.
+     * @return True after successful presentation.
+     */
+    bool render_video_frame(SDL_Renderer *renderer, int screenWidth, int screenHeight, bool allowDirectFramebuffer);
+    /**
+     * @brief Draw the cached panel when the SDL presentation fallback is used.
+     * @param renderer SDL video renderer.
+     * @param destination Output video rectangle.
+     */
+    void render_sdl_statistics(SDL_Renderer *renderer, const SDL_Rect &destination);
+    /**
+     * @brief Record a retrieved frame before any client discard.
+     *
+     * @param unit Completed network frame.
+     */
+    void record_received_unit(PDECODE_UNIT unit);
     /**
      * @brief Entry point used by the SDL video decode worker thread.
      *
@@ -254,9 +316,12 @@ namespace streaming {
       int yPitch = 0;
       int uPitch = 0;
       int vPitch = 0;
-      std::vector<std::uint8_t> yPlane;
-      std::vector<std::uint8_t> uPlane;
-      std::vector<std::uint8_t> vPlane;
+      AlignedMediaBuffer yPlane;  ///< Aligned, padded luma data.
+      AlignedMediaBuffer uPlane;  ///< Aligned, padded blue chroma data.
+      AlignedMediaBuffer vPlane;  ///< Aligned, padded red chroma data.
+      VideoColorMatrix matrix = VideoColorMatrix::bt601;  ///< Color matrix preserved across frame publication.
+      bool fullRange = false;  ///< Source uses full-range YUV.
+      bool interlaced = false;  ///< Source contains interlaced fields.
     };
 
     /**
@@ -269,13 +334,14 @@ namespace streaming {
       AVFrame *decodedFrame = nullptr;
       AVFrame *convertedFrame = nullptr;
       AVPacket *packet = nullptr;
+      const char *codecName = "video";  ///< Human-readable active video decoder name.
       SDL_Texture *texture = nullptr;
       SDL_Thread *decoderThread = nullptr;
       int textureWidth = 0;
       int textureHeight = 0;
       std::uint64_t latestFrameVersion = 0;
       std::uint64_t renderedFrameVersion = 0;
-      std::vector<std::uint8_t> convertedBuffer;
+      AlignedMediaBuffer convertedBuffer;  ///< Aligned planar conversion storage.
       std::vector<std::uint8_t> packetBuffer;
 
       /**
@@ -318,7 +384,7 @@ namespace streaming {
       AVPacket *packet = nullptr;
       SDL_AudioDeviceID deviceId = 0;
       SDL_AudioSpec obtainedSpec {};
-      std::vector<std::uint8_t> outputBuffer;
+      AlignedMediaBuffer outputBuffer;  ///< Aligned resampler output.
       int resampleInputSampleRate = 0;
       int resampleInputSampleFormat = -1;
       int resampleInputChannelCount = 0;
@@ -328,6 +394,14 @@ namespace streaming {
 
     VideoState video_ {};
     AudioState audio_ {};
+    PvideoPresenter presenter_;  ///< Main-thread GPU presentation resources.
+    VideoOverlay statisticsOverlay_;  ///< Shared cached panel for all presentation paths.
+    VideoStatistics statistics_;  ///< Cumulative decode and presentation telemetry.
+    SDL_Texture *statisticsTexture_ = nullptr;  ///< Cached panel texture for SDL's final fallback.
+    bool statisticsBitmapChanged_ = false;  ///< A panel update requires refreshing a paused video frame.
+    bool statisticsTextureChanged_ = false;  ///< SDL texture requires the current bitmap.
+    VideoAccelerationReport acceleration_;  ///< Session diagnostics survive decoder cleanup.
+    bool overlayFailed_ = false;  ///< Avoid repeating a known failing hardware path this session.
     std::atomic<bool> audioPlaybackEnabled_ = false;
   };
 
