@@ -107,7 +107,8 @@ target_compile_definitions(${CMAKE_PROJECT_NAME}
         NXDK
         TOML_EXCEPTIONS=0
         TOML_ENABLE_WINDOWS_COMPAT=0)
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE MOONLIGHT_ENABLE_GPU_PRESENTATION=$<BOOL:${MOONLIGHT_ENABLE_GPU_PRESENTATION}>)
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+        MOONLIGHT_ENABLE_GPU_PRESENTATION=$<BOOL:${MOONLIGHT_ENABLE_GPU_PRESENTATION}>)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
         MOONLIGHT_INPUT_DIAGNOSTICS=$<BOOL:${MOONLIGHT_INPUT_DIAGNOSTICS}>)
 add_dependencies(${CMAKE_PROJECT_NAME} moonlight-common-c)
@@ -150,13 +151,15 @@ if(MOONLIGHT_BUILD_VIDEO_EXPERIMENTS)
     target_compile_definitions(pvideo_presentation_probe PRIVATE NXDK XBOX)
     target_compile_options(pvideo_presentation_probe PRIVATE -std=gnu++17)
     target_link_libraries(pvideo_presentation_probe PRIVATE NXDK::NXDK NXDK::NXDK_CXX)
-    set(pvideo_probe_xbe_dir "${CMAKE_CURRENT_BINARY_DIR}/pvideo-presentation-probe")
-    file(MAKE_DIRECTORY "${pvideo_probe_xbe_dir}")
+    set(_pvideo_probe_xbe_dir "${CMAKE_CURRENT_BINARY_DIR}/pvideo-presentation-probe")
+    file(MAKE_DIRECTORY "${_pvideo_probe_xbe_dir}")
     add_custom_target(pvideo_presentation_probe_iso ALL
             COMMAND "${NXDK_DIR}/tools/cxbe/cxbe"
-                "-OUT:${pvideo_probe_xbe_dir}/default.xbe" "-TITLE:PVIDEO presentation probe" "$<TARGET_FILE:pvideo_presentation_probe>"
+                "-OUT:${_pvideo_probe_xbe_dir}/default.xbe"
+                "-TITLE:PVIDEO presentation probe"
+                "$<TARGET_FILE:pvideo_presentation_probe>"
             COMMAND "${NXDK_DIR}/tools/extract-xiso/build/extract-xiso"
-                -c "${pvideo_probe_xbe_dir}" "PvideoPresentationProbe.iso"
+                -c "${_pvideo_probe_xbe_dir}" "PvideoPresentationProbe.iso"
             DEPENDS pvideo_presentation_probe
             WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
             COMMENT "Package the isolated overlay presentation and teardown probe"
@@ -172,13 +175,15 @@ if(MOONLIGHT_BUILD_VIDEO_EXPERIMENTS)
     target_compile_definitions(mpeg2_motion_probe PRIVATE NXDK XBOX)
     target_compile_options(mpeg2_motion_probe PRIVATE -std=gnu++17)
     target_link_libraries(mpeg2_motion_probe PRIVATE NXDK::NXDK NXDK::NXDK_CXX)
-    set(probe_xbe_dir "${CMAKE_CURRENT_BINARY_DIR}/mpeg2-motion-probe")
-    file(MAKE_DIRECTORY "${probe_xbe_dir}")
+    set(_mpeg2_probe_xbe_dir "${CMAKE_CURRENT_BINARY_DIR}/mpeg2-motion-probe")
+    file(MAKE_DIRECTORY "${_mpeg2_probe_xbe_dir}")
     add_custom_target(mpeg2_motion_probe_iso ALL
             COMMAND "${NXDK_DIR}/tools/cxbe/cxbe"
-                "-OUT:${probe_xbe_dir}/default.xbe" "-TITLE:MPEG-2 motion probe" "$<TARGET_FILE:mpeg2_motion_probe>"
+                "-OUT:${_mpeg2_probe_xbe_dir}/default.xbe"
+                "-TITLE:MPEG-2 motion probe"
+                "$<TARGET_FILE:mpeg2_motion_probe>"
             COMMAND "${NXDK_DIR}/tools/extract-xiso/build/extract-xiso"
-                -c "${probe_xbe_dir}" "Mpeg2MotionProbe.iso"
+                -c "${_mpeg2_probe_xbe_dir}" "Mpeg2MotionProbe.iso"
             DEPENDS mpeg2_motion_probe
             WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
             COMMENT "Package the isolated MPEG-2 motion prediction experiment"
