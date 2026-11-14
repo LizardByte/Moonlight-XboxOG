@@ -22,6 +22,17 @@
 ![Apps Screen](./docs/images/screenshots/03-apps.png)
 
 
+## Video codec selection
+
+The streaming menu's **Video Codec** setting offers Auto, H.264, MPEG-2, and H.263+.
+Auto prefers H.264, then MPEG-2, then H.263+, using only codecs advertised by the host.
+An explicit choice requests only that codec and fails negotiation when it is unavailable.
+Sunshine must enable `mpeg2_mode = 2` or `h263p_mode = 2` to advertise the corresponding legacy codec.
+These Sunshine protocol extensions are available to any client implementing their negotiation and decoding.
+
+The preference is saved as `streaming.video_codec` in the settings file. Existing
+`streaming.video_decoder` preferences are read for compatibility; `video_codec` takes precedence when both exist.
+
 ## Streaming controls and statistics
 
 To quit a stream, press **Back/Select + Black + White (LB + RB)** together on any connected controller.

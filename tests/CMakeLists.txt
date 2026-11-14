@@ -80,6 +80,9 @@ target_link_options(${PROJECT_NAME}
 
 add_dependencies(${PROJECT_NAME} gtest gtest_main gmock gmock_main moonlight-common-c)
 
+target_sources(${PROJECT_NAME} PRIVATE
+        "${CMAKE_SOURCE_DIR}/third-party/moonlight-common-c/src/VideoFormats.c")
+
 include(GoogleTest)
 set(TEST_RUNTIME_PROPERTIES)
 if(WIN32 OR MINGW OR CMAKE_HOST_WIN32)

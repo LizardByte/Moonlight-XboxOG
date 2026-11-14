@@ -58,6 +58,14 @@ namespace {
   constexpr Uint32 STREAM_VIDEO_DECODE_YIELD_MILLISECONDS = 1U;
 
   /**
+   * @brief FFmpeg codec metadata selected from one negotiated Moonlight format.
+   */
+  struct VideoCodecSelection {
+    AVCodecID codecId = AV_CODEC_ID_NONE;  ///< FFmpeg codec identifier.
+    const char *displayName = "video";  ///< Human-readable codec name for logs.
+  };
+
+  /**
    * @brief Return the backend currently receiving video callbacks.
    *
    * @return Mutable callback backend slot.
@@ -178,6 +186,37 @@ namespace {
       av_log_set_level(AV_LOG_ERROR);
       av_log_set_callback(ffmpeg_log_callback);
     });
+  }
+
+  /**
+   * @brief Resolve the FFmpeg decoder to use for one negotiated video format.
+   *
+   * @param videoFormat Moonlight negotiated video format mask.
+   * @param selection Output codec selection populated on success.
+   * @return True when the video format is supported by this backend.
+   */
+  bool select_video_codec(int videoFormat, VideoCodecSelection *selection) {
+    if (selection == nullptr) {
+      return false;
+    }
+
+    if ((videoFormat & VIDEO_FORMAT_MASK_MPEG2) != 0) {
+      selection->codecId = AV_CODEC_ID_MPEG2VIDEO;
+      selection->displayName = "MPEG-2/H.262";
+      return true;
+    }
+    if ((videoFormat & VIDEO_FORMAT_H263P) != 0) {
+      selection->codecId = AV_CODEC_ID_H263P;
+      selection->displayName = "H.263+";
+      return true;
+    }
+    if ((videoFormat & VIDEO_FORMAT_MASK_H264) != 0) {
+      selection->codecId = AV_CODEC_ID_H264;
+      selection->displayName = "H.264";
+      return true;
+    }
+
+    return false;
   }
 
   /**
@@ -632,18 +671,19 @@ namespace streaming {
     acceleration_.cpuFeatures = (cpuFlags & AV_CPU_FLAG_SSE) != 0 ? "MMX/SSE" : ((cpuFlags & AV_CPU_FLAG_MMX) != 0 ? "MMX" : "Scalar");
     acceleration_.threaded = std::string(avcodec_configuration()).find("--enable-w32threads") != std::string::npos;
 
-    if ((videoFormat & VIDEO_FORMAT_MASK_H264) == 0) {
-      logging::error("stream", "The FFmpeg backend currently supports only H.264 video streams");
+    VideoCodecSelection codecSelection;
+    if (!select_video_codec(videoFormat, &codecSelection)) {
+      logging::error("stream", "The FFmpeg backend supports H.264, MPEG-2/H.262, and H.263+ video streams");
       return -1;
     }
 
-    const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodec *codec = avcodec_find_decoder(codecSelection.codecId);
     if (codec == nullptr) {
-      logging::error("stream", "FFmpeg did not provide an H.264 decoder");
+      logging::error("stream", std::string("FFmpeg did not provide a ") + codecSelection.displayName + " decoder");
       return -1;
     }
 
-    video_.codecName = "H.264";
+    video_.codecName = codecSelection.displayName;
     video_.codecContext = avcodec_alloc_context3(codec);
     video_.decodedFrame = av_frame_alloc();
     video_.convertedFrame = av_frame_alloc();

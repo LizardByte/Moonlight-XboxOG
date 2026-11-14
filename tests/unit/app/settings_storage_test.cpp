@@ -42,6 +42,18 @@ namespace {
     }
   };
 
+  /**
+   * @brief The canonical codec key takes precedence over the development-era decoder key.
+   */
+  TEST_F(SettingsStorageTest, LoadsCanonicalAndLegacyCodecKeysWithoutLosingPreferences) {
+    write_text_file(settingsPath, "[streaming]\nvideo_decoder = \"mpeg2\"\n");
+    EXPECT_EQ(app::load_app_settings(settingsPath).settings.videoCodec, app::VideoCodecSelection::mpeg2);
+    write_text_file(settingsPath, "[streaming]\nvideo_codec = \"h263p\"\nvideo_decoder = \"h264\"\n");
+    const auto loaded = app::load_app_settings(settingsPath);
+    EXPECT_EQ(loaded.settings.videoCodec, app::VideoCodecSelection::h263p);
+    EXPECT_TRUE(loaded.warnings.empty());
+  }
+
   TEST_F(SettingsStorageTest, SavesAndLoadsTomlSettings) {
     const app::AppSettings savedSettings {
       logging::LogLevel::debug,
@@ -51,6 +63,7 @@ namespace {
       true,
       24,
       2500,
+      app::VideoCodecSelection::mpeg2,
       true,
       true,
       true,
@@ -71,6 +84,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 24);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 2500);
+    EXPECT_EQ(loadResult.settings.videoCodec, app::VideoCodecSelection::mpeg2);
     EXPECT_TRUE(loadResult.settings.playAudioOnPc);
     EXPECT_TRUE(loadResult.settings.showPerformanceStats);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
@@ -86,6 +100,7 @@ namespace {
       true,
       15,
       500,
+      app::VideoCodecSelection::h264,
       false,
       false,
       false,
@@ -104,6 +119,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.preferredVideoMode.refresh, 60);
     EXPECT_EQ(loadResult.settings.streamFramerate, 15);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 500);
+    EXPECT_EQ(loadResult.settings.videoCodec, app::VideoCodecSelection::h264);
     EXPECT_FALSE(loadResult.settings.playAudioOnXbox);
   }
 
@@ -119,6 +135,7 @@ namespace {
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
     EXPECT_EQ(loadResult.settings.streamBitrateKbps, 1000);
+    EXPECT_EQ(loadResult.settings.videoCodec, app::VideoCodecSelection::autoDetect);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_FALSE(loadResult.settings.showPerformanceStats);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
@@ -137,6 +154,7 @@ namespace {
       "[streaming]\n"
       "video_width = \"wide\"\n"
       "fps = \"fast\"\n"
+      "video_decoder = \"vp9\"\n"
       "play_audio_on_pc = \"sometimes\"\n"
       "play_audio_on_xbox = \"sometimes\"\n"
     );
@@ -150,6 +168,7 @@ namespace {
     EXPECT_EQ(loadResult.settings.logViewerPlacement, app::LogViewerPlacement::full);
     EXPECT_FALSE(loadResult.settings.preferredVideoModeSet);
     EXPECT_EQ(loadResult.settings.streamFramerate, 30);
+    EXPECT_EQ(loadResult.settings.videoCodec, app::VideoCodecSelection::autoDetect);
     EXPECT_FALSE(loadResult.settings.playAudioOnPc);
     EXPECT_TRUE(loadResult.settings.playAudioOnXbox);
   }
