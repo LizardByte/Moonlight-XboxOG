@@ -66,6 +66,16 @@ namespace app {
   };
 
   /**
+   * @brief Video codec preference applied to new streaming sessions.
+   */
+  enum class VideoCodecSelection {
+    autoDetect,  ///< Negotiate supported codecs using the shared modern-first preference order.
+    h264,  ///< Request only H.264 video.
+    mpeg2,  ///< Request only MPEG-2/H.262 video.
+    h263p,  ///< Request only H.263+ video.
+  };
+
+  /**
    * @brief Focus areas used by the two-pane settings screen.
    */
   enum class SettingsFocusArea {
@@ -321,6 +331,7 @@ namespace app {
     bool preferredVideoModeSet = false;  ///< True when preferredVideoMode contains a user-selected or default mode.
     int streamFramerate = 30;  ///< Preferred stream frame rate in frames per second.
     int streamBitrateKbps = 1000;  ///< Preferred stream bitrate in kilobits per second.
+    VideoCodecSelection videoCodec = VideoCodecSelection::autoDetect;  ///< Preferred video codec for new streams.
     bool playAudioOnPc = false;  ///< True when the host PC should continue local audio playback during streaming.
     bool showPerformanceStats = false;  ///< Display live performance telemetry and include it in the stream summary.
     bool playAudioOnXbox = true;  ///< True when the Xbox should decode and play streamed audio locally.

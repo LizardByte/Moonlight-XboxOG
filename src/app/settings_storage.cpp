@@ -127,6 +127,27 @@ namespace {
     return "full";
   }
 
+  /**
+   * @brief Convert a codec preference to the persisted TOML token.
+   *
+   * @param selection Codec preference to serialize.
+   * @return Stable lowercase settings value.
+   */
+  const char *video_codec_selection_text(app::VideoCodecSelection selection) {
+    switch (selection) {
+      case app::VideoCodecSelection::autoDetect:
+        return "auto";
+      case app::VideoCodecSelection::h264:
+        return "h264";
+      case app::VideoCodecSelection::mpeg2:
+        return "mpeg2";
+      case app::VideoCodecSelection::h263p:
+        return "h263p";
+    }
+
+    return "auto";
+  }
+
   bool try_parse_logging_level(std::string_view text, logging::LogLevel *level) {
     const std::string normalized = ascii_lowercase(text);
     if (normalized == "trace") {
@@ -186,6 +207,43 @@ namespace {
     if (normalized == "right") {
       if (placement != nullptr) {
         *placement = app::LogViewerPlacement::right;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * @brief Parse a codec preference from the persisted TOML token.
+   *
+   * @param text Settings value to parse.
+   * @param selection Receives the parsed codec preference on success.
+   * @return True when @p text is a supported codec preference.
+   */
+  bool try_parse_video_codec_selection(std::string_view text, app::VideoCodecSelection *selection) {
+    const std::string normalized = ascii_lowercase(text);
+    if (normalized == "auto") {
+      if (selection != nullptr) {
+        *selection = app::VideoCodecSelection::autoDetect;
+      }
+      return true;
+    }
+    if (normalized == "h264" || normalized == "h.264") {
+      if (selection != nullptr) {
+        *selection = app::VideoCodecSelection::h264;
+      }
+      return true;
+    }
+    if (normalized == "mpeg2" || normalized == "mpeg-2" || normalized == "h262" || normalized == "h.262") {
+      if (selection != nullptr) {
+        *selection = app::VideoCodecSelection::mpeg2;
+      }
+      return true;
+    }
+    if (normalized == "h263p" || normalized == "h.263p" || normalized == "h263+" || normalized == "h.263+") {
+      if (selection != nullptr) {
+        *selection = app::VideoCodecSelection::h263p;
       }
       return true;
     }
@@ -261,6 +319,36 @@ namespace {
     }
 
     append_invalid_value_warning(warnings, filePath, "ui.log_viewer_placement", "<non-string>");
+  }
+
+  /**
+   * @brief Load one codec preference setting when present.
+   *
+   * @param settingNode TOML node to parse.
+   * @param filePath Settings file path used in warnings.
+   * @param keyPath Canonical or legacy setting key reported in validation warnings.
+   * @param selection Receives the parsed codec preference on success.
+   * @param warnings Warning collection updated for invalid values.
+   */
+  void load_video_codec_selection_setting(
+    toml::node_view<const toml::node> settingNode,
+    const std::string &filePath,
+    std::string_view keyPath,
+    app::VideoCodecSelection *selection,
+    std::vector<std::string> *warnings
+  ) {
+    if (!settingNode) {
+      return;
+    }
+
+    if (const auto videoCodecText = settingNode.value<std::string>(); videoCodecText) {
+      if (!try_parse_video_codec_selection(*videoCodecText, selection)) {
+        append_invalid_value_warning(warnings, filePath, keyPath, *videoCodecText);
+      }
+      return;
+    }
+
+    append_invalid_value_warning(warnings, filePath, keyPath, "<non-string>");
   }
 
   /**
@@ -346,6 +434,8 @@ namespace {
     content += "# Preferred streaming parameters.\n";
     content += std::string("fps = ") + std::to_string(settings.streamFramerate) + "\n";
     content += std::string("bitrate_kbps = ") + std::to_string(settings.streamBitrateKbps) + "\n";
+    content += "# Video codec preference. Use auto to keep normal host negotiation.\n";
+    content += std::string("video_codec = \"") + video_codec_selection_text(settings.videoCodec) + "\"\n";
     content += std::string("play_audio_on_pc = ") + (settings.playAudioOnPc ? "true" : "false") + "\n";
     content += std::string("play_audio_on_xbox = ") + (settings.playAudioOnXbox ? "true" : "false") + "\n";
     content += "# Show stream telemetry after streaming ends.\n";
@@ -392,7 +482,7 @@ namespace {
   void inspect_streaming_keys(const toml::table &streamingTable, const std::string &filePath, app::LoadAppSettingsResult *result) {
     for (const auto &[rawKey, node] : streamingTable) {
       const std::string key(rawKey.str());
-      if (key == "video_width" || key == "video_height" || key == "video_bpp" || key == "video_refresh" || key == "video_mode_selected" || key == "fps" || key == "bitrate_kbps" || key == "play_audio_on_pc" || key == "play_audio_on_xbox" || key == "show_performance_stats") {
+      if (key == "video_width" || key == "video_height" || key == "video_bpp" || key == "video_refresh" || key == "video_mode_selected" || key == "fps" || key == "bitrate_kbps" || key == "video_codec" || key == "video_decoder" || key == "play_audio_on_pc" || key == "play_audio_on_xbox" || key == "show_performance_stats") {
         continue;
       }
 
@@ -490,6 +580,12 @@ namespace app {
     load_boolean_setting(settingsTable["streaming"]["video_mode_selected"], filePath, "streaming.video_mode_selected", &result.settings.preferredVideoModeSet, &result.warnings);
     load_integer_setting(settingsTable["streaming"]["fps"], filePath, "streaming.fps", &result.settings.streamFramerate, &result.warnings);
     load_integer_setting(settingsTable["streaming"]["bitrate_kbps"], filePath, "streaming.bitrate_kbps", &result.settings.streamBitrateKbps, &result.warnings);
+    const auto codecNode = settingsTable["streaming"]["video_codec"];
+    if (codecNode) {
+      load_video_codec_selection_setting(codecNode, filePath, "streaming.video_codec", &result.settings.videoCodec, &result.warnings);
+    } else {
+      load_video_codec_selection_setting(settingsTable["streaming"]["video_decoder"], filePath, "streaming.video_decoder", &result.settings.videoCodec, &result.warnings);
+    }
     load_boolean_setting(settingsTable["streaming"]["play_audio_on_pc"], filePath, "streaming.play_audio_on_pc", &result.settings.playAudioOnPc, &result.warnings);
     load_boolean_setting(settingsTable["streaming"]["play_audio_on_xbox"], filePath, "streaming.play_audio_on_xbox", &result.settings.playAudioOnXbox, &result.warnings);
     load_boolean_setting(settingsTable["streaming"]["show_performance_stats"], filePath, "streaming.show_performance_stats", &result.settings.showPerformanceStats, &result.warnings);
